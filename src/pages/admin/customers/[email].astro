@@ -1,0 +1,62 @@
+---
+import { env } from 'cloudflare:workers';
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { formatPrice, formatDate, getConfig } from '../../../config';
+import { getCustomerOrders } from '../../../features/customers/db';
+import { orderNumber } from '../../../features/orders/number';
+
+const email = Astro.params.email ? decodeURIComponent(Astro.params.email) : '';
+const orders = email ? await getCustomerOrders(env.DB, email) : [];
+
+// Unknown email (no orders) → 404, so the page can't be used to probe addresses.
+if (orders.length === 0) {
+  return new Response('Not found', { status: 404 });
+}
+
+const onCfg = getConfig().orderNumber;
+const timeZone = Astro.locals.settings?.timeZone ?? getConfig().timeZone;
+const lifetime = orders.reduce((sum, o) => sum + o.amount_total_cents, 0);
+---
+
+<AdminLayout title={email} active="customers">
+  <a
+    href="/admin/customers"
+    class="text-xs uppercase tracking-widest text-gray-400 hover:text-brand"
+  >
+    &larr; Back to customers
+  </a>
+  <h1 class="mt-4 mb-2 font-serif text-3xl tracking-tight break-all">{email}</h1>
+  <p class="mb-8 text-sm text-gray-500">
+    {orders.length} order{orders.length === 1 ? '' : 's'} · {formatPrice(lifetime)} lifetime
+  </p>
+
+  <table class="admin-table w-full text-left text-sm">
+    <thead>
+      <tr class="border-b border-line text-xs uppercase tracking-widest text-gray-400">
+        <th class="py-3 pr-4 font-normal">Order</th>
+        <th class="py-3 pr-4 font-normal">Total</th>
+        <th class="py-3 pr-4 font-normal">Status</th>
+        <th class="py-3 font-normal">When</th>
+      </tr>
+    </thead>
+    <tbody>
+      {
+        orders.map((o) => (
+          <tr class="border-b border-line">
+            <td class="py-3 pr-4">
+              <a
+                href={`/admin/orders/${o.id}`}
+                class="text-accent tabular-nums hover:underline"
+              >
+                #{orderNumber(o.id, onCfg)}
+              </a>
+            </td>
+            <td data-label="Total" class="py-3 pr-4 tabular-nums">{formatPrice(o.amount_total_cents, o.currency)}</td>
+            <td data-label="Status" class="py-3 pr-4">{o.status}</td>
+            <td data-label="When" class="py-3 text-gray-500">{formatDate(o.created_at, undefined, timeZone)}</td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</AdminLayout>

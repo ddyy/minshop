@@ -1,0 +1,34 @@
+---
+import { formatPrice } from '../config';
+import ProductImage from '../features/products/ProductImage.astro';
+import type { Product } from '../features/products/db';
+
+interface Props {
+  product: Product;
+  /** Stagger index for the page-load reveal (capped at 8 steps). */
+  index?: number;
+}
+
+const { product: p, index = 0 } = Astro.props;
+---
+
+<li class="reveal group" style={`animation-delay:${Math.min(index, 8) * 60}ms`}>
+  <a href={`/product/${p.slug}`} class="block">
+    <div class="relative overflow-hidden rounded-md bg-white">
+      <ProductImage
+        imageKey={p.image_key}
+        alt={p.name}
+        class={`aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]${p.stock <= 0 ? ' opacity-60' : ''}`}
+      />
+      {
+        0 >= p.stock && (
+          <span class="absolute left-3 top-3 rounded-full bg-white/90 px-2.5 py-0.5 text-xs uppercase tracking-widest text-gray-700 ring-1 ring-line">
+            Sold out
+          </span>
+        )
+      }
+    </div>
+    <h2 class="mt-4 text-sm font-medium tracking-tight">{p.name}</h2>
+    <p class="mt-1 text-sm tabular-nums text-gray-500">{formatPrice(p.price_cents)}</p>
+  </a>
+</li>

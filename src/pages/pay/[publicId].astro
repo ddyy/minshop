@@ -1,0 +1,49 @@
+---
+export const prerender = false;
+import { env } from 'cloudflare:workers';
+import Layout from '../../layouts/Layout.astro';
+import { getConfig } from '../../config';
+import { getPendingByPublicId } from '../../features/payments/lightning/pending';
+import DemoCheckout from '../../features/payments/checkout/DemoCheckout.astro';
+import LightningPay from '../../features/payments/checkout/LightningPay.astro';
+import {
+  settleDemoCheckout,
+  settleLightningOnLoad,
+} from '../../features/payments/checkout/settle';
+
+// Single "complete your payment" entry point for the self-rendered rails. The
+// publicId is the only parameter — the method is read from the stored pending
+// payment (its `backend`), so there's one URL and one source of truth. Hosted
+// providers (Stripe/OpenNode) never reach here; they hand off to their own pages.
+const { publicId } = Astro.params;
+const pending = publicId ? await getPendingByPublicId(env.DB, publicId) : null;
+if (!pending) return new Response('Not found', { status: 404 });
+if (pending.status === 'settled') return Astro.redirect(`/order/${pending.public_id}`, 303);
+
+const isDemo = pending.backend === 'demo';
+const isLightning = pending.backend === 'lnbits' || pending.backend === 'phoenixd';
+// An unexpected backend landing here → just show the order page.
+if (!isDemo && !isLightning) return Astro.redirect(`/order/${pending.public_id}`, 303);
+
+let declined: string | null = null;
+if (isDemo && Astro.request.method === 'POST') {
+  const result = await settleDemoCheckout(pending, await Astro.request.formData(), Astro.url.origin);
+  if (result.redirect) return Astro.redirect(result.redirect, 303);
+  declined = result.declined ?? null;
+}
+
+if (isLightning && (await settleLightningOnLoad(pending))) {
+  return Astro.redirect(`/order/${pending.public_id}`, 303);
+}
+
+const { storeName } = getConfig();
+const title = isDemo ? 'Demo checkout' : 'Pay with Lightning';
+const description = isDemo
+  ? `Simulated checkout for ${storeName}.`
+  : `Pay ${storeName} with Bitcoin Lightning.`;
+---
+
+<Layout title={title} description={description}>
+  {isDemo && <DemoCheckout pending={pending} declined={declined} />}
+  {isLightning && <LightningPay pending={pending} />}
+</Layout>

@@ -1,0 +1,53 @@
+---
+import { env } from 'cloudflare:workers';
+import Layout from '../layouts/Layout.astro';
+import { listProducts, countProducts } from '../features/products/db';
+import ProductCard from '../components/ProductCard.astro';
+import { listCategories, childrenOf } from '../features/categories/db';
+import { orderByClause } from '../features/products/sort';
+import { paginate, queryHref } from '../pagination';
+import Pagination from '../components/Pagination.astro';
+import SortLinks from '../components/SortLinks.astro';
+
+const sort = Astro.url.searchParams.get('sort');
+const dir = Astro.url.searchParams.get('dir');
+const order = orderByClause(sort, dir);
+
+const PAGE_SIZE = 24;
+const { page, offset, totalPages } = paginate(Astro.url.searchParams, await countProducts(env.DB), PAGE_SIZE);
+const products = await listProducts(env.DB, PAGE_SIZE, offset, order);
+const topCategories = childrenOf(await listCategories(env.DB), null);
+const hrefFor = (p: number) => queryHref('/', { sort, dir, page: p > 1 ? p : undefined });
+---
+
+<Layout>
+  <div class="mb-10">
+    <p class="text-xs uppercase tracking-[0.25em] text-gray-500">Shop</p>
+    <h1 class="mt-2 font-serif text-4xl tracking-tight sm:text-5xl">All products</h1>
+  </div>
+
+  {
+    topCategories.length > 0 && (
+      <div class="mb-12 flex flex-wrap gap-x-6 gap-y-2 text-xs uppercase tracking-widest text-gray-500">
+        {topCategories.map((c) => (
+          <a
+            href={`/category/${c.slug}`}
+            class="border-b border-transparent pb-0.5 hover:border-brand hover:text-brand"
+          >
+            {c.name}
+          </a>
+        ))}
+      </div>
+    )
+  }
+
+  <SortLinks base="/" sort={sort} dir={dir} />
+
+  {products.length === 0 && <p class="text-gray-500">No products yet.</p>}
+
+  <ul class="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-3">
+    {products.map((p, i) => <ProductCard product={p} index={i} />)}
+  </ul>
+
+  <Pagination page={page} totalPages={totalPages} hrefFor={hrefFor} />
+</Layout>

@@ -1,0 +1,111 @@
+---
+import { env } from 'cloudflare:workers';
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { formatPrice, formatDate, getConfig } from '../../../config';
+import { listOrders } from '../../../features/orders/db';
+import { orderByClause } from '../../../features/orders/sort';
+import { orderNumber } from '../../../features/orders/number';
+import { queryHref } from '../../../pagination';
+
+const sort = Astro.url.searchParams.get('sort');
+const dir = Astro.url.searchParams.get('dir');
+const orders = await listOrders(env.DB, 50, orderByClause(sort, dir));
+const onCfg = getConfig().orderNumber;
+const timeZone = Astro.locals.settings?.timeZone ?? getConfig().timeZone;
+
+// Column header → sort by it, toggling direction (default desc on a new column).
+const sortHref = (col: string) =>
+  queryHref('/admin/orders', { sort: col, dir: sort === col && dir === 'desc' ? 'asc' : 'desc' });
+const arrow = (col: string) => (sort === col ? (dir === 'asc' ? ' ↑' : ' ↓') : '');
+---
+
+<AdminLayout title="Orders" active="orders">
+  <div class="mb-8 flex items-center justify-between">
+    <h1 class="font-serif text-3xl tracking-tight">Orders</h1>
+    <a
+      href="/admin/orders/export.csv"
+      class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand hover:text-brand"
+    >
+      Export CSV
+    </a>
+  </div>
+
+  <div class="sm:overflow-x-auto">
+    <table class="admin-table w-full text-left text-sm sm:min-w-[52rem]">
+    <thead>
+      <tr class="border-b border-line text-xs uppercase tracking-widest text-gray-400">
+        <th class="py-3 pr-4 font-normal">
+          <a href={sortHref('order')} class="hover:text-brand">Order{arrow('order')}</a>
+        </th>
+        <th class="py-3 pr-4 font-normal">
+          <a href={sortHref('email')} class="hover:text-brand">Email{arrow('email')}</a>
+        </th>
+        <th class="py-3 pr-4 font-normal">
+          <a href={sortHref('total')} class="hover:text-brand">Total{arrow('total')}</a>
+        </th>
+        <th class="py-3 pr-4 font-normal">
+          <a href={sortHref('status')} class="hover:text-brand">Status{arrow('status')}</a>
+        </th>
+        <th class="py-3 pr-4 font-normal">
+          <a href={sortHref('fulfillment')} class="hover:text-brand">Fulfillment{arrow('fulfillment')}</a>
+        </th>
+        <th class="py-3 font-normal">
+          <a href={sortHref('when')} class="hover:text-brand">When{arrow('when')}</a>
+        </th>
+      </tr>
+    </thead>
+    <tbody>
+      {
+        orders.map((o) => (
+          <tr class="border-b border-line">
+            <td class="py-3 pr-4">
+              <a href={`/admin/orders/${o.id}`} class="text-accent tabular-nums hover:underline">
+                #{orderNumber(o.id, onCfg)}
+              </a>
+            </td>
+            <td data-label="Email" class="py-3 pr-4">
+              {o.email ? (
+                <a
+                  href={`/admin/customers/${encodeURIComponent(o.email)}`}
+                  class="text-accent hover:underline"
+                >
+                  {o.email}
+                </a>
+              ) : (
+                '—'
+              )}
+            </td>
+            <td data-label="Total" class="py-3 pr-4 tabular-nums">{formatPrice(o.amount_total_cents, o.currency)}</td>
+            <td data-label="Status" class="py-3 pr-4">
+              <span class="rounded-full bg-white px-2 py-0.5 text-xs uppercase tracking-wide text-gray-500 ring-1 ring-line">
+                {o.status}
+              </span>
+            </td>
+            <td data-label="Fulfillment" class="py-3 pr-4">
+              <span
+                class={`rounded-full px-2 py-0.5 text-xs uppercase tracking-wide ring-1 ${
+                  o.fulfillment_status === 'fulfilled'
+                    ? 'bg-green-50 text-green-700 ring-green-200'
+                    : 'bg-white text-gray-500 ring-line'
+                }`}
+              >
+                {o.fulfillment_status === 'fulfilled' ? 'Fulfilled' : 'Unfulfilled'}
+              </span>
+            </td>
+            <td data-label="When" class="py-3 text-gray-500">{formatDate(o.created_at, undefined, timeZone)}</td>
+          </tr>
+        ))
+      }
+      {
+        orders.length === 0 && (
+          <tr>
+            <td colspan="6" class="py-8 text-center text-gray-400">
+              No orders yet.
+            </td>
+          </tr>
+        )
+      }
+    </tbody>
+    </table>
+  </div>
+</AdminLayout>

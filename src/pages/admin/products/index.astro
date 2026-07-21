@@ -1,0 +1,129 @@
+---
+import { env } from 'cloudflare:workers';
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { formatPrice } from '../../../config';
+import { listAllProducts, countAllProducts } from '../../../features/products/db';
+import ProductImage from '../../../features/products/ProductImage.astro';
+import { orderByClause } from '../../../features/products/sort';
+import { paginate, queryHref } from '../../../pagination';
+import Pagination from '../../../components/Pagination.astro';
+
+// Auth: /admin + /api/admin are gated by src/middleware.ts. The admin password is
+// set in the first-run setup wizard (hashed in D1); Cloudflare Access at the edge
+// is the recommended production layer — see README → Admin auth.
+
+const sort = Astro.url.searchParams.get('sort');
+const dir = Astro.url.searchParams.get('dir');
+const order = orderByClause(sort, dir);
+
+const PAGE_SIZE = 30;
+const { page, offset, totalPages } = paginate(
+  Astro.url.searchParams,
+  await countAllProducts(env.DB),
+  PAGE_SIZE,
+);
+const products = await listAllProducts(env.DB, PAGE_SIZE, offset, order);
+const hrefFor = (p: number) =>
+  queryHref('/admin/products', { sort, dir, page: p > 1 ? p : undefined });
+
+// Column header → sort by it, toggling direction (default asc on a new column).
+const sortHref = (col: string) =>
+  queryHref('/admin/products', { sort: col, dir: sort === col && dir === 'asc' ? 'desc' : 'asc' });
+const arrow = (col: string) => (sort === col ? (dir === 'asc' ? ' ↑' : ' ↓') : '');
+---
+
+<AdminLayout title="Products" active="products">
+  <div class="mb-8 flex items-center justify-between">
+    <h1 class="font-serif text-3xl tracking-tight">Products</h1>
+    <a
+      href="/admin/products/new"
+      class="rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover"
+    >
+      New product
+    </a>
+  </div>
+
+  <div class="sm:overflow-x-auto">
+    <table class="admin-table w-full text-left text-sm sm:min-w-[42rem]">
+    <thead>
+      <tr class="border-b border-line text-xs uppercase tracking-widest text-gray-400">
+        <th class="py-3 pr-4 font-normal">
+          <a href={sortHref('name')} class="hover:text-brand">Product{arrow('name')}</a>
+        </th>
+        <th class="py-3 pr-4 font-normal">
+          <a href={sortHref('price')} class="hover:text-brand">Price{arrow('price')}</a>
+        </th>
+        <th class="py-3 pr-4 font-normal">
+          <a href={sortHref('stock')} class="hover:text-brand">Stock{arrow('stock')}</a>
+        </th>
+        <th class="py-3 pr-4 font-normal">
+          <a href={sortHref('sold')} class="hover:text-brand">Sold{arrow('sold')}</a>
+        </th>
+        <th class="py-3 pr-4 font-normal">
+          <a href={sortHref('active')} class="hover:text-brand">Active{arrow('active')}</a>
+        </th>
+        <th class="py-3 text-right font-normal">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {
+        products.map((p) => (
+          <tr class="border-b border-line">
+            <td class="py-3 pr-4">
+              <a
+                href={`/admin/products/${p.id}/edit`}
+                class="flex items-center gap-3 hover:text-brand"
+              >
+                <ProductImage imageKey={p.image_key} alt="" class="h-10 w-10 rounded object-cover" />
+                <span class="font-medium">{p.name}</span>
+              </a>
+            </td>
+            <td data-label="Price" class="py-3 pr-4 tabular-nums">{formatPrice(p.price_cents)}</td>
+            <td data-label="Stock" class="py-3 pr-4 tabular-nums">{p.stock}</td>
+            <td data-label="Sold" class="py-3 pr-4 tabular-nums">
+              {p.sold > 0 ? p.sold : <span class="text-gray-300">0</span>}
+            </td>
+            <td data-label="Active" class="py-3 pr-4">{p.active ? 'Yes' : <span class="text-gray-400">No</span>}</td>
+            <td data-label="" class="py-3 text-right">
+              <div class="flex justify-end gap-4 text-xs uppercase tracking-widest">
+                <a
+                  href={`/product/${p.slug}`}
+                  target="_blank"
+                  rel="noopener"
+                  class="text-gray-500 hover:text-brand"
+                >
+                  View ↗
+                </a>
+                <a href={`/admin/products/${p.id}/edit`} class="text-accent hover:underline">
+                  Edit
+                </a>
+                <form
+                  method="POST"
+                  action={`/api/admin/products/${p.id}`}
+                  onsubmit="return confirm('Delete this product?')"
+                >
+                  <input type="hidden" name="_action" value="delete" />
+                  <button type="submit" class="text-red-600 hover:underline">
+                    Delete
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        ))
+      }
+      {
+        products.length === 0 && (
+          <tr>
+            <td colspan="6" class="py-8 text-center text-gray-400">
+              No products yet.
+            </td>
+          </tr>
+        )
+      }
+    </tbody>
+    </table>
+  </div>
+
+  <Pagination page={page} totalPages={totalPages} hrefFor={hrefFor} />
+</AdminLayout>

@@ -1,0 +1,323 @@
+---
+export const prerender = false;
+import { env } from 'cloudflare:workers';
+import Layout from '../layouts/Layout.astro';
+import { getConfig, formatPrice } from '../config';
+import { readCart, resolveCart } from '../features/cart/cart';
+import { getProduct, type Product } from '../features/products/db';
+import { listVariants, getExtrasByIds } from '../features/products/variants';
+import { lineUnitPriceCents } from '../features/cart/key';
+import { computeShipping, allowedCountries } from '../features/shipping/calculator';
+import { getLightningBackend } from '../features/payments/lightning';
+import { mintLightningOrder } from '../features/payments/lightning-provider';
+import { isMethodAvailable } from '../features/payments';
+import {
+  reserveInventory,
+  releaseInventoryReservation,
+  type ReservationItem,
+} from '../features/orders/reservations';
+
+const cfg = getConfig();
+// This own-checkout page is the self-rendered Lightning flow. Gate on Lightning
+// being AVAILABLE (configured) — not on it being the default — so the method
+// picker can route here even when another rail (e.g. Stripe) is the default.
+if (!Astro.locals.settings || !isMethodAvailable('lightning', Astro.locals.settings))
+  return Astro.redirect('/cart', 303);
+
+const isPost = Astro.request.method === 'POST';
+const form = isPost ? await Astro.request.formData() : null;
+const fld = (name: string) => (form?.get(name) ?? '').toString().trim();
+
+// Order lines: buy-now (product_id [+ variant/extras]) or the whole cart.
+const productIdRaw = fld('product_id') || (Astro.url.searchParams.get('product_id') ?? '');
+const productId = productIdRaw ? Number(productIdRaw) : 0;
+// Express buy-now carries variant + extras — in the query on the first hop, then
+// as hidden fields across the address → shipping steps.
+const buyNowVariantId =
+  Number(fld('variant_id') || Astro.url.searchParams.get('variant_id') || '0') || 0;
+const buyNowExtraIds = (isPost ? form!.getAll('extra') : Astro.url.searchParams.getAll('extra'))
+  .map((e) => Number(e))
+  .filter((n) => Number.isInteger(n) && n > 0);
+
+interface CheckoutLine {
+  product: Product;
+  qty: number;
+  name: string;
+  unitPriceCents: number;
+  variantId: number | null;
+}
+let lines: CheckoutLine[] = [];
+if (Number.isInteger(productId) && productId > 0) {
+  const product = await getProduct(env.DB, productId);
+  if (product && product.active) {
+    const variants = await listVariants(env.DB, productId);
+    const variant = variants.length > 0 ? (variants.find((v) => v.id === buyNowVariantId) ?? null) : null;
+    const extras = buyNowExtraIds.length ? await getExtrasByIds(env.DB, productId, buyNowExtraIds) : [];
+    lines = [
+      {
+        product,
+        qty: 1,
+        name:
+          product.name +
+          (variant ? ` — ${variant.label}` : '') +
+          (extras.length ? ` (${extras.map((e) => e.label).join(', ')})` : ''),
+        unitPriceCents: lineUnitPriceCents(product.price_cents, variant, extras),
+        variantId: variant?.id ?? null,
+      },
+    ];
+  }
+} else {
+  const { lines: cartLines } = await resolveCart(env.DB, readCart(Astro.cookies));
+  lines = cartLines.map((l) => ({
+    product: l.product,
+    qty: l.qty,
+    name:
+      l.product.name +
+      (l.variant ? ` — ${l.variant.label}` : '') +
+      (l.extras.length ? ` (${l.extras.map((e) => e.label).join(', ')})` : ''),
+    unitPriceCents: l.unitPriceCents,
+    variantId: l.variant?.id ?? null,
+  }));
+}
+if (lines.length === 0) return Astro.redirect('/cart', 303);
+
+const subtotalCents = lines.reduce((s, l) => s + l.unitPriceCents * l.qty, 0);
+const currency = cfg.currency;
+const knownCountries = allowedCountries(cfg.shipping);
+const carry = Number.isInteger(productId) && productId > 0 ? String(productId) : '';
+const carryVariantId = buyNowVariantId > 0 ? String(buyNowVariantId) : '';
+const carryExtraIds = buyNowExtraIds;
+
+const addr = {
+  email: fld('email'),
+  name: fld('name'),
+  line1: fld('line1'),
+  line2: fld('line2'),
+  city: fld('city'),
+  state: fld('state'),
+  postal: fld('postal'),
+  country: (fld('country') || knownCountries[0] || 'US').toUpperCase(),
+};
+
+let stage: 'address' | 'shipping' = 'address';
+let options: { label: string; amountCents: number }[] = [];
+const errors: string[] = [];
+
+if (isPost) {
+  if (!/.+@.+\..+/.test(addr.email)) errors.push('A valid email is required.');
+  if (!addr.name) errors.push('Name is required.');
+  if (!addr.line1) errors.push('Address is required.');
+  if (!addr.city) errors.push('City is required.');
+  if (!addr.postal) errors.push('Postal code is required.');
+  if (addr.country.length !== 2) errors.push('Use a 2-letter country code (e.g. US).');
+
+  if (errors.length === 0) {
+    options = computeShipping(subtotalCents, addr.country, cfg.shipping);
+    if (options.length === 0) {
+      errors.push(`Sorry, we don't ship to ${addr.country} yet.`);
+    } else {
+      stage = 'shipping';
+      const chosenLabel = fld('shipping_label');
+      if (chosenLabel) {
+        const chosen = options.find((o) => o.label === chosenLabel);
+        if (!chosen) {
+          errors.push('Please choose a shipping option.');
+        } else {
+          // Finalize: mint the invoice for subtotal + the chosen shipping.
+          const publicId = crypto.randomUUID();
+          const reservedItems: ReservationItem[] = lines.map((line) => ({
+            productId: line.product.id,
+            variantId: line.variantId,
+            name: line.name,
+            priceCents: line.unitPriceCents,
+            quantity: line.qty,
+          }));
+          const reserved = await reserveInventory(
+            env.DB,
+            publicId,
+            reservedItems,
+            cfg.payments.lightning.invoiceExpiryMinutes * 60 + 5 * 60,
+            'lightning',
+          );
+          if (!reserved) {
+            errors.push('Some inventory just sold out — please review your cart.');
+          } else {
+            try {
+              const minted = await mintLightningOrder(env.DB, await getLightningBackend(), {
+                origin: Astro.url.origin,
+                publicId,
+                currency,
+                subtotalCents,
+                shippingCents: chosen.amountCents,
+                itemsJson: JSON.stringify(
+                  lines.map((l) => ({ id: l.product.id, v: l.variantId, q: l.qty, n: l.name, p: l.unitPriceCents })),
+                ),
+                email: addr.email,
+                shippingAddress: {
+                  name: addr.name,
+                  line1: addr.line1,
+                  line2: addr.line2 || null,
+                  city: addr.city,
+                  state: addr.state || null,
+                  postal: addr.postal,
+                  country: addr.country,
+                },
+                reservationId: publicId,
+              });
+              if (!minted.payUrl) throw new Error('Lightning backend did not return a payment URL.');
+              return Astro.redirect(minted.payUrl, 303);
+            } catch (error) {
+              await releaseInventoryReservation(env.DB, publicId);
+              throw error;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+const showShipping = stage === 'shipping';
+const hasErrors = errors.length > 0;
+---
+
+<Layout title="Checkout" description="Enter your shipping details.">
+  <div class="mx-auto max-w-lg">
+    <h1 class="mb-1 text-2xl font-bold">Checkout</h1>
+    <p class="mb-6 text-sm text-gray-500">
+      Subtotal {formatPrice(subtotalCents, currency)} · {lines.length} item{lines.length === 1 ? '' : 's'}
+    </p>
+
+    {
+      hasErrors && (
+        <ul class="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {errors.map((e) => (
+            <li>{e}</li>
+          ))}
+        </ul>
+      )
+    }
+
+    {
+      showShipping ? (
+        <form method="POST" action="/checkout" class="space-y-4">
+          <input type="hidden" name="product_id" value={carry} />
+          {carryVariantId && <input type="hidden" name="variant_id" value={carryVariantId} />}
+          {carryExtraIds.map((id) => (
+            <input type="hidden" name="extra" value={id} />
+          ))}
+          <input type="hidden" name="email" value={addr.email} />
+          <input type="hidden" name="name" value={addr.name} />
+          <input type="hidden" name="line1" value={addr.line1} />
+          <input type="hidden" name="line2" value={addr.line2} />
+          <input type="hidden" name="city" value={addr.city} />
+          <input type="hidden" name="state" value={addr.state} />
+          <input type="hidden" name="postal" value={addr.postal} />
+          <input type="hidden" name="country" value={addr.country} />
+
+          <div class="rounded-lg border border-gray-200 bg-white p-4 text-sm">
+            <div class="mb-1 font-medium">Ship to</div>
+            <div class="text-gray-600">
+              {addr.name}, {addr.line1}
+              {addr.line2 ? `, ${addr.line2}` : ''}, {addr.city} {addr.state} {addr.postal}, {addr.country}
+            </div>
+            <a href="/checkout" class="mt-2 inline-block text-xs font-medium text-accent">
+              Edit address
+            </a>
+          </div>
+
+          <fieldset class="space-y-2">
+            <legend class="mb-1 text-sm font-medium">Shipping</legend>
+            {options.map((o, i) => (
+              <label class="flex cursor-pointer items-center justify-between rounded-lg border border-gray-200 bg-white p-3 text-sm has-[:checked]:border-brand">
+                <span class="flex items-center gap-2">
+                  <input type="radio" name="shipping_label" value={o.label} checked={i === 0} />
+                  {o.label}
+                </span>
+                <span class="text-gray-600">
+                  {o.amountCents === 0 ? 'Free' : formatPrice(o.amountCents, currency)} · total{' '}
+                  {formatPrice(subtotalCents + o.amountCents, currency)}
+                </span>
+              </label>
+            ))}
+          </fieldset>
+
+          <button
+            type="submit"
+            class="w-full rounded-md bg-brand px-4 py-2.5 font-medium text-white hover:bg-brand-hover"
+          >
+            Pay with Lightning →
+          </button>
+        </form>
+      ) : (
+        <form method="POST" action="/checkout" class="space-y-3">
+          <input type="hidden" name="product_id" value={carry} />
+          {carryVariantId && <input type="hidden" name="variant_id" value={carryVariantId} />}
+          {carryExtraIds.map((id) => (
+            <input type="hidden" name="extra" value={id} />
+          ))}
+          <label class="block text-sm">
+            <span class="mb-1 block font-medium">Email</span>
+            <input
+              type="email"
+              name="email"
+              value={addr.email}
+              required
+              class="w-full rounded-md border border-gray-200 px-3 py-2"
+            />
+          </label>
+          <label class="block text-sm">
+            <span class="mb-1 block font-medium">Full name</span>
+            <input type="text" name="name" value={addr.name} required class="w-full rounded-md border border-gray-200 px-3 py-2" />
+          </label>
+          <label class="block text-sm">
+            <span class="mb-1 block font-medium">Address</span>
+            <input type="text" name="line1" value={addr.line1} required class="w-full rounded-md border border-gray-200 px-3 py-2" />
+          </label>
+          <label class="block text-sm">
+            <span class="mb-1 block font-medium">Apartment, suite, etc. (optional)</span>
+            <input type="text" name="line2" value={addr.line2} class="w-full rounded-md border border-gray-200 px-3 py-2" />
+          </label>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="block text-sm">
+              <span class="mb-1 block font-medium">City</span>
+              <input type="text" name="city" value={addr.city} required class="w-full rounded-md border border-gray-200 px-3 py-2" />
+            </label>
+            <label class="block text-sm">
+              <span class="mb-1 block font-medium">State / Province</span>
+              <input type="text" name="state" value={addr.state} class="w-full rounded-md border border-gray-200 px-3 py-2" />
+            </label>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="block text-sm">
+              <span class="mb-1 block font-medium">Postal code</span>
+              <input type="text" name="postal" value={addr.postal} required class="w-full rounded-md border border-gray-200 px-3 py-2" />
+            </label>
+            <label class="block text-sm">
+              <span class="mb-1 block font-medium">Country (2-letter)</span>
+              <input
+                type="text"
+                name="country"
+                value={addr.country}
+                maxlength="2"
+                required
+                class="w-full rounded-md border border-gray-200 px-3 py-2 uppercase"
+              />
+            </label>
+          </div>
+          {
+            knownCountries.length > 0 && (
+              <p class="text-xs text-gray-400">Ships to: {knownCountries.join(', ')}</p>
+            )
+          }
+          <button
+            type="submit"
+            class="w-full rounded-md bg-brand px-4 py-2.5 font-medium text-white hover:bg-brand-hover"
+          >
+            Continue to shipping →
+          </button>
+        </form>
+      )
+    }
+  </div>
+</Layout>

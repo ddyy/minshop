@@ -1,0 +1,16 @@
+{
+  "name": "minshop-mcp",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Standalone MCP server Worker for minshop (agent-operated store). Own deps so the Agents SDK never perturbs the storefront build.",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "agents": "^0.16.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260617.1",
+    "@types/node": "^26.1.1"
+  }
+}

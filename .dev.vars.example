@@ -1,0 +1,28 @@
+# Copy to .dev.vars (gitignored) and fill in. Locally only this file is read; in
+# production set each value with `wrangler secret put <NAME>`.
+#
+# Nothing here is REQUIRED to boot — the store runs with the always-on demo
+# checkout, and the ADMIN PASSWORD is set in the first-run setup wizard
+# (/admin/setup), stored hashed in D1.
+#
+# There are only TWO Worker secrets. EVERY provider key (Stripe, OpenNode,
+# Lightning, Resend, Turnstile) and its config (default rail, Lightning node URLs,
+# email from-address, etc.) is set in the admin dashboard — keys encrypted in the
+# D1 vault, config in D1 settings. No provider env vars.
+#
+# `npm run provision:local` generates both of these into .dev.vars automatically,
+# so you usually don't edit this file by hand.
+
+# Key-encryption key for the D1 payment-key vault. REQUIRED to store/use any
+# provider key (without it the vault is dormant → demo-only). Any long random
+# string; never goes in D1.
+# SECRETS_KEK=choose-a-long-random-string
+
+# Signs admin + customer sessions (magic-link tokens, session cookies). Any long
+# random string. Needed for admin login and customer accounts.
+# AUTH_SECRET=choose-a-long-random-string
+
+# Cloudflare Email Sending binding (optional) — only when using the 'cloudflare'
+# email provider (Workers Paid plan + an onboarded sender domain). Declared in
+# wrangler.jsonc as a binding, not here. Resend (the default) needs no binding —
+# its API key is set in Admin → Settings → Email.

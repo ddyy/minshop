@@ -1,0 +1,31 @@
+---
+// On/off switch for a payment method at checkout. POSTs the `toggle_payment` action
+// (handled by the admin Settings page) with the NEW disabled state (1 = turn off).
+interface Props {
+  method: string;
+  enabled: boolean;
+  label: string;
+}
+const { method, enabled, label } = Astro.props;
+---
+
+<form method="POST" class="shrink-0">
+  <input type="hidden" name="_action" value="toggle_payment" />
+  <input type="hidden" name="method" value={method} />
+  <input type="hidden" name="disabled" value={enabled ? '1' : '0'} />
+  <button
+    type="submit"
+    role="switch"
+    aria-checked={enabled ? 'true' : 'false'}
+    aria-label={`${enabled ? 'Disable' : 'Enable'} ${label}`}
+    class={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
+      enabled ? 'bg-brand' : 'bg-gray-300'
+    }`}
+  >
+    <span
+      class={`inline-block size-5 rounded-full bg-white shadow transition ${
+        enabled ? 'translate-x-5' : 'translate-x-0.5'
+      }`}
+    />
+  </button>
+</form>

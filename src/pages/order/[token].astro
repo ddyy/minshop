@@ -1,0 +1,69 @@
+---
+import { env } from 'cloudflare:workers';
+import Layout from '../../layouts/Layout.astro';
+import { formatPrice, getConfig } from '../../config';
+import { getOrderByPublicId, listOrderItems } from '../../features/orders/db';
+import { orderNumber } from '../../features/orders/number';
+
+const { token } = Astro.params;
+const order = token ? await getOrderByPublicId(env.DB, token) : null;
+
+// The webhook creates the order asynchronously, so the customer can land here
+// before it exists. If found, it's confirmed — clear the cart and show it.
+if (order) Astro.cookies.delete('cart', { path: '/' });
+const items = order ? await listOrderItems(env.DB, order.id) : [];
+---
+
+<Layout title={order ? 'Order confirmed' : 'Confirming your order'}>
+  {
+    order ? (
+      <Fragment>
+        <h1 class="mb-2 text-2xl font-bold">Thank you! Your order is confirmed.</h1>
+        <p class="mb-6 text-sm text-gray-500">
+          Order #{orderNumber(order.id, getConfig().orderNumber)}
+          {order.email && <Fragment> · a receipt is on its way to {order.email}</Fragment>}
+        </p>
+
+        <div class="overflow-hidden rounded-lg border border-gray-200 bg-white">
+          <table class="w-full text-left text-sm">
+            <thead class="bg-gray-100 text-gray-600">
+              <tr>
+                <th class="px-4 py-2 font-medium">Item</th>
+                <th class="px-4 py-2 font-medium">Qty</th>
+                <th class="px-4 py-2 font-medium">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((it) => (
+                <tr class="border-t border-gray-100">
+                  <td class="px-4 py-2">{it.name}</td>
+                  <td class="px-4 py-2">{it.quantity}</td>
+                  <td class="px-4 py-2">
+                    {formatPrice(it.price_cents * it.quantity, order.currency)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <p class="mt-4 text-lg font-semibold">
+          Total: {formatPrice(order.amount_total_cents, order.currency)}
+        </p>
+        <a href="/" class="mt-6 inline-block text-accent hover:underline">
+          &larr; Continue shopping
+        </a>
+      </Fragment>
+    ) : (
+      <Fragment>
+        {/* Order not recorded yet — poll until the webhook lands (no JS). */}
+        <meta http-equiv="refresh" content="3" />
+        <h1 class="mb-2 text-2xl font-bold">Confirming your order…</h1>
+        <p class="text-gray-600">
+          Your payment went through and we're recording your order. This page
+          refreshes automatically — it usually takes just a few seconds.
+        </p>
+      </Fragment>
+    )
+  }
+</Layout>

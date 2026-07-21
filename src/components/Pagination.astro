@@ -1,0 +1,57 @@
+---
+interface Props {
+  page: number;
+  totalPages: number;
+  /** Build the href for a given page (keeps existing query params, e.g. ?q=). */
+  hrefFor: (page: number) => string;
+}
+
+const { page, totalPages, hrefFor } = Astro.props;
+
+// Compact page list with … gaps, e.g. 1 … 4 5 6 … 20
+function windowed(cur: number, total: number): (number | '…')[] {
+  const keep = new Set<number>([1, total, cur, cur - 1, cur + 1]);
+  const nums = [...keep].filter((p) => p >= 1 && p <= total).sort((a, b) => a - b);
+  const out: (number | '…')[] = [];
+  let prev = 0;
+  for (const p of nums) {
+    if (p - prev > 1) out.push('…');
+    out.push(p);
+    prev = p;
+  }
+  return out;
+}
+
+const items = totalPages > 1 ? windowed(page, totalPages) : [];
+const linkCls = 'px-3 py-1.5 text-xs uppercase tracking-widest text-gray-500 hover:text-brand';
+---
+
+{
+  totalPages > 1 && (
+    <nav class="mt-14 flex items-center justify-center gap-1" aria-label="Pagination">
+      {page > 1 && (
+        <a href={hrefFor(page - 1)} class={linkCls} rel="prev">
+          Prev
+        </a>
+      )}
+      {items.map((it) =>
+        it === '…' ? (
+          <span class="px-2 text-xs text-gray-400">…</span>
+        ) : (
+          <a
+            href={hrefFor(it)}
+            aria-current={it === page ? 'page' : undefined}
+            class={`${linkCls} ${it === page ? 'font-medium text-brand' : ''}`}
+          >
+            {it}
+          </a>
+        ),
+      )}
+      {page < totalPages && (
+        <a href={hrefFor(page + 1)} class={linkCls} rel="next">
+          Next
+        </a>
+      )}
+    </nav>
+  )
+}

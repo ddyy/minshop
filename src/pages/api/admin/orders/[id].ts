@@ -1,0 +1,75 @@
+import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
+import {
+  getOrder,
+  fulfillOrder,
+  unfulfillOrder,
+  recordRefund,
+} from '../../../../features/orders/db';
+import { getEmailProvider } from '../../../../features/email';
+import { orderShippedEmail } from '../../../../features/email/orderConfirmation';
+import { getPaymentProvider, type PaymentMethod } from '../../../../features/payments';
+
+export const prerender = false;
+
+// POST /api/admin/orders/:id — fulfill, unfulfill, or refund.
+export const POST: APIRoute = async ({ request, params, redirect }) => {
+  const id = Number(params.id);
+  if (!Number.isInteger(id)) {
+    return new Response('Invalid id', { status: 400 });
+  }
+
+  const form = await request.formData();
+  const action = String(form.get('_action'));
+  const back = redirect(`/admin/orders/${id}`, 303);
+
+  if (action === 'unfulfill') {
+    await unfulfillOrder(env.DB, id);
+    return back;
+  }
+
+  if (action === 'refund') {
+    const order = await getOrder(env.DB, id);
+    if (order?.stripe_session_id) {
+      // Route to the rail that took the payment (NULL = legacy → store default).
+      const provider = await getPaymentProvider((order.payment_method ?? undefined) as PaymentMethod | undefined);
+      if (!provider.refund) {
+        return redirect(
+          `/admin/orders/${id}?error=${encodeURIComponent('Refunds are not supported for this payment method — refund the buyer manually.')}`,
+          303,
+        );
+      }
+      try {
+        await provider.refund(order.stripe_session_id);
+        // Full refund (current capability): record the whole order total.
+        await recordRefund(env.DB, id, order.amount_total_cents);
+      } catch (err) {
+        return redirect(
+          `/admin/orders/${id}?error=${encodeURIComponent(`Refund failed: ${(err as Error).message}`)}`,
+          303,
+        );
+      }
+    }
+    return back;
+  }
+
+  // Fulfill
+  const carrier = String(form.get('carrier') ?? '').trim() || null;
+  const trackingNumber = String(form.get('tracking_number') ?? '').trim() || null;
+  await fulfillOrder(env.DB, id, carrier, trackingNumber);
+
+  // Notify the customer their order shipped (gated; email failure never blocks).
+  const emailer = await getEmailProvider();
+  if (emailer) {
+    const order = await getOrder(env.DB, id);
+    if (order?.email) {
+      try {
+        await emailer.send(orderShippedEmail(order, new URL(request.url).origin));
+      } catch (err) {
+        console.error('Shipping email failed:', err);
+      }
+    }
+  }
+
+  return back;
+};

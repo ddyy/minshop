@@ -1,0 +1,33 @@
+{
+  // Template for the standalone MCP server Worker (sense B — agent-operated store).
+  // Separate from the Astro storefront Worker, but bound to the SAME D1 so it
+  // operates the same store data. The __…__ placeholders are filled per instance
+  // (use the SAME __DB_NAME__/__DB_ID__ as the storefront's wrangler.jsonc) and
+  // rendered to ./mcp/wrangler.jsonc — which is gitignored, never published.
+  //
+  // Render it (matching your storefront's DB), then deploy:
+  //   sed -e "s/__NAME__/<slug>/g" -e "s/__DB_NAME__/<slug>-db/g" \
+  //       -e "s/__DB_ID__/<your-database-id>/g" \
+  //       mcp/wrangler.template.jsonc > mcp/wrangler.jsonc
+  //   wrangler secret put MCP_TOKEN --config mcp/wrangler.jsonc
+  //   npm run mcp:deploy
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "__NAME__-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-20",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  // McpAgent is Durable-Object-backed (holds the MCP session).
+  "durable_objects": {
+    "bindings": [{ "name": "STORE_MCP", "class_name": "StoreMcp" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["StoreMcp"] }],
+  // Same database as the storefront Worker.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "__DB_NAME__",
+      "database_id": "__DB_ID__"
+    }
+  ]
+}

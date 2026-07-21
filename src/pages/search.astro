@@ -1,0 +1,96 @@
+---
+import { env } from 'cloudflare:workers';
+import Layout from '../layouts/Layout.astro';
+import { getSearchProvider } from '../features/search';
+import { productsInSharedCategories } from '../features/categories/db';
+import ProductCard from '../components/ProductCard.astro';
+
+const q = (Astro.url.searchParams.get('q') ?? '').trim();
+
+// The active backend (FTS5 keyword by default, or semantic Vectorize when
+// configured) decides how to match — and whether it auto-corrected a typo.
+const { products, correctedTo: suggestion } = q
+  ? await (await getSearchProvider()).search(q)
+  : { products: [], correctedTo: null };
+const autoCorrected = suggestion !== null;
+
+// Semantic search (with its relevance cutoff) can return only a handful of exact
+// matches — top the grid up to TARGET with products from the same categories so
+// it doesn't look sparse. Only when there's at least one match (an off-topic
+// query that matched nothing stays empty, not padded with random items).
+const TARGET = 12;
+const fillers =
+  products.length > 0 && products.length < TARGET
+    ? await productsInSharedCategories(
+        env.DB,
+        products.map((p) => p.id),
+        TARGET - products.length,
+      )
+    : [];
+---
+
+<Layout title={q ? `Search: ${q}` : 'Search'}>
+  <div class="mb-8">
+    <p class="text-xs uppercase tracking-[0.25em] text-gray-500">Search</p>
+    <h1 class="mt-2 font-serif text-4xl tracking-tight sm:text-5xl">
+      {q ? q : 'Find something'}
+    </h1>
+  </div>
+
+  <form method="GET" action="/search" class="mb-10 max-w-md" role="search">
+    <input
+      type="search"
+      name="q"
+      value={q}
+      placeholder="Search products…"
+      aria-label="Search products"
+      autofocus={!q}
+      class="w-full border-0 border-b border-line bg-transparent px-1 py-2 text-base transition-colors placeholder:text-gray-400 focus:border-brand focus:outline-none"
+    />
+  </form>
+
+  {
+    q &&
+      (autoCorrected ? (
+        <p class="mb-8 text-sm text-gray-500">
+          No matches for “{q}” — showing results for{' '}
+          <strong class="font-medium text-gray-900">{suggestion}</strong>.
+        </p>
+      ) : products.length > 0 ? (
+        <p class="mb-8 text-xs uppercase tracking-widest text-gray-500">
+          {products.length} result{products.length === 1 ? '' : 's'} for “{q}”
+        </p>
+      ) : null)
+  }
+
+  {
+    products.length > 0 && (
+      <ul class="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-3">
+        {products.map((p, i) => (
+          <ProductCard product={p} index={i} />
+        ))}
+      </ul>
+    )
+  }
+
+  {
+    fillers.length > 0 && (
+      <>
+        <p class="mb-8 mt-16 text-xs uppercase tracking-widest text-gray-500">
+          More from these categories
+        </p>
+        <ul class="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-3">
+          {fillers.map((p, i) => (
+            <ProductCard product={p} index={i} />
+          ))}
+        </ul>
+      </>
+    )
+  }
+
+  {
+    q && products.length === 0 && (
+      <p class="text-gray-500">No products match “{q}”. Try a different word.</p>
+    )
+  }
+</Layout>

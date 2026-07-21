@@ -1,0 +1,108 @@
+---
+import { env } from 'cloudflare:workers';
+import Layout from '../../layouts/Layout.astro';
+import { formatPrice } from '../../config';
+import {
+  getCategoryBySlug,
+  ancestors,
+  listCategories,
+  childrenOf,
+  productsInCategory,
+  countProductsInCategory,
+} from '../../features/categories/db';
+import ProductImage from '../../features/products/ProductImage.astro';
+import { orderByClause } from '../../features/products/sort';
+import { paginate, queryHref } from '../../pagination';
+import Pagination from '../../components/Pagination.astro';
+import SortLinks from '../../components/SortLinks.astro';
+
+const { slug } = Astro.params;
+const category = slug ? await getCategoryBySlug(env.DB, slug) : null;
+
+if (!category) {
+  return new Response('Not found', { status: 404 });
+}
+
+const trail = await ancestors(env.DB, category.id); // root → … → this category
+const subcats = childrenOf(await listCategories(env.DB), category.id);
+
+const sort = Astro.url.searchParams.get('sort');
+const dir = Astro.url.searchParams.get('dir');
+const order = orderByClause(sort, dir);
+
+const PAGE_SIZE = 24;
+const { page, offset, totalPages } = paginate(
+  Astro.url.searchParams,
+  await countProductsInCategory(env.DB, category.id),
+  PAGE_SIZE,
+);
+const products = await productsInCategory(env.DB, category.id, PAGE_SIZE, offset, order);
+const base = `/category/${category.slug}`;
+const hrefFor = (p: number) => queryHref(base, { sort, dir, page: p > 1 ? p : undefined });
+---
+
+<Layout title={category.name}>
+  <nav class="mb-4 flex flex-wrap gap-x-2 text-xs uppercase tracking-widest text-gray-400">
+    <a href="/" class="hover:text-brand">Shop</a>
+    {
+      trail.map((c) => (
+        <span class="flex gap-x-2">
+          <span aria-hidden="true">/</span>
+          <a href={`/category/${c.slug}`} class="hover:text-brand">
+            {c.name}
+          </a>
+        </span>
+      ))
+    }
+  </nav>
+
+  <h1 class="mb-8 font-serif text-4xl tracking-tight sm:text-5xl">{category.name}</h1>
+
+  {
+    subcats.length > 0 && (
+      <div class="mb-12 flex flex-wrap gap-x-6 gap-y-2 text-xs uppercase tracking-widest text-gray-500">
+        {subcats.map((c) => (
+          <a
+            href={`/category/${c.slug}`}
+            class="border-b border-transparent pb-0.5 hover:border-brand hover:text-brand"
+          >
+            {c.name}
+          </a>
+        ))}
+      </div>
+    )
+  }
+
+  <SortLinks base={base} sort={sort} dir={dir} />
+
+  {products.length === 0 && <p class="text-gray-500">No products in this category yet.</p>}
+
+  <ul class="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-3">
+    {
+      products.map((p, i) => (
+        <li class="reveal group" style={`animation-delay:${Math.min(i, 8) * 60}ms`}>
+          <a href={`/product/${p.slug}`} class="block">
+            <div class="relative overflow-hidden rounded-md bg-white">
+              <ProductImage
+                imageKey={p.image_key}
+                alt={p.name}
+                class={`aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]${0 >= p.stock ? ' opacity-60' : ''}`}
+              />
+              {
+                0 >= p.stock && (
+                  <span class="absolute left-3 top-3 rounded-full bg-white/90 px-2.5 py-0.5 text-xs uppercase tracking-widest text-gray-700 ring-1 ring-line">
+                    Sold out
+                  </span>
+                )
+              }
+            </div>
+            <h2 class="mt-4 text-sm font-medium tracking-tight">{p.name}</h2>
+            <p class="mt-1 text-sm tabular-nums text-gray-500">{formatPrice(p.price_cents)}</p>
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+
+  <Pagination page={page} totalPages={totalPages} hrefFor={hrefFor} />
+</Layout>

@@ -1,0 +1,47 @@
+{
+  "name": "minshop",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "wrangler dev -c dist/server/wrangler.json --persist-to .wrangler/state",
+    "deploy": "wrangler d1 migrations apply DB --remote && astro build && wrangler deploy",
+    "check": "astro check",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify": "vitest run && astro check && astro build && node --experimental-strip-types scripts/test-reservations.mjs && bash scripts/test-d1-integration.sh && npm run mcp:check",
+    "test:d1": "astro build && node --experimental-strip-types scripts/test-reservations.mjs && bash scripts/test-d1-integration.sh",
+    "db:migrate": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "db:seed": "wrangler d1 execute DB --local --file=./seed.sql",
+    "provision:cf": "bash scripts/provision-cf.sh",
+    "provision:local": "bash scripts/provision-local.sh",
+    "destroy:cf": "bash scripts/destroy-cf.sh",
+    "destroy:local": "bash scripts/destroy-local.sh",
+    "admin:reset": "bash scripts/admin-reset.sh",
+    "admin:reset:remote": "bash scripts/admin-reset.sh --remote",
+    "reset:local": "bash scripts/reset.sh",
+    "reset:remote": "bash scripts/reset.sh --remote",
+    "mcp:dev": "wrangler dev --config mcp/wrangler.jsonc --persist-to .wrangler/state",
+    "mcp:deploy": "wrangler deploy --config mcp/wrangler.jsonc",
+    "mcp:check": "bash scripts/check-mcp.sh"
+  },
+  "dependencies": {
+    "@astrojs/cloudflare": "^14.1.4",
+    "astro": "^7.1.3",
+    "stripe": "^22.2.1",
+    "uqr": "^0.1.3"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.9",
+    "@cloudflare/workers-types": "^5.20260719.1",
+    "miniflare": "^4.20260714.0",
+    "@tailwindcss/vite": "^4.3.1",
+    "tailwindcss": "^4.3.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.112.0"
+  }
+}

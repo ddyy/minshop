@@ -1,0 +1,31 @@
+---
+import Layout from '../layouts/Layout.astro';
+
+// Astro renders this for unmatched routes; set the status explicitly so SSR
+// responses (and crawlers) get a real 404 rather than a 200.
+Astro.response.status = 404;
+---
+
+<Layout title="Page not found" description="The page you're looking for doesn't exist.">
+  <section class="reveal mx-auto max-w-xl py-16 text-center sm:py-24">
+    <p class="text-xs uppercase tracking-[0.25em] text-gray-500">Error 404</p>
+    <h1 class="mt-3 font-serif text-5xl tracking-tight sm:text-6xl">Page not found</h1>
+    <p class="mx-auto mt-5 max-w-md text-sm text-gray-500">
+      The page you're looking for moved, sold out, or never existed.
+    </p>
+    <div class="mt-10 flex flex-wrap items-center justify-center gap-x-8 gap-y-4">
+      <a
+        href="/"
+        class="rounded-md bg-brand px-5 py-2.5 text-xs font-medium uppercase tracking-wider text-white transition hover:bg-brand-hover"
+      >
+        Back to shop
+      </a>
+      <a
+        href="/search"
+        class="border-b border-transparent pb-0.5 text-xs uppercase tracking-widest text-gray-500 transition hover:border-brand hover:text-brand"
+      >
+        Search the catalog
+      </a>
+    </div>
+  </section>
+</Layout>

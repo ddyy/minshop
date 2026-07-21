@@ -1,0 +1,55 @@
+---
+import { formatPrice } from '../config';
+import type { DailyTotal } from '../features/orders/db';
+
+interface Props {
+  data: DailyTotal[];
+}
+
+const { data } = Astro.props;
+
+// SVG drawn in viewBox units (1 per day wide), stretched to fill via
+// preserveAspectRatio="none". Plain rects stretch cleanly — no JS, no rounded
+// corners to distort.
+const H = 100;
+const n = Math.max(data.length, 1);
+const max = Math.max(1, ...data.map((d) => d.total_cents));
+const total = data.reduce((s, d) => s + d.total_cents, 0);
+const orders = data.reduce((s, d) => s + d.orders, 0);
+const md = (day: string) => day.slice(5); // MM-DD
+---
+
+<div>
+  <div class="mb-3 flex items-baseline justify-between">
+    <h2 class="text-xs uppercase tracking-widest text-gray-400">
+      Revenue &middot; last {data.length} days
+    </h2>
+    <span class="text-xs text-gray-400">
+      {formatPrice(total)} &middot; {orders} {orders === 1 ? 'order' : 'orders'}
+    </span>
+  </div>
+
+  <svg
+    viewBox={`0 0 ${n} ${H}`}
+    preserveAspectRatio="none"
+    class="h-40 w-full"
+    role="img"
+    aria-label={`Daily revenue for the last ${data.length} days`}
+  >
+    {
+      data.map((d, i) => {
+        const h = (d.total_cents / max) * H;
+        return (
+          <rect x={i + 0.12} y={H - h} width={0.76} height={h} class="fill-brand">
+            <title>{`${d.day}: ${formatPrice(d.total_cents)} · ${d.orders} ${d.orders === 1 ? 'order' : 'orders'}`}</title>
+          </rect>
+        );
+      })
+    }
+  </svg>
+
+  <div class="mt-2 flex justify-between text-xs tabular-nums text-gray-400">
+    <span>{data[0] && md(data[0].day)}</span>
+    <span>{data[data.length - 1] && md(data[data.length - 1].day)}</span>
+  </div>
+</div>

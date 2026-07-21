@@ -1,0 +1,74 @@
+---
+import { env } from 'cloudflare:workers';
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { formatPrice, formatDate, getConfig } from '../../../config';
+import { listCustomers } from '../../../features/customers/db';
+import { orderByClause } from '../../../features/customers/sort';
+import { queryHref } from '../../../pagination';
+
+const sort = Astro.url.searchParams.get('sort');
+const dir = Astro.url.searchParams.get('dir');
+const customers = await listCustomers(env.DB, orderByClause(sort, dir));
+const timeZone = Astro.locals.settings?.timeZone ?? getConfig().timeZone;
+
+// Column header → sort by it, toggling direction (default desc on a new column).
+const sortHref = (col: string) =>
+  queryHref('/admin/customers', {
+    sort: col,
+    dir: sort === col && dir === 'desc' ? 'asc' : 'desc',
+  });
+const arrow = (col: string) => (sort === col ? (dir === 'asc' ? ' ↑' : ' ↓') : '');
+---
+
+<AdminLayout title="Customers" active="customers">
+  <h1 class="mb-8 font-serif text-3xl tracking-tight">Customers</h1>
+
+  <div class="sm:overflow-x-auto">
+    <table class="admin-table w-full text-left text-sm sm:min-w-[40rem]">
+    <thead>
+      <tr class="border-b border-line text-xs uppercase tracking-widest text-gray-400">
+        <th class="py-3 pr-4 font-normal">
+          <a href={sortHref('email')} class="hover:text-brand">Email{arrow('email')}</a>
+        </th>
+        <th class="py-3 pr-4 font-normal">
+          <a href={sortHref('orders')} class="hover:text-brand">Orders{arrow('orders')}</a>
+        </th>
+        <th class="py-3 pr-4 font-normal">
+          <a href={sortHref('lifetime')} class="hover:text-brand">Lifetime value{arrow('lifetime')}</a>
+        </th>
+        <th class="py-3 font-normal">
+          <a href={sortHref('last')} class="hover:text-brand">Last order{arrow('last')}</a>
+        </th>
+      </tr>
+    </thead>
+    <tbody>
+      {
+        customers.map((c) => (
+          <tr class="border-b border-line">
+            <td class="py-3 pr-4">
+              <a
+                href={`/admin/customers/${encodeURIComponent(c.email)}`}
+                class="text-accent hover:underline"
+              >
+                {c.email}
+              </a>
+            </td>
+            <td data-label="Orders" class="py-3 pr-4 tabular-nums">{c.orders}</td>
+            <td data-label="Lifetime value" class="py-3 pr-4 tabular-nums">{formatPrice(c.lifetime_cents)}</td>
+            <td data-label="Last order" class="py-3 text-gray-500">{formatDate(c.last_order, { dateStyle: 'medium' }, timeZone)}</td>
+          </tr>
+        ))
+      }
+      {
+        customers.length === 0 && (
+          <tr>
+            <td colspan="4" class="py-8 text-center text-gray-400">
+              No customers yet.
+            </td>
+          </tr>
+        )
+      }
+    </tbody>
+    </table>
+  </div>
+</AdminLayout>

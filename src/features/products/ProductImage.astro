@@ -1,0 +1,27 @@
+---
+import { productImageUrl } from './image';
+
+interface Props {
+  imageKey: string | null;
+  alt: string;
+  class?: string;
+}
+
+// Renders a product image, or the shared placeholder when there's none — so
+// callers never branch on image_key and every product image is requested the
+// same way. The fallback decision lives once, in productImageUrl().
+const { imageKey, alt, class: className = '' } = Astro.props;
+---
+
+{/* width/height are a square (1:1) aspect hint to reserve space (no CLS) — the
+    actual display size comes from `class`. All product images + the placeholder
+    are square; object-cover crops anything that isn't. */}
+<img
+  src={productImageUrl(imageKey)}
+  alt={alt}
+  class={className}
+  width="600"
+  height="600"
+  loading="lazy"
+  decoding="async"
+/>

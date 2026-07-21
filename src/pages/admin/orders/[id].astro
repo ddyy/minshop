@@ -1,0 +1,262 @@
+---
+import { env } from 'cloudflare:workers';
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { formatPrice, formatDate, getConfig } from '../../../config';
+import { getOrder, listOrderItems } from '../../../features/orders/db';
+import { orderNumber } from '../../../features/orders/number';
+import { CARRIERS, carrierName, trackingUrl } from '../../../features/orders/tracking';
+
+const id = Number(Astro.params.id);
+const order = Number.isFinite(id) ? await getOrder(env.DB, id) : null;
+
+if (!order) {
+  return new Response('Not found', { status: 404 });
+}
+
+const num = orderNumber(order.id, getConfig().orderNumber);
+const timeZone = Astro.locals.settings?.timeZone ?? getConfig().timeZone;
+const items = await listOrderItems(env.DB, order.id);
+const fulfilled = order.fulfillment_status === 'fulfilled';
+const trackUrl = trackingUrl(order.tracking_carrier, order.tracking_number);
+const refunded = order.status === 'refunded';
+const error = Astro.url.searchParams.get('error');
+const itemsTotalCents = items.reduce((sum, it) => sum + it.price_cents * it.quantity, 0);
+// Older orders (placed before line-item capture) may have no items; flag any
+// mismatch between the recorded total and items + shipping − discount.
+const mismatch =
+  items.length > 0 &&
+  itemsTotalCents + order.shipping_cents - order.discount_cents + order.tax_cents !==
+    order.amount_total_cents;
+
+const ship = order.ship_address
+  ? (JSON.parse(order.ship_address) as {
+      name: string | null;
+      line1: string | null;
+      line2: string | null;
+      city: string | null;
+      state: string | null;
+      postal: string | null;
+      country: string | null;
+    })
+  : null;
+---
+
+<AdminLayout title={`Order #${num}`} active="orders">
+  <a
+    href="/admin/orders"
+    class="text-xs uppercase tracking-widest text-gray-400 hover:text-brand"
+  >
+    &larr; Back to orders
+  </a>
+  <div class="mt-4 mb-8 flex items-center justify-between gap-4">
+    <h1 class="font-serif text-3xl tracking-tight">Order #{num}</h1>
+    {
+      refunded ? (
+        <span class="rounded-full bg-red-50 px-3 py-1 text-xs uppercase tracking-wide text-red-700 ring-1 ring-red-200">
+          Refunded
+        </span>
+      ) : (
+        order.stripe_session_id && (
+          <form
+            method="POST"
+            action={`/api/admin/orders/${order.id}`}
+            onsubmit="return confirm('Refund this order in full? This cannot be undone.')"
+          >
+            <input type="hidden" name="_action" value="refund" />
+            <button
+              type="submit"
+              class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-red-600 hover:border-red-300 hover:bg-red-50"
+            >
+              Refund order
+            </button>
+          </form>
+        )
+      )
+    }
+  </div>
+
+  {
+    error && (
+      <p class="mb-6 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        {error}
+      </p>
+    )
+  }
+
+  <dl class="mb-8 grid grid-cols-2 gap-x-8 gap-y-3 text-sm sm:max-w-lg">
+    <div>
+      <dt class="text-xs uppercase tracking-widest text-gray-400">Status</dt>
+      <dd class="font-medium">{order.status}</dd>
+    </div>
+    <div>
+      <dt class="text-xs uppercase tracking-widest text-gray-400">Placed</dt>
+      <dd>{formatDate(order.created_at, undefined, timeZone)}</dd>
+    </div>
+    <div>
+      <dt class="text-xs uppercase tracking-widest text-gray-400">Email</dt>
+      <dd>{order.email ?? '—'}</dd>
+    </div>
+    <div>
+      <dt class="text-xs uppercase tracking-widest text-gray-400">Shipping</dt>
+      <dd>{formatPrice(order.shipping_cents, order.currency)}</dd>
+    </div>
+    {
+      order.discount_cents > 0 && (
+        <div>
+          <dt class="text-xs uppercase tracking-widest text-gray-400">Discount</dt>
+          <dd>&minus;{formatPrice(order.discount_cents, order.currency)}</dd>
+        </div>
+      )
+    }
+    {
+      order.tax_cents > 0 && (
+        <div>
+          <dt class="text-xs uppercase tracking-widest text-gray-400">Tax</dt>
+          <dd>{formatPrice(order.tax_cents, order.currency)}</dd>
+        </div>
+      )
+    }
+    <div>
+      <dt class="text-xs uppercase tracking-widest text-gray-400">Total</dt>
+      <dd class="font-medium">{formatPrice(order.amount_total_cents, order.currency)}</dd>
+    </div>
+    {
+      ship && (
+        <div class="col-span-2">
+          <dt class="text-xs uppercase tracking-widest text-gray-400">Ship to</dt>
+          <dd class="whitespace-pre-line">
+            {[
+              ship.name,
+              ship.line1,
+              ship.line2,
+              [ship.city, ship.state, ship.postal].filter(Boolean).join(', '),
+              ship.country,
+            ]
+              .filter(Boolean)
+              .join('\n')}
+          </dd>
+        </div>
+      )
+    }
+    <div class="col-span-2">
+      <dt class="text-xs uppercase tracking-widest text-gray-400">Stripe session</dt>
+      <dd class="font-mono text-xs break-all">{order.stripe_session_id ?? '—'}</dd>
+    </div>
+  </dl>
+
+  <div class="mb-8 rounded-lg border border-line p-5">
+    <h2 class="mb-3 text-xs uppercase tracking-widest text-gray-400">Fulfillment</h2>
+    {
+      fulfilled ? (
+        <div class="space-y-2 text-sm">
+          <p>
+            <span class="font-medium text-green-700">Fulfilled</span>
+            {order.fulfilled_at && <span class="text-gray-400"> · {formatDate(order.fulfilled_at, undefined, timeZone)}</span>}
+          </p>
+          {order.tracking_number && (
+            <p>
+              {carrierName(order.tracking_carrier)} ·{' '}
+              {trackUrl ? (
+                <a href={trackUrl} target="_blank" rel="noopener" class="text-accent hover:underline">
+                  {order.tracking_number}
+                </a>
+              ) : (
+                order.tracking_number
+              )}
+            </p>
+          )}
+          <form method="POST" action={`/api/admin/orders/${order.id}`}>
+            <input type="hidden" name="_action" value="unfulfill" />
+            <button type="submit" class="text-xs uppercase tracking-widest text-gray-400 hover:text-red-600">
+              Mark unfulfilled
+            </button>
+          </form>
+        </div>
+      ) : (
+        <form
+          method="POST"
+          action={`/api/admin/orders/${order.id}`}
+          class="flex flex-wrap items-end gap-3 text-sm"
+        >
+          <input type="hidden" name="_action" value="fulfill" />
+          <label class="block">
+            <span class="block text-xs uppercase tracking-widest text-gray-400">Carrier</span>
+            <select name="carrier" class="mt-1 rounded-md border border-line bg-paper px-3 py-2">
+              {CARRIERS.map((c) => (
+                <option value={c.code}>{c.name}</option>
+              ))}
+            </select>
+          </label>
+          <label class="block">
+            <span class="block text-xs uppercase tracking-widest text-gray-400">Tracking #</span>
+            <input
+              name="tracking_number"
+              type="text"
+              class="mt-1 rounded-md border border-line bg-paper px-3 py-2"
+            />
+          </label>
+          <button
+            type="submit"
+            class="rounded-md bg-brand px-5 py-2 font-medium text-white hover:bg-brand-hover"
+          >
+            Mark as fulfilled
+          </button>
+        </form>
+      )
+    }
+  </div>
+
+  <h2 class="mb-3 text-xs uppercase tracking-widest text-gray-400">Items</h2>
+  <div class="sm:overflow-x-auto">
+    <table class="admin-table w-full text-left text-sm sm:min-w-[34rem]">
+    <thead>
+      <tr class="border-b border-line text-xs uppercase tracking-widest text-gray-400">
+        <th class="py-3 pr-4 font-normal">Product</th>
+        <th class="py-3 pr-4 font-normal">Unit price</th>
+        <th class="py-3 pr-4 font-normal">Qty</th>
+        <th class="py-3 text-right font-normal">Line total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {
+        items.map((it) => (
+          <tr class="border-b border-line">
+            <td class="py-3 pr-4">
+              {it.product_id ? (
+                <a href={`/admin/products/${it.product_id}/edit`} class="text-accent hover:underline">
+                  {it.name}
+                </a>
+              ) : (
+                it.name
+              )}
+            </td>
+            <td data-label="Unit price" class="py-3 pr-4 tabular-nums">{formatPrice(it.price_cents, order.currency)}</td>
+            <td data-label="Qty" class="py-3 pr-4 tabular-nums">{it.quantity}</td>
+            <td data-label="Line total" class="py-3 text-right tabular-nums">
+              {formatPrice(it.price_cents * it.quantity, order.currency)}
+            </td>
+          </tr>
+        ))
+      }
+      {
+        items.length === 0 && (
+          <tr>
+            <td colspan="4" class="py-8 text-center text-gray-400">
+              No line items recorded for this order.
+            </td>
+          </tr>
+        )
+      }
+    </tbody>
+    </table>
+  </div>
+
+  {
+    mismatch && (
+      <p class="mt-3 text-sm text-amber-700">
+        Note: line items total {formatPrice(itemsTotalCents, order.currency)} differs from the
+        order total — verify against Stripe.
+      </p>
+    )
+  }
+</AdminLayout>

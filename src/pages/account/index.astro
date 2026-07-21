@@ -1,0 +1,52 @@
+---
+export const prerender = false;
+import { env } from 'cloudflare:workers';
+import Layout from '../../layouts/Layout.astro';
+import { formatPrice, formatDate, getConfig } from '../../config';
+import { accountsEnabled, getCustomerEmail } from '../../features/auth/customer';
+import { listOrdersByEmail } from '../../features/orders/db';
+import { orderNumber } from '../../features/orders/number';
+
+if (!accountsEnabled()) return Astro.redirect('/', 303);
+const email = await getCustomerEmail(Astro.cookies);
+if (!email) return Astro.redirect('/account/login', 303);
+
+const orders = await listOrdersByEmail(env.DB, email);
+const orderCfg = getConfig().orderNumber;
+const timeZone = Astro.locals.settings?.timeZone ?? getConfig().timeZone;
+---
+
+<Layout title="Your account">
+  <div class="mx-auto max-w-2xl">
+    <div class="mb-6 flex items-center justify-between">
+      <h1 class="text-2xl font-bold">Your orders</h1>
+      <a href="/account/logout" class="text-sm font-medium text-accent">Sign out</a>
+    </div>
+    <p class="mb-6 text-sm text-gray-500">Signed in as {email}</p>
+
+    {
+      orders.length === 0 ? (
+        <p class="rounded-lg border border-gray-200 bg-white px-4 py-6 text-center text-sm text-gray-500">
+          No orders yet. <a href="/" class="font-medium text-accent">Start shopping →</a>
+        </p>
+      ) : (
+        <ul class="divide-y divide-gray-100 overflow-hidden rounded-lg border border-gray-200 bg-white">
+          {orders.map((o) => (
+            <li class="flex items-center justify-between gap-4 px-4 py-4 text-sm">
+              <div>
+                <a href={`/order/${o.public_id}`} class="font-medium text-gray-900 hover:text-accent">
+                  Order #{orderNumber(o.id, orderCfg)}
+                </a>
+                <div class="text-xs text-gray-400">{formatDate(o.created_at, undefined, timeZone)}</div>
+              </div>
+              <div class="text-right">
+                <div class="tabular-nums">{formatPrice(o.amount_total_cents, o.currency)}</div>
+                <div class="text-xs capitalize text-gray-400">{o.status}</div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )
+    }
+  </div>
+</Layout>

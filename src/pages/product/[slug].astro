@@ -1,0 +1,476 @@
+---
+import { env } from 'cloudflare:workers';
+import Layout from '../../layouts/Layout.astro';
+import { getProductBySlug, listProductImages } from '../../features/products/db';
+import { listVariants, listExtras } from '../../features/products/variants';
+import { categoriesForProduct, relatedProducts } from '../../features/categories/db';
+import { getRelatedByVector } from '../../features/search';
+import { enabledMethods } from '../../features/payments';
+import ProductImage from '../../features/products/ProductImage.astro';
+import { productImageUrl } from '../../features/products/image';
+import { stockState } from '../../features/products/stock';
+import { formatPrice, toMajorUnits, currencyDecimals } from '../../config';
+
+const { slug } = Astro.params;
+const product = slug ? await getProductBySlug(env.DB, slug) : null;
+
+if (!product) {
+  return new Response('Not found', { status: 404 });
+}
+
+const categories = await categoriesForProduct(env.DB, product.id);
+// Recommendations: semantic similarity (Vectorize) first, then topped up with the
+// category-based related query if there aren't enough — so the row fills (when the
+// catalog allows) instead of showing just the 1–2 nearest vectors. Deduped, capped.
+const RELATED_TARGET = 4;
+const semantic = await getRelatedByVector(product.id, RELATED_TARGET);
+let related = semantic;
+if (related.length < RELATED_TARGET) {
+  const seen = new Set(related.map((p) => p.id));
+  const byCategory = await relatedProducts(env.DB, product.id, RELATED_TARGET + semantic.length);
+  related = [...related, ...byCategory.filter((p) => !seen.has(p.id))].slice(0, RELATED_TARGET);
+}
+
+// Variants (pick one, own stock/price) + extras (checkbox add-ons, price deltas).
+// Either may be empty; a product with neither behaves exactly as before.
+const variants = await listVariants(env.DB, product.id);
+const extras = await listExtras(env.DB, product.id);
+const hasVariants = variants.length > 0;
+const hasOptions = hasVariants || extras.length > 0;
+
+// Gallery in display order — the first image is the primary.
+const gallery = await listProductImages(env.DB, product.id);
+const hasGallery = gallery.length > 1;
+const state = stockState(product.stock);
+// With variants the inventory unit is the variant, so availability comes from
+// them; otherwise from the product's own stock.
+const soldOut = hasVariants ? variants.every((v) => v.stock <= 0) : state === 'out';
+
+// Header price: when variants differ, show the lowest with a "from" prefix.
+const variantPrices = variants.map((v) => v.price_cents);
+const displayPriceCents = hasVariants ? Math.min(...variantPrices) : product.price_cents;
+const priceVaries =
+  hasVariants && Math.min(...variantPrices) !== Math.max(...variantPrices);
+
+// Precompute per-row flags here (not in the template) — Astro's JSX parser trips
+// on `<`/`<=` comparisons inside a {map(...)} block. Default-select the first
+// in-stock variant.
+const firstInStockIdx = variants.findIndex((v) => v.stock > 0);
+const variantRows = variants.map((v, i) => ({
+  v,
+  out: v.stock <= 0,
+  defaultChecked: i === firstInStockIdx,
+}));
+// "Buy now" routes through the cart where the buyer picks a rail. Honor the
+// admin's runtime toggles: if no method can take a payment, there's no checkout,
+// so hide Buy now (Add to cart still works); if more than one, the cart picker shows.
+const offered = Astro.locals.settings ? enabledMethods(Astro.locals.settings) : [];
+const canCheckout = offered.length > 0;
+// Runtime storefront toggles (independent): cart off → no Add-to-cart / cart;
+// buy-now off → no instant-buy button. Buy-now is express (skips the cart) so it
+// works even with the cart off, as long as a payment method is enabled.
+const cartEnabled = Astro.locals.settings?.cartEnabled ?? true;
+const buyNowEnabled = Astro.locals.settings?.buyNowEnabled ?? true;
+const showBuyNow = buyNowEnabled && canCheckout;
+const error = Astro.url.searchParams.get('error');
+
+// SEO: absolute image URL for OpenGraph + JSON-LD.
+const imagePath = productImageUrl(product.image_key);
+const imageAbs = new URL(imagePath, Astro.url.origin).href;
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Product',
+  name: product.name,
+  ...(product.description ? { description: product.description } : {}),
+  image: imageAbs,
+  offers: {
+    '@type': 'Offer',
+    price: toMajorUnits(displayPriceCents, product.currency).toFixed(
+      currencyDecimals(product.currency),
+    ),
+    priceCurrency: product.currency.toUpperCase(),
+    availability: soldOut
+      ? 'https://schema.org/OutOfStock'
+      : 'https://schema.org/InStock',
+    url: Astro.url.href,
+  },
+};
+// Escape "<" so a product name can't break out of the <script> tag.
+const jsonLdStr = JSON.stringify(jsonLd).replace(/</g, '\\u003c');
+---
+
+<Layout
+  title={product.name}
+  description={product.description ?? undefined}
+  image={imagePath}
+>
+  <a href="/" class="text-xs uppercase tracking-widest text-gray-400 hover:text-brand">
+    &larr; Back to shop
+  </a>
+
+  {
+    error && (
+      <p class="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        {error}
+      </p>
+    )
+  }
+
+  <div class="mt-6 grid gap-10 md:grid-cols-2 md:gap-16">
+    {
+      hasGallery ? (
+        <div class="reveal">
+          <div
+            data-hero-track
+            class="no-scrollbar relative flex snap-x snap-mandatory overflow-x-auto scroll-smooth rounded-lg bg-white"
+          >
+            {gallery.map((img) => (
+              <img
+                id={`pi-${img.id}`}
+                src={`/images/${img.image_key}`}
+                alt={img.alt || product.name}
+                width="800"
+                height="800"
+                class={`aspect-square w-full shrink-0 snap-center object-cover${soldOut ? ' opacity-60' : ''}`}
+              />
+            ))}
+            {soldOut && (
+              <span class="absolute left-4 top-4 rounded-full bg-white/90 px-3 py-1 text-xs uppercase tracking-widest text-gray-700 ring-1 ring-line">
+                Sold out
+              </span>
+            )}
+          </div>
+          <div class="no-scrollbar mt-3 flex gap-2 overflow-x-auto">
+            {gallery.map((img) => (
+              <a
+                href={`#pi-${img.id}`}
+                class="shrink-0 overflow-hidden rounded border border-line transition hover:border-brand"
+              >
+                <img src={`/images/${img.image_key}`} alt="" class="h-16 w-16 object-cover" />
+              </a>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div class="reveal relative overflow-hidden rounded-lg bg-white">
+          <ProductImage
+            imageKey={product.image_key}
+            alt={product.name}
+            class={`aspect-square w-full object-cover${soldOut ? ' opacity-60' : ''}`}
+          />
+          {soldOut && (
+            <span class="absolute left-4 top-4 rounded-full bg-white/90 px-3 py-1 text-xs uppercase tracking-widest text-gray-700 ring-1 ring-line">
+              Sold out
+            </span>
+          )}
+        </div>
+      )
+    }
+
+    <div class="reveal flex flex-col" style="animation-delay:90ms">
+      {
+        categories.length > 0 && (
+          <div class="mb-4 flex flex-wrap gap-x-4 gap-y-1 text-xs uppercase tracking-widest text-gray-400">
+            {categories.map((c) => (
+              <a href={`/category/${c.slug}`} class="hover:text-brand">
+                {c.name}
+              </a>
+            ))}
+          </div>
+        )
+      }
+
+      <h1 class="font-serif text-4xl tracking-tight">{product.name}</h1>
+      <p
+        class="mt-4 text-2xl tabular-nums text-gray-700"
+        data-price-display
+        data-base={product.price_cents}
+        data-currency={product.currency}
+      >
+        {priceVaries && <span class="text-base text-gray-400">from </span>}
+        {formatPrice(displayPriceCents)}
+      </p>
+      {
+        !hasVariants && state === 'low' && (
+          <p class="mt-2 text-sm text-amber-700">Only {product.stock} left</p>
+        )
+      }
+      <p class="mt-6 max-w-prose leading-relaxed text-gray-600">{product.description}</p>
+
+      {
+        (cartEnabled || showBuyNow) &&
+        (hasOptions ? (
+          // Variants/extras: one form holds the selectors so both buttons share the
+          // chosen options. Add-to-cart opens the drawer; Buy now (data-fullpage)
+          // adds then routes to /cart, where the buyer confirms the selection and
+          // (when several rails are enabled) picks a payment method.
+          <form method="POST" action="/api/cart" class="mt-8 max-w-sm" data-options-form>
+            <input type="hidden" name="_action" value="add" />
+            <input type="hidden" name="product_id" value={product.id} />
+
+            {hasVariants && (
+              <fieldset class="mb-6">
+                <legend class="mb-2 text-xs uppercase tracking-widest text-gray-500">
+                  {product.variant_label || 'Option'}
+                </legend>
+                <div class="flex flex-col gap-2">
+                  {variantRows.map(({ v, out, defaultChecked }) => (
+                    <label
+                      class={`flex items-center justify-between gap-3 rounded-md border px-4 py-2.5 text-sm transition ${
+                        out
+                          ? 'cursor-not-allowed border-line text-gray-400'
+                          : 'cursor-pointer border-line hover:border-brand'
+                      }`}
+                    >
+                      <span class="flex items-center gap-3">
+                        <input
+                          type="radio"
+                          name="variant_id"
+                          value={v.id}
+                          required
+                          disabled={out}
+                          checked={defaultChecked}
+                          data-price={v.price_cents}
+                          data-image-id={v.image_id ?? ''}
+                          class="accent-brand"
+                        />
+                        <span>
+                          {v.label}
+                          {out && ' — sold out'}
+                        </span>
+                      </span>
+                      <span class="tabular-nums text-gray-500">{formatPrice(v.price_cents)}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            )}
+
+            {extras.length > 0 && (
+              <fieldset class="mb-6">
+                <legend class="mb-2 text-xs uppercase tracking-widest text-gray-500">
+                  Add-ons
+                </legend>
+                <div class="flex flex-col gap-2">
+                  {extras.map((ex) => (
+                    <label class="flex cursor-pointer items-center justify-between gap-3 rounded-md border border-line px-4 py-2.5 text-sm transition hover:border-brand">
+                      <span class="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          name="extra"
+                          value={ex.id}
+                          data-price={ex.price_delta_cents}
+                          class="accent-brand"
+                        />
+                        <span>{ex.label}</span>
+                      </span>
+                      <span class="tabular-nums text-gray-500">
+                        +{formatPrice(ex.price_delta_cents)}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            )}
+
+            {soldOut ? (
+              <span class="inline-block cursor-not-allowed rounded-md border border-line px-8 py-3 text-sm font-medium uppercase tracking-wider text-gray-400">
+                Sold out
+              </span>
+            ) : (
+              <div class="flex flex-wrap gap-3">
+                {cartEnabled && (
+                  <button
+                    type="submit"
+                    class="rounded-md border border-line px-8 py-3 text-sm font-medium uppercase tracking-wider text-gray-700 transition hover:border-brand hover:text-brand"
+                  >
+                    Add to cart
+                  </button>
+                )}
+                {showBuyNow && (
+                  <button
+                    type="submit"
+                    formaction="/express"
+                    data-fullpage
+                    class="rounded-md bg-brand px-8 py-3 text-sm font-medium uppercase tracking-wider text-white transition hover:bg-brand-hover"
+                  >
+                    Buy now
+                  </button>
+                )}
+              </div>
+            )}
+          </form>
+        ) : (
+          <div class="mt-10 flex gap-3">
+            {soldOut && (
+              <span class="cursor-not-allowed rounded-md border border-line px-8 py-3 text-sm font-medium uppercase tracking-wider text-gray-400">
+                Sold out
+              </span>
+            )}
+            {!soldOut && cartEnabled && (
+              <form method="POST" action="/api/cart">
+                <input type="hidden" name="_action" value="add" />
+                <input type="hidden" name="product_id" value={product.id} />
+                <button
+                  type="submit"
+                  class="rounded-md border border-line px-8 py-3 text-sm font-medium uppercase tracking-wider text-gray-700 transition hover:border-brand hover:text-brand"
+                >
+                  Add to cart
+                </button>
+              </form>
+            )}
+            {!soldOut && showBuyNow && (
+              // Express checkout step (skips the cart, so it works with the cart off).
+              // The buyer picks a payment method there; first listed = the default.
+              <form method="POST" action="/express">
+                <input type="hidden" name="product_id" value={product.id} />
+                <button
+                  type="submit"
+                  class="rounded-md bg-brand px-8 py-3 text-sm font-medium uppercase tracking-wider text-white transition hover:bg-brand-hover"
+                >
+                  Buy now
+                </button>
+              </form>
+            )}
+          </div>
+        ))
+      }
+
+      {/* Share — hidden until JS confirms the browser can share or copy. Uses the
+          Web Share API (mobile/native sheet) with a clipboard-copy fallback. */}
+      <button
+        type="button"
+        data-share
+        data-share-title={product.name}
+        class="mt-6 hidden w-fit items-center gap-2 text-xs uppercase tracking-widest text-gray-400 transition hover:text-brand"
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="18" cy="5" r="3" />
+          <circle cx="6" cy="12" r="3" />
+          <circle cx="18" cy="19" r="3" />
+          <line x1="8.6" y1="13.5" x2="15.4" y2="17.5" />
+          <line x1="15.4" y1="6.5" x2="8.6" y2="10.5" />
+        </svg>
+        <span data-share-label>Share</span>
+      </button>
+    </div>
+  </div>
+
+  {
+    related.length > 0 && (
+      <section class="mt-20 border-t border-line pt-12">
+        <h2 class="mb-8 text-xs uppercase tracking-[0.25em] text-gray-400">You may also like</h2>
+        <ul class="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-4">
+          {related.map((r) => (
+            <li class="group">
+              <a href={`/product/${r.slug}`} class="block">
+                <div class="relative overflow-hidden rounded-md bg-white">
+                  <ProductImage
+                    imageKey={r.image_key}
+                    alt={r.name}
+                    class={`aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]${0 >= r.stock ? ' opacity-60' : ''}`}
+                  />
+                  {0 >= r.stock && (
+                    <span class="absolute left-3 top-3 rounded-full bg-white/90 px-2.5 py-0.5 text-xs uppercase tracking-widest text-gray-700 ring-1 ring-line">
+                      Sold out
+                    </span>
+                  )}
+                </div>
+                <h3 class="mt-4 text-sm font-medium tracking-tight">{r.name}</h3>
+                <p class="mt-1 text-sm tabular-nums text-gray-500">{formatPrice(r.price_cents)}</p>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )
+  }
+
+  <script is:inline type="application/ld+json" set:html={jsonLdStr} />
+
+  {/* Live price + hero image: reflect the chosen variant + checked add-ons. No-JS
+      still works — the server computes the real price in cart/checkout, and the
+      gallery's primary image shows by default. */}
+  <script>
+    // @ts-nocheck -- plain-JS client script (annotations would ship to the browser)
+    const form = document.querySelector('[data-options-form]');
+    const out = document.querySelector('[data-price-display]');
+    const track = document.querySelector('[data-hero-track]');
+    if (form instanceof HTMLFormElement && out instanceof HTMLElement) {
+      const currency = (out.dataset.currency || 'usd').toUpperCase();
+      const base = Number(out.dataset.base || '0');
+      const fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency });
+      const divisor = 10 ** (fmt.resolvedOptions().maximumFractionDigits ?? 2);
+
+      // Scroll the gallery carousel to the variant's linked image (if any). The
+      // track is position:relative, so each image's offsetLeft is measured from the
+      // track's content box — exactly the scrollLeft needed to bring it flush left.
+      const showImage = (imageId) => {
+        if (!(track instanceof HTMLElement) || !/^\d+$/.test(imageId)) return;
+        const img = document.getElementById(`pi-${imageId}`);
+        if (img instanceof HTMLElement && track.contains(img)) {
+          track.scrollLeft = img.offsetLeft;
+        }
+      };
+
+      const update = (scroll) => {
+        const v = form.querySelector('input[name="variant_id"]:checked');
+        let cents = v ? Number(v.getAttribute('data-price')) : base;
+        for (const e of form.querySelectorAll('input[name="extra"]:checked')) {
+          cents += Number(e.getAttribute('data-price')) || 0;
+        }
+        out.textContent = fmt.format(cents / divisor);
+        if (scroll && v) showImage(v.getAttribute('data-image-id') || '');
+      };
+      // Sync price + carousel to the default-selected variant on load, and on every
+      // change. Setting track.scrollLeft only moves the carousel, never the page.
+      form.addEventListener('change', () => update(true));
+      update(true);
+    }
+  </script>
+
+  <script>
+    // @ts-nocheck -- plain-JS client script (annotations would ship to the browser)
+    const btn = document.querySelector('[data-share]');
+    if (btn instanceof HTMLElement) {
+      const canShare = typeof navigator.share === 'function';
+      const canCopy = !!navigator.clipboard?.writeText;
+      if (canShare || canCopy) {
+        btn.classList.remove('hidden');
+        btn.classList.add('inline-flex');
+        const label = btn.querySelector('[data-share-label]');
+        btn.addEventListener('click', async () => {
+          const url = location.href;
+          const title = btn.dataset.shareTitle || document.title;
+          if (canShare) {
+            // Rejects when the user dismisses the share sheet — that's expected.
+            try {
+              await navigator.share({ title, url });
+            } catch {
+              /* user cancelled */
+            }
+            return;
+          }
+          await navigator.clipboard.writeText(url);
+          if (label) {
+            const prev = label.textContent;
+            label.textContent = 'Link copied';
+            setTimeout(() => {
+              label.textContent = prev;
+            }, 1500);
+          }
+        });
+      }
+    }
+  </script>
+</Layout>

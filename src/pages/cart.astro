@@ -1,0 +1,217 @@
+---
+import { env } from 'cloudflare:workers';
+import Layout from '../layouts/Layout.astro';
+import { formatPrice, getConfig } from '../config';
+import { readCart, resolveCart } from '../features/cart/cart';
+import { allowedCountries } from '../features/shipping/calculator';
+import ProductImage from '../features/products/ProductImage.astro';
+import { enabledMethods, isMethodAvailable } from '../features/payments';
+
+// Cart switched off in Settings → browse-only catalog, no cart page.
+if (!(Astro.locals.settings?.cartEnabled ?? true)) return Astro.redirect('/', 302);
+
+// Show only the methods that can actually take a payment right now — the
+// configured real rails plus the always-on demo, minus any the admin disabled.
+// A fresh deploy with no payment secrets therefore offers demo only; adding a
+// rail's keys makes its button appear automatically (no unconfigured "set this
+// up" buttons facing customers). The first method gets the primary styling.
+const settings = Astro.locals.settings;
+const methods = settings ? enabledMethods(settings) : [];
+const ready = (m: string) => m === "demo" || (!!settings && isMethodAvailable(m as never, settings));
+const firstReady = methods.find(ready);
+const methodRows = methods.map((m) => ({ m, ready: ready(m), primary: m === firstReady }));
+const METHOD: Record<string, { label: string; hint: string; setupHint: string }> = {
+  stripe: { label: 'Pay with card', hint: 'Visa, Mastercard, Apple Pay & more', setupHint: 'Set up card payments' },
+  lightning: { label: 'Pay with Lightning ⚡', hint: 'Instant — from any Lightning wallet', setupHint: 'Set up Lightning' },
+  opennode: { label: 'Pay with Bitcoin', hint: 'On-chain or Lightning (OpenNode)', setupHint: 'Set up OpenNode' },
+  demo: { label: 'Demo checkout', hint: 'Simulated — places a real test order, no charge', setupHint: '' },
+};
+
+const cart = readCart(Astro.cookies);
+const { lines, subtotalCents } = await resolveCart(env.DB, cart);
+const error = Astro.url.searchParams.get('error');
+
+// Destination pre-selector for Stripe's hosted checkout: Stripe shows a static
+// rate list set before it knows the address, so let the shopper pick the country
+// here (defaulted to the first, editable) → Stripe gets that zone's rates. The
+// Lightning path collects the country on its own /checkout page, so skip it there.
+const cfg = getConfig();
+const shipCountries =
+  cfg.shipping.enabled && settings?.paymentProvider !== 'lightning'
+    ? allowedCountries(cfg.shipping)
+    : [];
+const showCountry = shipCountries.length > 1;
+---
+
+<Layout title="Cart">
+  <h1 class="mb-10 font-serif text-4xl tracking-tight">Your cart</h1>
+
+  {
+    error && (
+      <p class="mb-8 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        {error}
+      </p>
+    )
+  }
+
+  {
+    lines.length === 0 ? (
+      <p class="text-gray-600">
+        Your cart is empty.{' '}
+        <a href="/" class="border-b border-brand text-brand">
+          Continue shopping
+        </a>
+        .
+      </p>
+    ) : (
+      <Fragment>
+        {/* Items — a reflowing list (not a rigid table) so it works on mobile:
+            product takes the row, the qty/total/remove controls wrap below on
+            narrow screens. */}
+        <ul class="border-t border-line">
+          {lines.map((l) => (
+            <li class="flex flex-wrap items-center gap-x-4 gap-y-3 border-b border-line py-4">
+              <a
+                href={`/product/${l.product.slug}`}
+                class="flex min-w-0 flex-1 basis-64 items-center gap-4 hover:text-brand"
+              >
+                <ProductImage
+                  imageKey={l.product.image_key}
+                  alt=""
+                  class="h-16 w-16 shrink-0 rounded object-cover"
+                />
+                <span class="min-w-0">
+                  <span class="block truncate">{l.product.name}</span>
+                  {(l.variant || l.extras.length > 0) && (
+                    <span class="block truncate text-xs text-gray-500">
+                      {[l.variant?.label, ...l.extras.map((e) => e.label)].filter(Boolean).join(' · ')}
+                    </span>
+                  )}
+                  <span class="block text-xs tabular-nums text-gray-500">
+                    {formatPrice(l.unitPriceCents)} each
+                  </span>
+                  {l.availableStock <= 0 ? (
+                    <span class="mt-1 block text-xs uppercase tracking-widest text-red-600">
+                      Out of stock
+                    </span>
+                  ) : l.qty > l.availableStock ? (
+                    <span class="mt-1 block text-xs text-amber-700">
+                      Only {l.availableStock} available
+                    </span>
+                  ) : null}
+                </span>
+              </a>
+
+              <div class="ml-auto flex items-center gap-4">
+                <form method="POST" action="/api/cart" class="flex items-center gap-2">
+                  <input type="hidden" name="_action" value="update" />
+                  <input type="hidden" name="key" value={l.key} />
+                  <input
+                    type="number"
+                    name="qty"
+                    min="0"
+                    max="99"
+                    value={l.qty}
+                    aria-label="Quantity"
+                    class="w-14 border-b border-line bg-transparent py-1 text-center tabular-nums focus:border-brand focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    class="text-xs uppercase tracking-widest text-gray-400 hover:text-brand"
+                  >
+                    Update
+                  </button>
+                </form>
+                <span class="w-20 text-right tabular-nums">{formatPrice(l.lineTotalCents)}</span>
+                <form method="POST" action="/api/cart">
+                  <input type="hidden" name="_action" value="remove" />
+                  <input type="hidden" name="key" value={l.key} />
+                  <button
+                    type="submit"
+                    aria-label="Remove"
+                    class="text-xs uppercase tracking-widest text-gray-400 hover:text-red-600"
+                  >
+                    Remove
+                  </button>
+                </form>
+              </div>
+            </li>
+          ))}
+        </ul>
+
+        {/* Checkout panel — full-width on mobile, right-aligned card on desktop.
+            Subtotal on top, payment methods stacked beneath it. */}
+        <div class="mt-10 flex justify-end">
+          <div class="w-full sm:max-w-sm">
+            <div class="flex items-center justify-between">
+              <span class="text-xs uppercase tracking-widest text-gray-500">Subtotal</span>
+              <span class="text-lg tabular-nums">{formatPrice(subtotalCents)}</span>
+            </div>
+
+            {methods.length === 0 ? (
+              <p class="mt-4 rounded-lg border border-dashed border-line px-5 py-4 text-center text-sm text-gray-500">
+                Checkout is currently unavailable.
+              </p>
+            ) : (
+            <form method="POST" action="/api/checkout" class="mt-4 space-y-2">
+              <input type="hidden" name="source" value="cart" />
+              {showCountry && (
+                <label class="mb-2 flex items-center justify-between gap-2 text-xs uppercase tracking-widest text-gray-500">
+                  Ship to
+                  <select
+                    name="country"
+                    class="rounded-md border border-gray-200 px-2 py-1.5 text-sm normal-case tracking-normal text-gray-900"
+                  >
+                    {shipCountries.map((c) => (
+                      <option value={c}>{c}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
+              {/* One control per offered method. Ready (configured/demo) → a submit
+                  whose name/value sends method=<rail>. Unconfigured real rails → a
+                  link to setup instructions (a dashed, muted "set this up" tile). */}
+              {methodRows.map(({ m, ready, primary }) =>
+                ready ? (
+                  <button
+                    type="submit"
+                    name="method"
+                    value={m}
+                    class={`flex w-full items-center justify-between gap-3 rounded-lg px-5 py-3 text-left transition ${
+                      primary
+                        ? 'bg-brand text-white hover:bg-brand-hover'
+                        : 'border border-line text-gray-700 hover:border-brand'
+                    }`}
+                  >
+                    <span>
+                      <span class="block text-sm font-medium">{METHOD[m]?.label ?? m}</span>
+                      <span class={`block text-xs ${primary ? 'text-white/70' : 'text-gray-500'}`}>
+                        {METHOD[m]?.hint ?? ''}
+                      </span>
+                    </span>
+                    <span aria-hidden="true" class={primary ? 'text-white/80' : 'text-gray-400'}>
+                      &rarr;
+                    </span>
+                  </button>
+                ) : (
+                  <a
+                    href={`/payment-setup?method=${m}`}
+                    class="flex w-full items-center justify-between gap-3 rounded-lg border border-dashed border-line px-5 py-3 text-left text-gray-400 transition hover:border-brand hover:text-brand"
+                  >
+                    <span>
+                      <span class="block text-sm font-medium">{METHOD[m]?.label ?? m}</span>
+                      <span class="block text-xs">{METHOD[m]?.setupHint ?? 'Set up'}</span>
+                    </span>
+                    <span aria-hidden="true">&rarr;</span>
+                  </a>
+                ),
+              )}
+            </form>
+            )}
+          </div>
+        </div>
+      </Fragment>
+    )
+  }
+</Layout>

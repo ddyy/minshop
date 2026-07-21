@@ -1,0 +1,59 @@
+---
+import type { Category, CategoryOption } from './db';
+
+interface Props {
+  action: string;
+  submitLabel: string;
+  category?: Category | null;
+  /** Valid parent choices (depth-tagged). For edit, excludes self + descendants. */
+  parentOptions: CategoryOption[];
+  error?: string | null;
+}
+
+const { action, submitLabel, category = null, parentOptions, error = null } = Astro.props;
+const inputClass =
+  'mt-1 w-full rounded-md border border-gray-300 px-3 py-2 focus:border-brand focus:outline-none';
+---
+
+<form method="POST" action={action} class="max-w-lg space-y-4">
+  {
+    error && (
+      <p class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        {error}
+      </p>
+    )
+  }
+
+  <div>
+    <label class="block text-sm font-medium" for="name">Name</label>
+    <input id="name" name="name" type="text" required value={category?.name ?? ''} class={inputClass} />
+  </div>
+
+  <div>
+    <label class="block text-sm font-medium" for="slug">
+      Slug <span class="text-gray-400">(URL — blank to auto-generate from name)</span>
+    </label>
+    <input id="slug" name="slug" type="text" value={category?.slug ?? ''} placeholder="auto-from-name" class={inputClass} />
+  </div>
+
+  <div>
+    <label class="block text-sm font-medium" for="parent_id">Parent category</label>
+    <select id="parent_id" name="parent_id" class={inputClass}>
+      <option value="">— none (top level) —</option>
+      {
+        parentOptions.map((o) => (
+          <option value={o.id} selected={category?.parent_id === o.id}>
+            {'  '.repeat(o.depth) + o.name}
+          </option>
+        ))
+      }
+    </select>
+  </div>
+
+  <div class="flex gap-3 pt-2">
+    <button type="submit" class="rounded-md bg-brand px-5 py-2 font-medium text-white hover:bg-brand-hover">
+      {submitLabel}
+    </button>
+    <a href="/admin/categories" class="rounded-md border border-gray-300 px-5 py-2 hover:bg-gray-50">Cancel</a>
+  </div>
+</form>

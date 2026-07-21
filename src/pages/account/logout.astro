@@ -1,0 +1,7 @@
+---
+export const prerender = false;
+import { clearCustomerSession } from '../../features/auth/customer';
+// Clear the customer session cookie and return to the storefront.
+clearCustomerSession(Astro.cookies);
+return Astro.redirect('/', 303);
+---

@@ -1,0 +1,50 @@
+{
+  // Template for a provisioned instance. scripts/provision-cf.sh fills the __…__
+  // placeholders, renders this to ./wrangler.jsonc, deploys, then restores the
+  // original. Keep shared runtime settings in sync with wrangler.jsonc; bindings
+  // intentionally differ because this template defaults to free-plan resources.
+  //
+  // FREE-PLAN DEFAULT: only D1 + R2 — both included on the Cloudflare free plan.
+  // Every other integration degrades gracefully when its binding is absent; add a
+  // binding back (+ redeploy) to enable the feature:
+  //   • Semantic search — add  "ai": { "binding": "AI" }  and
+  //     "vectorize": [{ "binding": "VECTORIZE", "index_name": "<name>-products" }]
+  //     (create the index first: wrangler vectorize create <name>-products
+  //     --dimensions=768 --metric=cosine — Vectorize needs the Workers PAID plan),
+  //     then flip it on in Admin → Settings → Search. Until then: keyword (FTS5).
+  //   • Image optimize-on-upload — add  "images": { "binding": "IMAGES" }  (enable
+  //     Transformations in the dash). Without it, uploads are stored as-is in R2.
+  //   • Cloudflare-native email — add  "send_email": [{ "name": "EMAIL" }]  (Workers
+  //     PAID plan + onboarded sender domain). Resend (HTTP) works on the free plan
+  //     and is configured entirely in Admin → Settings → Email.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "__NAME__",
+  "compatibility_date": "2026-07-20",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "ratelimits": [
+    {
+      "name": "AUTH_RATE_LIMITER",
+      "namespace_id": "10001",
+      "simple": { "limit": 10, "period": 60 }
+    },
+    {
+      "name": "CHECKOUT_RATE_LIMITER",
+      "namespace_id": "10002",
+      "simple": { "limit": 20, "period": 60 }
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "__DB_NAME__",
+      "database_id": "__DB_ID__",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "__BUCKET__" }],
+  "vars": {
+    "STORE_NAME": "My Store",
+    "TIME_ZONE": "UTC"
+  }
+}

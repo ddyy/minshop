@@ -1,0 +1,201 @@
+---
+import { getConfig } from '../config';
+import { readCart, cartCount } from '../features/cart/cart';
+import '../styles/global.css';
+
+interface Props {
+  title?: string;
+  description?: string;
+  /** Root-relative or absolute image for social cards (made absolute below). */
+  image?: string;
+}
+
+const { title, description, image } = Astro.props;
+const config = getConfig();
+const { features } = config;
+// Runtime override (set by the setup wizard) wins over the build-time default.
+const storeName = Astro.locals.settings?.storeName ?? config.storeName;
+// Cart can be switched off at runtime → browse-only catalog (hide the cart link).
+const cartEnabled = Astro.locals.settings?.cartEnabled ?? true;
+const pageTitle = title ? `${title} — ${storeName}` : storeName;
+const count = cartCount(readCart(Astro.cookies));
+const query = Astro.url.searchParams.get('q') ?? '';
+
+const desc = (description ?? `Shop ${storeName}.`).slice(0, 160);
+const canonical = new URL(Astro.url.pathname, Astro.url.origin).href;
+const ogImage = image ? new URL(image, Astro.url.origin).href : undefined;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>{pageTitle}</title>
+    <meta name="description" content={desc} />
+    <link rel="canonical" href={canonical} />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={storeName} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={desc} />
+    <meta property="og:url" content={canonical} />
+    {ogImage && <meta property="og:image" content={ogImage} />}
+
+    <meta name="twitter:card" content={ogImage ? 'summary_large_image' : 'summary'} />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={desc} />
+    {ogImage && <meta name="twitter:image" content={ogImage} />}
+  </head>
+  <body class="flex min-h-screen flex-col bg-paper text-gray-900 antialiased">
+    <header class="sticky top-0 z-20 border-b border-line bg-paper/85 backdrop-blur">
+      <div class="mx-auto flex max-w-6xl items-center gap-6 px-6 py-5">
+        <a href="/" class="font-serif text-2xl tracking-tight">{storeName}</a>
+        <form
+          method="GET"
+          action="/search"
+          class="ml-auto hidden flex-1 justify-end sm:flex"
+          role="search"
+        >
+          <input
+            type="search"
+            name="q"
+            value={query}
+            placeholder="Search"
+            aria-label="Search products"
+            class="w-40 border-0 border-b border-line bg-transparent px-1 py-1 text-sm transition-all placeholder:text-gray-400 focus:w-56 focus:border-brand focus:outline-none"
+          />
+        </form>
+        <nav class="ml-auto flex items-center gap-4 text-xs uppercase tracking-widest text-gray-500 sm:gap-6">
+          {features.blog && <a href="/blog" class="hover:text-brand">Blog</a>}
+          {/* Search input is desktop-only; give mobile a link to the search page. */}
+          <a href="/search" class="hover:text-brand sm:hidden">Search</a>
+          {
+            cartEnabled && (
+              <a href="/cart" data-cart-open class="hover:text-brand">
+                Cart<span data-cart-count-label>{count > 0 ? ` (${count})` : ''}</span>
+              </a>
+            )
+          }
+          {features.accounts && <a href="/account" class="hover:text-brand">Account</a>}
+        </nav>
+      </div>
+    </header>
+
+    <main class="mx-auto w-full max-w-6xl flex-1 px-6 py-12">
+      <slot />
+    </main>
+
+    <footer class="border-t border-line">
+      <div class="mx-auto max-w-6xl px-6 py-10 text-xs uppercase tracking-widest text-gray-500">
+        &copy; {storeName}
+      </div>
+    </footer>
+
+    {/* Slide-out cart drawer. Progressive enhancement: hidden + inert until JS
+        opens it; the /cart page and plain form posts are the no-JS baseline. */}
+    <div
+      data-cart-drawer
+      class="invisible pointer-events-none fixed inset-0 z-40"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Cart"
+    >
+      <div data-cart-backdrop class="absolute inset-0 bg-black/30 opacity-0 transition-opacity duration-300"></div>
+      <aside
+        data-cart-panel
+        class="absolute right-0 top-0 flex h-full w-full max-w-md translate-x-full flex-col bg-paper shadow-xl transition-transform duration-300"
+      >
+        <div class="flex items-center justify-between border-b border-line px-6 py-5">
+          <h2 class="font-serif text-2xl tracking-tight">Your cart</h2>
+          <button
+            type="button"
+            data-cart-close
+            aria-label="Close cart"
+            class="text-2xl leading-none text-gray-400 hover:text-brand"
+          >
+            &times;
+          </button>
+        </div>
+        <div data-cart-body class="flex-1 overflow-y-auto px-6 py-5"></div>
+      </aside>
+    </div>
+
+    <script>
+      // @ts-nocheck -- plain-JS client script (annotations would ship to the browser)
+      const drawer = document.querySelector('[data-cart-drawer]');
+      if (drawer instanceof HTMLElement) {
+        const panel = drawer.querySelector('[data-cart-panel]');
+        const backdrop = drawer.querySelector('[data-cart-backdrop]');
+        const body = drawer.querySelector('[data-cart-body]');
+        const label = document.querySelector('[data-cart-count-label]');
+
+        const setBadge = (n) => {
+          if (label) label.textContent = n > 0 ? ` (${n})` : '';
+        };
+        const open = () => {
+          drawer.classList.remove('invisible', 'pointer-events-none');
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              panel?.classList.remove('translate-x-full');
+              backdrop?.classList.remove('opacity-0');
+            }),
+          );
+          document.body.style.overflow = 'hidden';
+        };
+        const close = () => {
+          panel?.classList.add('translate-x-full');
+          backdrop?.classList.add('opacity-0');
+          document.body.style.overflow = '';
+          setTimeout(() => drawer.classList.add('invisible', 'pointer-events-none'), 300);
+        };
+        const refresh = async () => {
+          const html = await fetch('/partials/cart', { headers: { 'X-Partial': '1' } }).then((r) =>
+            r.text(),
+          );
+          if (body) body.innerHTML = html;
+          const root = body?.querySelector('[data-cart-count]');
+          setBadge(root ? Number(root.getAttribute('data-cart-count')) : 0);
+        };
+
+        // Open from the header cart link (anchor stays a real link with no JS).
+        for (const el of document.querySelectorAll('[data-cart-open]')) {
+          el.addEventListener('click', async (e) => {
+            e.preventDefault();
+            await refresh();
+            open();
+          });
+        }
+        drawer.querySelector('[data-cart-close]')?.addEventListener('click', close);
+        backdrop?.addEventListener('click', close);
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape' && !drawer.classList.contains('invisible')) close();
+        });
+
+        // Intercept add/update/remove posts everywhere EXCEPT the full /cart page,
+        // which keeps its own server-rendered flow.
+        document.addEventListener('submit', async (e) => {
+          const form = e.target;
+          if (!(form instanceof HTMLFormElement)) return;
+          if ((form.getAttribute('action') || '') !== '/api/cart') return;
+          // Opt-out: "Buy now" adds to cart then navigates to the full /cart page —
+          // let it do the native post + redirect, no drawer. The flag can sit on the
+          // form (separate buy-now form) or on the clicked button (shared options form).
+          if (form.hasAttribute('data-fullpage')) return;
+          if (e.submitter instanceof HTMLElement && e.submitter.hasAttribute('data-fullpage'))
+            return;
+          if (location.pathname === '/cart') return;
+          e.preventDefault();
+          await fetch('/api/cart', {
+            method: 'POST',
+            headers: { 'X-Partial': '1' },
+            body: new URLSearchParams(new FormData(form)),
+          });
+          await refresh();
+          open();
+        });
+      }
+    </script>
+  </body>
+</html>

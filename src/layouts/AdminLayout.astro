@@ -1,0 +1,144 @@
+---
+import { getConfig } from '../config';
+import { paymentsInDemoMode } from '../features/payments';
+import '../styles/global.css';
+
+type Section = 'dashboard' | 'products' | 'orders' | 'customers' | 'categories' | 'settings';
+
+interface Props {
+  title?: string;
+  active?: Section;
+}
+
+const { title, active } = Astro.props;
+const config = getConfig();
+const storeName = Astro.locals.settings?.storeName ?? config.storeName;
+// Nudge to finish first-run setup — except while on the wizard itself.
+const showSetupNudge =
+  !Astro.locals.settings?.setupComplete && Astro.url.pathname !== '/admin/setup';
+// Show "Log out" only when a password-login session cookie is present. Under
+// Cloudflare Access or local dev there's no minshop session to clear.
+const showLogout = !!Astro.cookies.get('admin_session')?.value;
+const pageTitle = title ? `${title} — ${storeName} admin` : `${storeName} admin`;
+
+const nav: { key: Section; label: string; href: string }[] = [
+  { key: 'dashboard', label: 'Dashboard', href: '/admin' },
+  { key: 'products', label: 'Products', href: '/admin/products' },
+  { key: 'orders', label: 'Orders', href: '/admin/orders' },
+  { key: 'customers', label: 'Customers', href: '/admin/customers' },
+  { key: 'categories', label: 'Categories', href: '/admin/categories' },
+  { key: 'settings', label: 'Settings', href: '/admin/settings' },
+];
+// Label of the section we're on — shown in the collapsed mobile disclosure.
+const currentLabel = nav.find((n) => n.key === active)?.label ?? 'Menu';
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>{pageTitle}</title>
+  </head>
+  <body class="min-h-screen bg-paper text-gray-900 antialiased">
+    <div class="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-8 sm:flex-row sm:gap-10">
+      <aside class="w-full shrink-0 sm:w-52 sm:border-r sm:border-line sm:pr-6">
+        <a href="/" class="mb-4 block font-serif text-xl tracking-tight sm:mb-8">{storeName}</a>
+
+        {/* Pure-CSS disclosure (a hidden checkbox toggle). On mobile the list is
+            collapsed by default and the labelled summary card expands it — no JS,
+            and each SSR page load resets it, so it always reflects the page you're
+            on. At sm+ the checkbox/summary are hidden and the list is shown inline
+            as the vertical sidebar. (We deliberately avoid <details>: Chromium
+            doesn't paint closed-<details> content even when CSS forces it visible,
+            which blanks the desktop sidebar.) */}
+        <input
+          type="checkbox"
+          id="admin-nav"
+          data-admin-nav-toggle
+          class="peer sr-only"
+          aria-label="Toggle admin sections"
+        />
+        <label
+          for="admin-nav"
+          data-admin-nav-summary
+          class="flex cursor-pointer select-none items-center justify-between gap-3 rounded-md border border-line bg-white/60 px-4 py-3 transition hover:border-brand sm:hidden"
+        >
+          <span class="flex flex-col gap-0.5">
+            <span class="text-[0.625rem] uppercase tracking-[0.25em] text-gray-400">Admin</span>
+            <span class="font-serif text-lg leading-none tracking-tight text-gray-900">{currentLabel}</span>
+          </span>
+          <svg
+            data-admin-nav-chevron
+            class="size-4 shrink-0 text-gray-400 transition-transform duration-300"
+            viewBox="0 0 20 20"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            aria-hidden="true"
+          >
+            <path d="M5 7.5 10 12.5 15 7.5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </label>
+
+        <nav
+          data-admin-nav-list
+          class="mt-2 hidden overflow-hidden rounded-md border border-line bg-white/60 text-xs uppercase tracking-widest peer-checked:block sm:mt-0 sm:block sm:space-y-0.5 sm:rounded-none sm:border-0 sm:bg-transparent"
+        >
+          {
+            nav.map((n) => (
+              <a
+                href={n.href}
+                aria-current={active === n.key ? 'page' : undefined}
+                class={`flex items-center justify-between border-b border-l-2 border-line px-4 py-3 transition last:border-b-0 sm:block sm:border-b-0 sm:px-3 sm:py-1.5 ${
+                  active === n.key
+                    ? 'border-l-brand bg-paper font-medium text-brand sm:bg-transparent'
+                    : 'border-l-transparent text-gray-500 hover:bg-paper hover:text-brand sm:hover:bg-transparent'
+                }`}
+              >
+                <span>{n.label}</span>
+                {active === n.key && (
+                  <span aria-hidden="true" class="size-1.5 rounded-full bg-brand sm:hidden" />
+                )}
+              </a>
+            ))
+          }
+        </nav>
+
+        <div class="mt-4 flex gap-4 text-xs uppercase tracking-widest text-gray-400 sm:mt-8 sm:flex-col sm:gap-2">
+          <a href="/" class="hover:text-brand">&larr; View store</a>
+          {showLogout && <a href="/admin/logout" class="hover:text-brand">Log out</a>}
+        </div>
+      </aside>
+
+      <main class="min-w-0 flex-1">
+        {
+          showSetupNudge && (
+            <a
+              href="/admin/setup"
+              class="mb-6 flex items-center justify-between gap-3 rounded-md border border-brand/30 bg-brand/5 px-4 py-3 text-sm text-gray-700 transition hover:border-brand"
+            >
+              <span>
+                <strong class="font-semibold">Finish setting up your store</strong> — store name,
+                payment status, and more.
+              </span>
+              <span aria-hidden="true" class="text-brand">&rarr;</span>
+            </a>
+          )
+        }
+        {
+          Astro.locals.settings && paymentsInDemoMode(Astro.locals.settings) && (
+            <div class="mb-6 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <strong class="font-semibold">No real payment method configured.</strong> Only{' '}
+              <strong>Demo checkout</strong> can take orders right now — they're recorded and tagged{' '}
+              <code class="rounded bg-amber-100 px-1 text-xs">demo</code>. Shoppers see setup links
+              for Card &amp; Lightning until you add a key. Demo stays available alongside real rails.
+            </div>
+          )
+        }
+        <slot />
+      </main>
+    </div>
+  </body>
+</html>

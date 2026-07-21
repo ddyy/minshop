@@ -1,0 +1,6 @@
+# Copy to mcp/.dev.vars (gitignored) for local `npm run mcp:dev`.
+# Production: wrangler secret put MCP_TOKEN --config mcp/wrangler.jsonc
+#
+# Bearer token clients must send as `Authorization: Bearer <token>`. Unset = the
+# server returns 503 (fail-closed, no tools exposed).
+MCP_TOKEN=choose-a-long-random-token

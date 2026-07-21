@@ -1,0 +1,91 @@
+---
+export const prerender = false;
+import { env } from 'cloudflare:workers';
+import Layout from '../../layouts/Layout.astro';
+import {
+  accountsEnabled,
+  requestLogin,
+  isValidEmail,
+  getCustomerEmail,
+} from '../../features/auth/customer';
+import { verifyTurnstileToken, TURNSTILE_FIELD } from '../../features/auth/turnstile';
+import { getSecret } from '../../features/secrets/store';
+import Turnstile from '../../features/auth/Turnstile.astro';
+
+if (!accountsEnabled()) return Astro.redirect('/', 303);
+// Already signed in → account.
+if (await getCustomerEmail(Astro.cookies)) return Astro.redirect('/account', 303);
+
+let sent = false;
+let error = Astro.url.searchParams.get('error') === 'expired' ? 'That link expired — request a new one.' : '';
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const email = String(form.get('email') ?? '');
+  // Bot challenge (if enabled in Settings → Bot protection): verify with the vault secret.
+  const tsSecret = Astro.locals.settings?.turnstileEnabled
+    ? await getSecret(env.DB, 'turnstile_secret_key')
+    : null;
+  const tsOk = tsSecret
+    ? await verifyTurnstileToken(
+        form.get(TURNSTILE_FIELD)?.toString(),
+        tsSecret,
+        Astro.request.headers.get('CF-Connecting-IP'),
+      )
+    : true;
+  if (!tsOk) {
+    error = 'Verification failed — please try again.';
+  } else if (!isValidEmail(email)) {
+    error = 'Enter a valid email address.';
+  } else {
+    await requestLogin(email, Astro.url.origin);
+    sent = true;
+  }
+}
+---
+
+<Layout title="Sign in">
+  <div class="mx-auto max-w-sm py-10">
+    <h1 class="mb-2 text-2xl font-bold">Sign in</h1>
+
+    {
+      sent ? (
+        <p class="rounded-md border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+          Check your email — we sent a one-time sign-in link. It expires in 15 minutes.
+        </p>
+      ) : (
+        <Fragment>
+          <p class="mb-5 text-sm text-gray-500">
+            Enter your email and we'll send a sign-in link — no password needed. Use the address
+            from your orders to see your order history.
+          </p>
+          {error && (
+            <p class="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
+            </p>
+          )}
+          <form method="POST" class="space-y-3">
+            <input
+              type="email"
+              name="email"
+              required
+              autofocus
+              autocomplete="email"
+              placeholder="you@example.com"
+              class="w-full rounded-md border border-gray-200 px-3 py-2"
+            />
+            <div class="flex justify-center">
+              <Turnstile />
+            </div>
+            <button
+              type="submit"
+              class="w-full rounded-md bg-brand px-4 py-2.5 font-medium text-white hover:bg-brand-hover"
+            >
+              Send sign-in link
+            </button>
+          </form>
+        </Fragment>
+      )
+    }
+  </div>
+</Layout>

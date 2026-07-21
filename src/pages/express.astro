@@ -1,0 +1,168 @@
+---
+export const prerender = false;
+import { env } from 'cloudflare:workers';
+import Layout from '../layouts/Layout.astro';
+import { formatPrice } from '../config';
+import { getProduct } from '../features/products/db';
+import { listVariants, getExtrasByIds } from '../features/products/variants';
+import { lineUnitPriceCents } from '../features/cart/key';
+import { readCart, resolveCart } from '../features/cart/cart';
+import { enabledMethods } from '../features/payments';
+import ProductImage from '../features/products/ProductImage.astro';
+
+// Express checkout — a single payment-method-picker step (first listed = the
+// store's default). Two sources: "Buy now" (a single product_id [+ variant/extras])
+// or the whole cart (no product_id → reads the cart cookie). Skips the full cart
+// page; the chosen method posts to /api/checkout, carrying the same source.
+const isPost = Astro.request.method === 'POST';
+const form = isPost ? await Astro.request.formData() : null;
+const fld = (n: string) => (form?.get(n) ?? Astro.url.searchParams.get(n) ?? '').toString().trim();
+
+interface DisplayLine {
+  name: string;
+  imageKey: string | null;
+  unitPriceCents: number;
+  qty: number;
+}
+
+const productId = Number(fld('product_id'));
+const isBuyNow = Number.isInteger(productId) && productId > 0;
+
+let lines: DisplayLine[] = [];
+// Fields each method form re-sends to /api/checkout to reproduce this exact order.
+let carry: { name: string; value: string }[] = [];
+let backHref = '/';
+
+if (isBuyNow) {
+  const product = await getProduct(env.DB, productId);
+  if (!product || !product.active) return Astro.redirect('/', 303);
+  backHref = `/product/${product.slug}`;
+
+  const variantId = Number(fld('variant_id')) || 0;
+  const extraIds = (isPost ? form!.getAll('extra') : Astro.url.searchParams.getAll('extra'))
+    .map((e) => Number(e))
+    .filter((n) => Number.isInteger(n) && n > 0);
+
+  const variants = await listVariants(env.DB, productId);
+  const variant = variants.length > 0 ? (variants.find((v) => v.id === variantId) ?? null) : null;
+  if (variants.length > 0 && !variant) {
+    return Astro.redirect(
+      `/product/${product.slug}?error=${encodeURIComponent(`Please choose a ${product.variant_label || 'option'}.`)}`,
+      303,
+    );
+  }
+  const extras = extraIds.length ? await getExtrasByIds(env.DB, productId, extraIds) : [];
+  if ((variant ? variant.stock : product.stock) <= 0) {
+    return Astro.redirect(`/product/${product.slug}?error=Sold+out`, 303);
+  }
+  lines = [
+    {
+      name:
+        product.name +
+        (variant ? ` — ${variant.label}` : '') +
+        (extras.length ? ` (${extras.map((e) => e.label).join(', ')})` : ''),
+      imageKey: product.image_key,
+      unitPriceCents: lineUnitPriceCents(product.price_cents, variant, extras),
+      qty: 1,
+    },
+  ];
+  carry = [{ name: 'product_id', value: String(product.id) }];
+  if (variant) carry.push({ name: 'variant_id', value: String(variant.id) });
+  for (const e of extras) carry.push({ name: 'extra', value: String(e.id) });
+} else {
+  const { lines: cartLines } = await resolveCart(env.DB, readCart(Astro.cookies));
+  if (cartLines.length === 0) return Astro.redirect('/cart', 303);
+  backHref = '/cart';
+  lines = cartLines.map((l) => ({
+    name:
+      l.product.name +
+      (l.variant ? ` — ${l.variant.label}` : '') +
+      (l.extras.length ? ` (${l.extras.map((e) => e.label).join(', ')})` : ''),
+    imageKey: l.product.image_key,
+    unitPriceCents: l.unitPriceCents,
+    qty: l.qty,
+  }));
+  carry = [{ name: 'source', value: 'cart' }];
+}
+
+const totalCents = lines.reduce((s, l) => s + l.unitPriceCents * l.qty, 0);
+
+// Only the actually-usable rails, default first. None → no checkout (cart-style).
+const methods = Astro.locals.settings ? enabledMethods(Astro.locals.settings) : [];
+if (methods.length === 0) return Astro.redirect(backHref, 303);
+
+const heading = isBuyNow ? 'Buy now' : 'Checkout';
+const METHOD: Record<string, { label: string; hint: string }> = {
+  stripe: { label: 'Pay with card', hint: 'Visa, Mastercard, Apple Pay & more' },
+  lightning: { label: 'Pay with Lightning ⚡', hint: 'Instant — from any Lightning wallet' },
+  opennode: { label: 'Pay with Bitcoin', hint: 'On-chain or Lightning (OpenNode)' },
+  demo: { label: 'Demo checkout', hint: 'Simulated — places a real test order, no charge' },
+};
+---
+
+<Layout title="Checkout" description="Express checkout.">
+  <div class="mx-auto max-w-md">
+    <p class="text-xs uppercase tracking-[0.25em] text-gray-500">Express checkout</p>
+    <h1 class="mt-2 mb-6 font-serif text-3xl tracking-tight sm:text-4xl">{heading}</h1>
+
+    <ul class="divide-y divide-line border-y border-line">
+      {
+        lines.map((l) => (
+          <li class="flex items-center gap-4 py-4">
+            <ProductImage imageKey={l.imageKey} alt="" class="h-16 w-16 shrink-0 rounded object-cover" />
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm font-medium">{l.name}</p>
+              <p class="text-xs text-gray-500">Qty {l.qty}</p>
+            </div>
+            <span class="tabular-nums">{formatPrice(l.unitPriceCents * l.qty)}</span>
+          </li>
+        ))
+      }
+    </ul>
+
+    <div class="mt-4 flex items-center justify-between">
+      <span class="text-xs uppercase tracking-widest text-gray-500">Total</span>
+      <span class="text-lg tabular-nums">{formatPrice(totalCents)}</span>
+    </div>
+
+    {/* One button per enabled method (first = the store's default → primary). Each
+        re-sends the same source to /api/checkout with its method. */}
+    <div class="mt-6 space-y-2">
+      {
+        methods.map((m, i) => (
+          <form method="POST" action="/api/checkout">
+            {carry.map((c) => (
+              <input type="hidden" name={c.name} value={c.value} />
+            ))}
+            <input type="hidden" name="method" value={m} />
+            <button
+              type="submit"
+              class={`flex w-full items-center justify-between gap-3 rounded-lg px-5 py-3 text-left transition ${
+                i === 0
+                  ? 'bg-brand text-white hover:bg-brand-hover'
+                  : 'border border-line text-gray-700 hover:border-brand'
+              }`}
+            >
+              <span>
+                <span class="block text-sm font-medium">{METHOD[m]?.label ?? m}</span>
+                <span class={`block text-xs ${i === 0 ? 'text-white/70' : 'text-gray-500'}`}>
+                  {METHOD[m]?.hint ?? ''}
+                </span>
+              </span>
+              <span aria-hidden="true" class={i === 0 ? 'text-white/80' : 'text-gray-400'}>
+                &rarr;
+              </span>
+            </button>
+          </form>
+        ))
+      }
+    </div>
+
+    <a
+      href={backHref}
+      class="mt-6 inline-block text-xs uppercase tracking-widest text-gray-400 hover:text-brand"
+    >
+      &larr; Back
+    </a>
+  </div>
+</Layout>

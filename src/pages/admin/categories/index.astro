@@ -1,0 +1,84 @@
+---
+import { env } from 'cloudflare:workers';
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import {
+  listCategories,
+  buildTree,
+  flattenTree,
+  productCounts,
+} from '../../../features/categories/db';
+
+const rows = flattenTree(buildTree(await listCategories(env.DB)));
+const counts = await productCounts(env.DB);
+---
+
+<AdminLayout title="Categories" active="categories">
+  <div class="mb-8 flex items-center justify-between">
+    <h1 class="font-serif text-3xl tracking-tight">Categories</h1>
+    <a
+      href="/admin/categories/new"
+      class="rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover"
+    >
+      New category
+    </a>
+  </div>
+
+  <div class="sm:overflow-x-auto">
+    <table class="admin-table w-full text-left text-sm sm:min-w-[40rem]">
+    <thead>
+      <tr class="border-b border-line text-xs uppercase tracking-widest text-gray-400">
+        <th class="py-3 pr-4 font-normal">Name</th>
+        <th class="py-3 pr-4 font-normal">Slug</th>
+        <th class="py-3 pr-4 font-normal">Products</th>
+        <th class="py-3 text-right font-normal">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {
+        rows.map((c) => (
+          <tr class="border-b border-line">
+            <td class="py-3 pr-4">
+              <a
+                href={`/admin/categories/${c.id}/edit`}
+                class="inline-block font-medium hover:text-brand"
+                style={`padding-left:${c.depth * 20}px`}
+              >
+                {c.depth > 0 && <span class="text-gray-400">↳ </span>}
+                {c.name}
+              </a>
+            </td>
+            <td data-label="Slug" class="py-3 pr-4 text-gray-500">{c.slug}</td>
+            <td data-label="Products" class="py-3 pr-4 tabular-nums text-gray-500">{counts.get(c.id) ?? 0}</td>
+            <td data-label="" class="py-3 text-right">
+              <div class="flex justify-end gap-4 text-xs uppercase tracking-widest">
+                <a href={`/admin/categories/${c.id}/edit`} class="text-accent hover:underline">
+                  Edit
+                </a>
+                <form
+                  method="POST"
+                  action={`/api/admin/categories/${c.id}`}
+                  onsubmit="return confirm('Delete this category? Sub-categories move up to its parent.')"
+                >
+                  <input type="hidden" name="_action" value="delete" />
+                  <button type="submit" class="text-red-600 hover:underline">
+                    Delete
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        ))
+      }
+      {
+        rows.length === 0 && (
+          <tr>
+            <td colspan="4" class="py-8 text-center text-gray-400">
+              No categories yet.
+            </td>
+          </tr>
+        )
+      }
+    </tbody>
+    </table>
+  </div>
+</AdminLayout>

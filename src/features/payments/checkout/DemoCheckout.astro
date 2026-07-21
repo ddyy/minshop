@@ -1,0 +1,140 @@
+---
+import { getConfig, formatPrice } from '../../../config';
+import type { PendingPayment } from '../lightning/pending';
+
+// Simulated checkout view. Rendered by /pay/[publicId] for demo-backed payments.
+// The form posts back to that same route, which calls settleDemoCheckout().
+interface Props {
+  pending: PendingPayment;
+  declined?: string | null;
+}
+const { pending, declined = null } = Astro.props;
+
+const OUTCOMES: Record<string, string> = {
+  approve: 'Approve payment',
+  decline: 'Decline — card declined',
+  insufficient: 'Decline — insufficient funds',
+};
+const { storeName } = getConfig();
+const total = formatPrice(pending.amount_total_cents, pending.currency);
+const shipping = pending.shipping_cents
+  ? formatPrice(pending.shipping_cents, pending.currency)
+  : null;
+
+// Parse the cart snapshot for a line summary (same shape checkout stored).
+type Snap = { id: number; q: number; n: string; p: number };
+let items: Snap[] = [];
+try {
+  items = pending.items ? (JSON.parse(pending.items) as Snap[]) : [];
+} catch {
+  items = [];
+}
+---
+
+<div class="mx-auto max-w-md">
+  <div class="mb-6 rounded-lg border-2 border-amber-400 bg-amber-50 px-4 py-4 text-center text-amber-900">
+    <p class="text-base font-bold uppercase tracking-wide">⚠️ Demo checkout — not a real payment</p>
+    <p class="mt-1 text-sm">
+      No card is charged. Submitting places a real order tagged
+      <code class="rounded bg-amber-100 px-1">demo</code> so you can see the full flow.
+    </p>
+  </div>
+
+  <h1 class="mb-1 text-2xl font-bold">Checkout</h1>
+  <p class="mb-6 text-sm text-gray-500">{storeName}</p>
+
+  {/* Order summary */}
+  <div class="mb-6 rounded-lg border border-line bg-white p-4">
+    <ul class="divide-y divide-line text-sm">
+      {items.map((it) => (
+        <li class="flex items-center justify-between gap-3 py-2">
+          <span class="min-w-0 truncate">
+            {it.n} <span class="text-gray-400">× {it.q}</span>
+          </span>
+          <span class="shrink-0 tabular-nums">{formatPrice(it.p * it.q, pending.currency)}</span>
+        </li>
+      ))}
+    </ul>
+    {shipping && (
+      <div class="flex items-center justify-between border-t border-line pt-2 text-sm text-gray-500">
+        <span>Shipping</span>
+        <span class="tabular-nums">{shipping}</span>
+      </div>
+    )}
+    <div class="mt-2 flex items-center justify-between border-t border-line pt-2 text-base font-medium">
+      <span>Total</span>
+      <span class="tabular-nums">{total}</span>
+    </div>
+  </div>
+
+  {declined && (
+    <p class="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+      {declined}
+    </p>
+  )}
+
+  <form method="POST" class="space-y-4">
+    <div>
+      <label class="mb-1 block text-xs font-medium text-gray-500" for="email">Email</label>
+      <input
+        id="email"
+        name="email"
+        type="email"
+        value={pending.email ?? 'demo@example.com'}
+        class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none"
+      />
+    </div>
+
+    {/* Decorative test-card fields — prefilled and ignored; they exist so the
+        flow looks like a real card form. */}
+    <fieldset class="rounded-lg border border-line p-3">
+      <legend class="px-1 text-xs font-medium text-gray-500">Card (test — input ignored)</legend>
+      <input
+        type="text"
+        value="4242 4242 4242 4242"
+        inputmode="numeric"
+        aria-label="Card number"
+        class="mb-2 w-full rounded-md border border-gray-200 px-3 py-2 font-mono text-sm text-gray-600"
+      />
+      <div class="flex gap-2">
+        <input
+          type="text"
+          value="12 / 34"
+          aria-label="Expiry"
+          class="w-1/2 rounded-md border border-gray-200 px-3 py-2 font-mono text-sm text-gray-600"
+        />
+        <input
+          type="text"
+          value="123"
+          aria-label="CVC"
+          class="w-1/2 rounded-md border border-gray-200 px-3 py-2 font-mono text-sm text-gray-600"
+        />
+      </div>
+    </fieldset>
+
+    <div>
+      <label class="mb-1 block text-xs font-medium text-gray-500" for="outcome">
+        Simulate outcome
+      </label>
+      <select
+        id="outcome"
+        name="outcome"
+        class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none"
+      >
+        {Object.entries(OUTCOMES).map(([value, label]) => (
+          <option value={value}>{label}</option>
+        ))}
+      </select>
+    </div>
+
+    <button
+      type="submit"
+      class="w-full rounded-md bg-brand px-5 py-3 text-sm font-medium uppercase tracking-wider text-white hover:bg-brand-hover"
+    >
+      Pay {total}
+    </button>
+    <a href="/cart" class="block text-center text-xs uppercase tracking-widest text-gray-400 hover:text-brand">
+      Cancel
+    </a>
+  </form>
+</div>

@@ -1,0 +1,87 @@
+---
+export const prerender = false;
+import Layout from '../layouts/Layout.astro';
+
+// Reached from the cart when a buyer taps a payment method that isn't configured
+// yet. It's owner-facing setup help — how to turn that rail on — so the store can
+// graduate from Demo to real payments without leaving a dead button.
+const method = (Astro.url.searchParams.get('method') ?? '').toLowerCase();
+const origin = Astro.url.origin;
+
+interface Guide {
+  title: string;
+  intro: string;
+  steps: string[];
+}
+const GUIDES: Record<string, Guide> = {
+  stripe: {
+    title: 'Set up card payments (Stripe)',
+    intro: 'Accept Visa, Mastercard, Apple Pay and more via Stripe Checkout.',
+    steps: [
+      'Create a Stripe account and grab your Secret key from dashboard.stripe.com/apikeys.',
+      'Paste it in Admin → Settings → Payment keys (Stripe secret key). It’s stored encrypted in your database.',
+      `Add a webhook endpoint in Stripe pointing at ${origin}/api/webhook/stripe (events: checkout.session.completed AND checkout.session.async_payment_succeeded).`,
+      'Paste the signing secret it gives you into Payment keys (Stripe webhook signing secret). The card button goes live automatically.',
+    ],
+  },
+  lightning: {
+    title: 'Set up Lightning payments',
+    intro: 'Take instant Bitcoin Lightning payments from any wallet.',
+    steps: [
+      'Stand up an LNbits instance (or a phoenixd node).',
+      'In Admin → Settings → Payments, set the default rail to Lightning and pick the node (LNbits or phoenixd).',
+      'Enter the node URL in Payment config, and the key (LNbits invoice/read key, or phoenixd password) in Payment keys. The Lightning button goes live automatically.',
+    ],
+  },
+  opennode: {
+    title: 'Set up Bitcoin payments (OpenNode)',
+    intro: 'Hosted on-chain + Lightning checkout via OpenNode.',
+    steps: [
+      'Create an OpenNode account and an API key.',
+      'Paste it in Admin → Settings → Payment keys (OpenNode API key).',
+      `Point its webhook at ${origin}/api/webhook/opennode, and set the default rail to OpenNode in Settings → Payments.`,
+    ],
+  },
+};
+const guide = GUIDES[method] ?? null;
+---
+
+<Layout title="Set up payments" description="How to enable a payment method.">
+  <div class="mx-auto max-w-xl py-8">
+    <a href="/cart" class="text-xs uppercase tracking-widest text-gray-400 hover:text-brand">
+      &larr; Back to cart
+    </a>
+
+    {
+      guide ? (
+        <>
+          <h1 class="mt-4 font-serif text-3xl tracking-tight">{guide.title}</h1>
+          <p class="mt-3 text-gray-600">{guide.intro}</p>
+          <ol class="mt-6 space-y-3">
+            {guide.steps.map((s, i) => (
+              <li class="flex gap-3 text-sm">
+                <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand/10 text-xs font-medium text-brand">
+                  {i + 1}
+                </span>
+                <span class="pt-0.5 text-gray-700">{s}</span>
+              </li>
+            ))}
+          </ol>
+        </>
+      ) : (
+        <>
+          <h1 class="mt-4 font-serif text-3xl tracking-tight">Set up payments</h1>
+          <p class="mt-3 text-gray-600">
+            This payment method isn't configured yet. Add a real rail (card or Lightning)
+            in Admin → Settings → Payments, or keep using the Demo checkout to try the store.
+          </p>
+        </>
+      )
+    }
+
+    <div class="mt-8 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      In the meantime, <strong class="font-semibold">Demo checkout</strong> works right now — it
+      places a real, demo-tagged order so you can see the full flow without charging anyone.
+    </div>
+  </div>
+</Layout>

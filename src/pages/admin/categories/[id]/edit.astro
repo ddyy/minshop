@@ -1,0 +1,38 @@
+---
+import { env } from 'cloudflare:workers';
+import AdminLayout from '../../../../layouts/AdminLayout.astro';
+import CategoryForm from '../../../../features/categories/CategoryForm.astro';
+import {
+  getCategory,
+  listCategories,
+  buildTree,
+  flattenTree,
+  descendantIds,
+} from '../../../../features/categories/db';
+
+const id = Number(Astro.params.id);
+const category = Number.isInteger(id) ? await getCategory(env.DB, id) : null;
+
+if (!category) {
+  return new Response('Not found', { status: 404 });
+}
+
+// A category can't be moved under itself or one of its descendants — exclude them.
+const blocked = new Set(await descendantIds(env.DB, id));
+const parentOptions = flattenTree(buildTree(await listCategories(env.DB))).filter(
+  (o) => !blocked.has(o.id),
+);
+const error = Astro.url.searchParams.get('error');
+---
+
+<AdminLayout title={`Edit ${category.name}`} active="categories">
+  <a href="/admin/categories" class="text-sm text-gray-500 hover:text-brand">&larr; Back to categories</a>
+  <h1 class="mt-4 mb-6 text-2xl font-bold">Edit category</h1>
+  <CategoryForm
+    action={`/api/admin/categories/${category.id}`}
+    submitLabel="Save changes"
+    category={category}
+    parentOptions={parentOptions}
+    error={error}
+  />
+</AdminLayout>

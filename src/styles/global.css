@@ -1,0 +1,152 @@
+@import "tailwindcss";
+
+/* Brand design tokens (@theme) live in their own file so a clone can restyle
+   without touching this one. Edit theme.css to rebrand; everything below is
+   structural CSS owned by the template. */
+@import "./theme.css";
+
+/* One orchestrated page-load reveal (staggered via inline animation-delay).
+   Ends in the visible state and is disabled for reduced-motion / no-animation,
+   so content is never permanently hidden — safe with no JS. */
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.reveal {
+  animation: reveal 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    animation: none;
+  }
+}
+
+/* Admin mobile nav (pure-CSS checkbox disclosure). Flip the chevron when the
+   toggle is checked, and fade/slide the list in. The list-reveal is scoped to
+   small screens — at sm+ the list is always shown (sm:block) as the sidebar, so
+   it never fires there. Reuses the page-load `reveal` keyframe. */
+[data-admin-nav-toggle]:checked ~ [data-admin-nav-summary] [data-admin-nav-chevron] {
+  transform: rotate(180deg);
+}
+@media (max-width: 639px) and (prefers-reduced-motion: no-preference) {
+  [data-admin-nav-toggle]:checked ~ [data-admin-nav-list] {
+    animation: reveal 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+/* ── Responsive admin tables ──────────────────────────────────────────────
+   A real <table> at sm+; on mobile each row collapses into a stacked card of
+   label/value pairs, so wide admin tables never need horizontal scrolling.
+   Each <td> supplies its column label via data-label; the first cell is the
+   card title (full width, no label). An actions cell opts out with data-label="".
+   Pair with `sm:min-w-[…]` on the <table> so the block cards aren't forced wide. */
+@media (max-width: 639px) {
+  .admin-table,
+  .admin-table tbody,
+  .admin-table tr,
+  .admin-table td {
+    display: block;
+  }
+  .admin-table thead {
+    display: none;
+  }
+  .admin-table tr {
+    margin-bottom: 0.75rem;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    background: rgb(255 255 255 / 0.5);
+    padding: 0.25rem 0.875rem;
+  }
+  .admin-table td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-block: 0.5rem;
+    padding-inline: 0;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+  .admin-table td > * {
+    min-width: 0; /* let long values (emails, names) shrink + wrap instead of overflow */
+  }
+  .admin-table td + td {
+    border-top: 1px solid var(--color-line);
+  }
+  .admin-table td::before {
+    content: attr(data-label);
+    flex: none;
+    color: #9ca3af; /* gray-400, matches the table-header labels */
+    font-size: 0.625rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    text-align: left;
+  }
+  /* First cell = card title: full-width, left-aligned, no label. */
+  .admin-table td:first-child {
+    justify-content: flex-start;
+    padding-top: 0.625rem;
+    text-align: left;
+  }
+  .admin-table td:first-child::before,
+  .admin-table td[data-label='']::before {
+    display: none;
+  }
+  /* Actions (and other opt-out) cells render as a normal full-width block so an
+     inner flex toolbar keeps its own alignment. */
+  .admin-table td[data-label=''] {
+    display: block;
+    border-top: 1px solid var(--color-line);
+    padding-top: 0.625rem;
+  }
+  /* Full-width empty-state row stays centered. */
+  .admin-table td[colspan] {
+    display: block;
+    text-align: center;
+    border-top: 0;
+  }
+  .admin-table td[colspan]::before {
+    display: none;
+  }
+}
+
+/* Hide the scrollbar on scroll-snap carousels (navigated via thumbnails/swipe). */
+.no-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* old Edge */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome / Safari */
+}
+
+/* Admin image gallery. Per-row borders (so nothing trails during a drag), and
+   :first-child / :last-child drive the primary badge + ↑/↓/make-primary
+   visibility — which auto-updates when rows reorder, no JS state to maintain. */
+[data-gallery] > li {
+  border-bottom: 1px solid var(--color-line);
+}
+[data-gallery] > li:last-child {
+  border-bottom: 0;
+}
+[data-gallery] > li.dragging {
+  opacity: 0.4;
+  border-color: transparent;
+}
+/* The Primary badge only shows on the first row. */
+[data-gallery] > li:not(:first-child) [data-primary-badge] {
+  display: none;
+}
+/* Hidden controls keep their slot (visibility, not display) so the ↑/↓ stack
+   stays aligned and the right-hand action column stays the same width on every
+   row — which keeps every alt-text field the same size. */
+[data-gallery] > li:first-child [data-up],
+[data-gallery] > li:last-child [data-down],
+[data-gallery] > li:first-child [data-make-primary] {
+  visibility: hidden;
+}

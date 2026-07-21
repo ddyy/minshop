@@ -1,0 +1,19 @@
+---
+// Renders the Turnstile widget (managed mode) — but only when bot protection is
+// enabled in Admin → Settings AND a sitekey is configured, so the storefront stays
+// widget-free otherwise. Both come from the runtime settings overlay (D1). The
+// widget auto-solves and injects a hidden `cf-turnstile-response` field into the
+// surrounding <form>, which the server verifies on submit. Near-zero-JS: no custom
+// script, just Cloudflare's auto-rendering api.js. data-action is the Spin marker.
+const s = Astro.locals.settings;
+const siteKey = s?.turnstileEnabled ? (s?.turnstileSiteKey ?? undefined) : undefined;
+---
+
+{
+  siteKey && (
+    <Fragment>
+      <div class="cf-turnstile" data-sitekey={siteKey} data-action="turnstile-spin-v1" />
+      <script is:inline async src="https://challenges.cloudflare.com/turnstile/v0/api.js" />
+    </Fragment>
+  )
+}

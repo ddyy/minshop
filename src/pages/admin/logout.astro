@@ -1,0 +1,7 @@
+---
+export const prerender = false;
+// Clears the admin session cookie and returns to the login form. Reached only
+// when already authenticated (it's under the protected /admin/* path).
+Astro.cookies.delete('admin_session', { path: '/' });
+return Astro.redirect('/admin/login', 303);
+---

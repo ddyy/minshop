@@ -1,0 +1,643 @@
+---
+import { env } from 'cloudflare:workers';
+import AdminLayout from '../../../../layouts/AdminLayout.astro';
+import ProductForm from '../../../../features/products/ProductForm.astro';
+import { getProduct, listProductImages } from '../../../../features/products/db';
+import { listVariants, listExtras } from '../../../../features/products/variants';
+import {
+  listCategories,
+  buildTree,
+  flattenTree,
+  categoriesForProduct,
+} from '../../../../features/categories/db';
+import { toMajorUnits, minorUnitsPerMajor } from '../../../../config';
+
+const id = Number(Astro.params.id);
+const product = Number.isFinite(id) ? await getProduct(env.DB, id) : null;
+
+if (!product) {
+  return new Response('Not found', { status: 404 });
+}
+
+const categoryOptions = flattenTree(buildTree(await listCategories(env.DB)));
+const selectedCategoryIds = (await categoriesForProduct(env.DB, product.id)).map((c) => c.id);
+const images = await listProductImages(env.DB, product.id);
+const error = Astro.url.searchParams.get('error');
+
+// Variants + extras (show all, including any inactive, so the admin sees everything).
+const variants = await listVariants(env.DB, product.id, true);
+const extras = await listExtras(env.DB, product.id, true);
+// Look up a gallery image by id (to render a variant's currently-chosen photo).
+const imageById = new Map(images.map((i) => [i.id, i]));
+// The product's main photo — a variant with no specific image falls back to this
+// (so new variants default to showing it rather than an empty box).
+const mainPhoto = product.image_key ? `/images/${product.image_key}` : null;
+// Price inputs are major units; step to the currency's smallest unit (0.01 USD, 1 JPY).
+const priceStep = 1 / minorUnitsPerMajor(product.currency);
+const major = (cents: number) => toMajorUnits(cents, product.currency);
+---
+
+<AdminLayout title={`Edit ${product.name}`} active="products">
+  <a href="/admin/products" class="text-sm text-gray-500 hover:text-brand">&larr; Back to products</a>
+  <div class="mt-4 mb-6 flex items-center justify-between gap-4">
+    <h1 class="text-2xl font-bold">Edit product</h1>
+    <a
+      href={`/product/${product.slug}`}
+      target="_blank"
+      rel="noopener"
+      class="text-sm text-accent hover:underline"
+    >
+      View on store ↗
+    </a>
+  </div>
+  <ProductForm
+    action={`/api/admin/products/${product.id}`}
+    submitLabel="Save changes"
+    product={product}
+    categoryOptions={categoryOptions}
+    selectedCategoryIds={selectedCategoryIds}
+    error={error}
+    showImage={false}
+    formId="product-form"
+  />
+
+  <section id="gallery" class="mt-12 scroll-mt-20 border-t border-line pt-8">
+    <div class="mb-4 flex items-baseline justify-between gap-3">
+      <h2 class="text-xs uppercase tracking-widest text-gray-400">Images</h2>
+      <span class="text-xs text-gray-400">Changes here save automatically</span>
+    </div>
+
+    <form
+      method="POST"
+      action={`/api/admin/products/${product.id}/images`}
+      enctype="multipart/form-data"
+      class="mb-6 flex flex-wrap items-center gap-3"
+    >
+      <input type="hidden" name="_action" value="add" />
+      <input type="file" name="images" accept="image/*" multiple class="block text-sm" />
+      <button
+        type="submit"
+        class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand hover:text-brand"
+      >
+        Add images
+      </button>
+    </form>
+
+    {
+      images.length > 0 && (
+        <ul data-gallery data-action={`/api/admin/products/${product.id}/images`} class="mb-6">
+          {images.map((img) => (
+            <li data-image-id={img.id} class="flex items-center gap-4 py-3">
+              {/* Drag handle — the grip icon + grab cursor signal the row is draggable. */}
+              <span
+                data-handle
+                aria-hidden="true"
+                class="shrink-0 cursor-grab text-gray-300 hover:text-gray-500"
+              >
+                <svg width="12" height="20" viewBox="0 0 12 20" fill="currentColor">
+                  <circle cx="3" cy="4" r="1.5" />
+                  <circle cx="9" cy="4" r="1.5" />
+                  <circle cx="3" cy="10" r="1.5" />
+                  <circle cx="9" cy="10" r="1.5" />
+                  <circle cx="3" cy="16" r="1.5" />
+                  <circle cx="9" cy="16" r="1.5" />
+                </svg>
+              </span>
+
+              {/* ↑/↓ stacked vertically in a fixed slot — a hidden arrow keeps its
+                  space (visibility, not display) so the stack stays aligned on every row. */}
+              <div class="flex shrink-0 flex-col text-base leading-none text-gray-400">
+                <form data-js-action="up" method="POST" action={`/api/admin/products/${product.id}/images`}>
+                  <input type="hidden" name="_action" value="move" />
+                  <input type="hidden" name="direction" value="up" />
+                  <input type="hidden" name="image_id" value={img.id} />
+                  <button type="submit" data-up aria-label="Move up" class="block px-1 hover:text-brand">
+                    ↑
+                  </button>
+                </form>
+                <form data-js-action="down" method="POST" action={`/api/admin/products/${product.id}/images`}>
+                  <input type="hidden" name="_action" value="move" />
+                  <input type="hidden" name="direction" value="down" />
+                  <input type="hidden" name="image_id" value={img.id} />
+                  <button type="submit" data-down aria-label="Move down" class="block px-1 hover:text-brand">
+                    ↓
+                  </button>
+                </form>
+              </div>
+
+              {/* Thumbnail with the Primary badge overlaid, so the badge never shifts
+                  the alt fields out of horizontal alignment. */}
+              <div class="relative shrink-0">
+                <img
+                  src={`/images/${img.image_key}`}
+                  alt={img.alt ?? ''}
+                  class="h-14 w-14 rounded object-cover"
+                />
+                <span
+                  data-primary-badge
+                  title="Primary image"
+                  class="absolute -left-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-brand text-[11px] text-white ring-2 ring-paper"
+                >
+                  ★
+                </span>
+              </div>
+
+              <form
+                data-js-action="alt"
+                method="POST"
+                action={`/api/admin/products/${product.id}/images`}
+                class="flex flex-1 items-center gap-2"
+              >
+                <input type="hidden" name="_action" value="alt" />
+                <input type="hidden" name="image_id" value={img.id} />
+                <input
+                  type="text"
+                  name="alt"
+                  value={img.alt ?? ''}
+                  draggable="false"
+                  placeholder="Alt text — describe the image"
+                  class="w-full border-b border-line bg-transparent py-1 text-sm focus:border-brand focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  class="shrink-0 text-xs uppercase tracking-widest text-gray-400 hover:text-brand"
+                >
+                  Save
+                </button>
+              </form>
+
+              <div class="flex shrink-0 items-center gap-3 text-xs uppercase tracking-widest">
+                <form data-js-action="primary" method="POST" action={`/api/admin/products/${product.id}/images`}>
+                  <input type="hidden" name="_action" value="primary" />
+                  <input type="hidden" name="image_id" value={img.id} />
+                  <button type="submit" data-make-primary class="text-accent hover:underline">
+                    Make primary
+                  </button>
+                </form>
+                <form data-js-action="delete" method="POST" action={`/api/admin/products/${product.id}/images`}>
+                  <input type="hidden" name="_action" value="delete" />
+                  <input type="hidden" name="image_id" value={img.id} />
+                  <button type="submit" class="text-red-600 hover:underline">
+                    Delete
+                  </button>
+                </form>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )
+    }
+  </section>
+
+  <section id="options" class="mt-12 scroll-mt-20 border-t border-line pt-8">
+    <div class="mb-5">
+      <h2 class="text-xs uppercase tracking-widest text-gray-400">Variants &amp; add-ons</h2>
+      <p class="mt-1 max-w-prose text-xs text-gray-500">
+        Optional. <strong class="font-medium text-gray-700">Variants</strong> are pickable options
+        with their own price &amp; stock (e.g. Size) — the buyer chooses one, and the variant becomes
+        the inventory unit. <strong class="font-medium text-gray-700">Add-ons</strong> are checkbox
+        extras that add to the line price (e.g. Gift wrap), with no stock of their own. Everything
+        here saves together with the <strong class="font-medium text-gray-700">Save changes</strong>
+        button at the top.
+      </p>
+    </div>
+
+    {/* Variant group label (e.g. "Size") — submits with the product form. */}
+    <label class="mb-8 flex max-w-xs flex-col gap-1 text-xs uppercase tracking-widest text-gray-400">
+      Variant group label
+      <input
+        form="product-form"
+        type="text"
+        name="variant_group_label"
+        value={product.variant_label ?? ''}
+        placeholder="e.g. Size, Color"
+        class="w-48 rounded-md border border-line bg-transparent px-3 py-1.5 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none"
+      />
+    </label>
+
+    {/* Variants — one inline blank row is always present (no-JS can add one per
+        save); "+ Add variant" clones it for adding several at once. All inputs use
+        form="product-form" so they submit with the product's Save changes. */}
+    <h3 class="mb-3 text-sm font-medium">Variants</h3>
+    <div data-variant-rows data-default-price={major(product.price_cents)} class="space-y-3">
+      {
+        [...variants, null].map((v) => (
+          <div data-variant-row data-blank={v ? undefined : ''} class="flex flex-wrap items-end gap-3 border-b border-line pb-3">
+            <input form="product-form" type="hidden" name="v_id" value={v ? v.id : ''} />
+            {/* Photo (left): a thumbnail button that opens a palette of gallery
+                images. The hidden field carries the chosen id (array-aligned). */}
+            {(() => {
+              const sel = v?.image_id ? imageById.get(v.image_id) : null;
+              return (
+                <div class="relative">
+                  <input form="product-form" type="hidden" name="v_image" value={v?.image_id ?? ''} data-image-input />
+                  <button
+                    type="button"
+                    data-photo-trigger
+                    aria-label="Choose variant photo"
+                    class="relative block h-14 w-14 shrink-0 overflow-hidden rounded border border-line hover:border-brand"
+                  >
+                    <img
+                      data-photo-preview
+                      src={sel ? `/images/${sel.image_key}` : (mainPhoto ?? undefined)}
+                      alt=""
+                      class:list={['h-full w-full object-cover', !sel && !mainPhoto && 'hidden']}
+                    />
+                    <span
+                      data-photo-empty
+                      class:list={[
+                        'flex h-full w-full items-center justify-center text-center text-[8px] uppercase leading-tight tracking-widest text-gray-400',
+                        (sel || mainPhoto) && 'hidden',
+                      ]}
+                    >
+                      Add photo
+                    </span>
+                  </button>
+
+                  <div
+                    data-palette
+                    class="absolute left-0 top-full z-20 mt-1 hidden w-max max-w-[16rem] rounded-md border border-line bg-paper p-2 shadow-lg"
+                  >
+                    <div class="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        data-thumb=""
+                        data-src={mainPhoto ?? ''}
+                        aria-pressed={!v?.image_id ? 'true' : 'false'}
+                        title="Use the main product photo"
+                        class:list={[
+                          'relative flex h-12 w-12 items-center justify-center overflow-hidden rounded border border-line text-center text-[8px] uppercase leading-tight tracking-widest text-gray-400 hover:border-brand',
+                          !v?.image_id && 'ring-2 ring-brand',
+                        ]}
+                      >
+                        {mainPhoto ? (
+                          <img src={mainPhoto} alt="" class="h-full w-full object-cover opacity-70" />
+                        ) : null}
+                        <span class="absolute inset-0 flex items-center justify-center bg-white/60">Main</span>
+                      </button>
+                      {images.map((img, idx) => (
+                        <button
+                          type="button"
+                          data-thumb={img.id}
+                          data-src={`/images/${img.image_key}`}
+                          aria-pressed={!!v && img.id === v.image_id ? 'true' : 'false'}
+                          title={img.alt?.trim() || `Image ${idx + 1}`}
+                          class:list={[
+                            'h-12 w-12 overflow-hidden rounded border border-line hover:border-brand',
+                            !!v && img.id === v.image_id && 'ring-2 ring-brand',
+                          ]}
+                        >
+                          <img src={`/images/${img.image_key}`} alt="" class="h-full w-full object-cover" />
+                        </button>
+                      ))}
+                      {images.length === 0 && (
+                        <span class="px-1 py-2 text-[10px] normal-case text-gray-400">
+                          Add gallery images first
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+            <label class="flex flex-col gap-1 text-[10px] uppercase tracking-widest text-gray-400">
+              Label
+              <input
+                form="product-form"
+                type="text"
+                name="v_label"
+                value={v?.label ?? ''}
+                placeholder="e.g. Large"
+                class="w-40 rounded-md border border-line bg-transparent px-3 py-1.5 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none"
+              />
+            </label>
+            <label class="flex flex-col gap-1 text-[10px] uppercase tracking-widest text-gray-400">
+              Price ({product.currency.toUpperCase()})
+              <input
+                form="product-form"
+                type="number"
+                name="v_price"
+                min="0"
+                step={priceStep}
+                value={v ? major(v.price_cents) : major(product.price_cents)}
+                placeholder="0.00"
+                class="w-28 rounded-md border border-line bg-transparent px-3 py-1.5 text-sm tracking-normal text-gray-900 focus:border-brand focus:outline-none"
+              />
+            </label>
+            <label class="flex flex-col gap-1 text-[10px] uppercase tracking-widest text-gray-400">
+              Stock
+              <input
+                form="product-form"
+                type="number"
+                name="v_stock"
+                min="0"
+                step="1"
+                value={v ? v.stock : 0}
+                class="w-20 rounded-md border border-line bg-transparent px-3 py-1.5 text-sm tracking-normal text-gray-900 focus:border-brand focus:outline-none"
+              />
+            </label>
+            <label class="flex flex-col gap-1 text-[10px] uppercase tracking-widest text-gray-400">
+              SKU
+              <input
+                form="product-form"
+                type="text"
+                name="v_sku"
+                value={v?.sku ?? ''}
+                placeholder="optional"
+                class="w-32 rounded-md border border-line bg-transparent px-3 py-1.5 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none"
+              />
+            </label>
+            {/* Remove: a text link for both new and existing rows. Existing rows
+                carry a hidden checkbox the link checks (→ deleted on save); new
+                rows are just dropped from the DOM. */}
+            {v && (
+              <input form="product-form" type="checkbox" name="v_remove" value={v.id} class="hidden" data-remove-mark />
+            )}
+            <button
+              type="button"
+              data-remove-row
+              class="hidden pb-1.5 text-xs uppercase tracking-widest text-red-600 hover:underline"
+            >
+              Remove
+            </button>
+          </div>
+        ))
+      }
+    </div>
+    <button
+      type="button"
+      data-add-variant
+      class="mt-3 mb-8 hidden rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand hover:text-brand"
+    >
+      + Add variant
+    </button>
+
+    {/* Add-ons — same single-save pattern as variants. */}
+    <h3 class="mb-3 text-sm font-medium">Add-ons</h3>
+    <div data-extra-rows class="space-y-3">
+      {
+        [...extras, null].map((ex) => (
+          <div data-extra-row data-blank={ex ? undefined : ''} class="flex flex-wrap items-end gap-3 border-b border-line pb-3">
+            <input form="product-form" type="hidden" name="e_id" value={ex ? ex.id : ''} />
+            <label class="flex flex-col gap-1 text-[10px] uppercase tracking-widest text-gray-400">
+              Label
+              <input
+                form="product-form"
+                type="text"
+                name="e_label"
+                value={ex?.label ?? ''}
+                placeholder="e.g. Gift wrap"
+                class="w-48 rounded-md border border-line bg-transparent px-3 py-1.5 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none"
+              />
+            </label>
+            <label class="flex flex-col gap-1 text-[10px] uppercase tracking-widest text-gray-400">
+              Price delta ({product.currency.toUpperCase()})
+              <input
+                form="product-form"
+                type="number"
+                name="e_price"
+                min="0"
+                step={priceStep}
+                value={ex ? major(ex.price_delta_cents) : ''}
+                placeholder="0.00"
+                class="w-28 rounded-md border border-line bg-transparent px-3 py-1.5 text-sm tracking-normal text-gray-900 focus:border-brand focus:outline-none"
+              />
+            </label>
+            {ex && (
+              <input form="product-form" type="checkbox" name="e_remove" value={ex.id} class="hidden" data-remove-mark />
+            )}
+            <button
+              type="button"
+              data-remove-row
+              class="hidden pb-1.5 text-xs uppercase tracking-widest text-red-600 hover:underline"
+            >
+              Remove
+            </button>
+          </div>
+        ))
+      }
+    </div>
+    <button
+      type="button"
+      data-add-extra
+      class="mt-3 hidden rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand hover:text-brand"
+    >
+      + Add add-on
+    </button>
+
+    {/* Submits the product form too (via form="product-form"), so changes here can
+        be saved without scrolling back to the top. */}
+    <div class="mt-8 border-t border-line pt-5">
+      <button
+        type="submit"
+        form="product-form"
+        class="rounded-md bg-brand px-5 py-2 font-medium text-white hover:bg-brand-hover"
+      >
+        Save changes
+      </button>
+    </div>
+  </section>
+
+  {/* Progressive enhancement: every gallery action runs via fetch (no reload, no
+      jump). The plain form POSTs are the no-JS fallback (they redirect to
+      #gallery). Primary badge + ↑/↓ visibility are CSS-driven, so they
+      auto-update as rows reorder. */}
+  <script>
+    // @ts-nocheck -- plain-JS client script (annotations would ship to the browser)
+    const list = document.querySelector('[data-gallery]');
+    if (list instanceof HTMLElement) {
+      const action = list.dataset.action || '';
+      const rows = () =>
+        Array.from(list.children).filter((el) => el instanceof HTMLElement);
+      const send = (params) =>
+        fetch(action, {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams(params),
+        });
+      const persistOrder = () => {
+        const p = new URLSearchParams();
+        p.set('_action', 'reorder');
+        for (const li of rows()) p.append('order', li.dataset.imageId || '');
+        return send(p);
+      };
+
+      let dragging = null;
+      for (const li of rows()) {
+        li.setAttribute('draggable', 'true');
+        li.addEventListener('dragstart', () => {
+          dragging = li;
+          li.classList.add('dragging');
+        });
+        li.addEventListener('dragend', () => {
+          li.classList.remove('dragging');
+          dragging = null;
+          persistOrder();
+        });
+      }
+      list.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        if (!dragging) return;
+        const after = rows().find((el) => {
+          if (el === dragging) return false;
+          const r = el.getBoundingClientRect();
+          return r.top + r.height / 2 >= e.clientY;
+        });
+        list.insertBefore(dragging, after || null);
+      });
+
+      list.addEventListener('submit', async (e) => {
+        const form = e.target;
+        if (!(form instanceof HTMLFormElement) || !form.dataset.jsAction) return;
+        e.preventDefault();
+        const type = form.dataset.jsAction;
+        const li = form.closest('li');
+        if (!li) return;
+        if (type === 'up' && li.previousElementSibling) {
+          list.insertBefore(li, li.previousElementSibling);
+          await persistOrder();
+        } else if (type === 'down' && li.nextElementSibling) {
+          list.insertBefore(li.nextElementSibling, li);
+          await persistOrder();
+        } else if (type === 'primary') {
+          list.insertBefore(li, list.firstElementChild);
+          await persistOrder();
+        } else if (type === 'delete') {
+          if (!confirm('Delete this image?')) return;
+          await send({ _action: 'delete', image_id: li.dataset.imageId });
+          li.remove();
+        } else if (type === 'alt') {
+          await send(new FormData(form));
+          const btn = form.querySelector('button[type="submit"]');
+          if (btn) {
+            const original = btn.textContent;
+            btn.textContent = 'Saved';
+            setTimeout(() => {
+              btn.textContent = original;
+            }, 1200);
+          }
+        }
+      });
+    }
+  </script>
+
+  {/* Variants/extras editor: reveal the JS-only "+ Add"/"Remove" controls and let
+      one blank row be cloned for adding several. With JS off, the single inline
+      blank row still allows adding one variant/add-on per save. */}
+  <script>
+    // @ts-nocheck -- plain-JS client script (annotations would ship to the browser)
+    const closeAllPalettes = () => {
+      for (const p of document.querySelectorAll('[data-palette]')) p.classList.add('hidden');
+    };
+
+    // Apply a photo choice to a row: store the id, update the left preview, and
+    // highlight the chosen tile in the palette.
+    const selectThumb = (row, value) => {
+      const input = row.querySelector('[data-image-input]');
+      if (input instanceof HTMLInputElement) input.value = value;
+      let src = '';
+      for (const b of row.querySelectorAll('[data-thumb]')) {
+        const on = (b.getAttribute('data-thumb') || '') === value;
+        b.classList.toggle('ring-2', on);
+        b.classList.toggle('ring-brand', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        if (on) src = b.getAttribute('data-src') || '';
+      }
+      // The preview shows whatever the chosen tile points at — a specific image, or
+      // the main product photo for the "Main" tile (its data-src is the main photo).
+      const preview = row.querySelector('[data-photo-preview]');
+      const empty = row.querySelector('[data-photo-empty]');
+      if (preview instanceof HTMLImageElement && empty instanceof HTMLElement) {
+        if (src) {
+          preview.src = src;
+          preview.classList.remove('hidden');
+          empty.classList.add('hidden');
+        } else {
+          preview.removeAttribute('src');
+          preview.classList.add('hidden');
+          empty.classList.remove('hidden');
+        }
+      }
+    };
+
+    const setupRows = (rowsSel, addSel) => {
+      const rows = document.querySelector(rowsSel);
+      const addBtn = document.querySelector(addSel);
+      if (!(rows instanceof HTMLElement) || !(addBtn instanceof HTMLElement)) return;
+      const blank = rows.querySelector('[data-blank]');
+      if (!(blank instanceof HTMLElement)) return;
+      addBtn.classList.remove('hidden');
+
+      // With JS, pull the inline blank row out and use it as the template — so
+      // "Add" appends a fresh row at the END (no second, lingering blank row).
+      // No-JS keeps the blank row in place (it was never removed).
+      blank.remove();
+
+      // Reveal the JS-only Remove links on the existing rows.
+      for (const b of rows.querySelectorAll('[data-remove-row]')) b.classList.remove('hidden');
+
+      // Delegated clicks (so appended rows work too): photo trigger toggles its
+      // palette; a tile applies the choice; a Remove link drops/marks its row.
+      rows.addEventListener('click', (e) => {
+        const el = e.target instanceof Element ? e.target : null;
+        if (!el) return;
+        const trigger = el.closest('[data-photo-trigger]');
+        if (trigger) {
+          const palette = trigger.parentElement?.querySelector('[data-palette]');
+          const isHidden = palette?.classList.contains('hidden');
+          closeAllPalettes();
+          if (palette && isHidden) palette.classList.remove('hidden');
+          return;
+        }
+        const thumb = el.closest('[data-thumb]');
+        if (thumb) {
+          const row = thumb.closest('[data-variant-row], [data-extra-row]');
+          if (row) selectThumb(row, thumb.getAttribute('data-thumb') || '');
+          closeAllPalettes();
+          return;
+        }
+        const rm = el.closest('[data-remove-row]');
+        if (rm) {
+          const row = rm.closest('[data-variant-row], [data-extra-row]');
+          if (!row) return;
+          // Existing rows: check the hidden flag and hide (deleted on save).
+          // New rows: just drop them.
+          const mark = row.querySelector('[data-remove-mark]');
+          if (mark instanceof HTMLInputElement) {
+            mark.checked = true;
+            row.classList.add('hidden');
+          } else {
+            row.remove();
+          }
+        }
+      });
+
+      const defaultPrice = rows.dataset.defaultPrice || '';
+      addBtn.addEventListener('click', () => {
+        const clone = blank.cloneNode(true);
+        clone.removeAttribute('data-blank');
+        for (const el of clone.querySelectorAll('input, select')) {
+          if (el instanceof HTMLSelectElement) el.selectedIndex = 0;
+          else if (el instanceof HTMLInputElement) {
+            // New variants default their price to the main product price.
+            el.value =
+              el.name.endsWith('_stock') ? '0' : el.name === 'v_price' ? defaultPrice : '';
+          }
+        }
+        selectThumb(clone, ''); // new variants default to the main product photo
+        clone.querySelector('[data-remove-row]')?.classList.remove('hidden');
+        rows.appendChild(clone); // append at the end
+        clone.querySelector('input[name$="_label"]')?.focus();
+      });
+    };
+    setupRows('[data-variant-rows]', '[data-add-variant]');
+    setupRows('[data-extra-rows]', '[data-add-extra]');
+
+    // Click outside any photo trigger/palette closes the open palette.
+    document.addEventListener('click', (e) => {
+      const el = e.target instanceof Element ? e.target : null;
+      if (el && el.closest('[data-palette], [data-photo-trigger]')) return;
+      closeAllPalettes();
+    });
+  </script>
+</AdminLayout>

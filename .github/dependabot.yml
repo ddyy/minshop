@@ -1,0 +1,17 @@
+# Dependabot keeps dependencies current with automated PRs.
+# Activates automatically once this repo is pushed to GitHub.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      # Bundle minor + patch bumps into one PR per week to cut noise; majors
+      # (e.g. the Astro 5→6 / Node 22 kind of jump) still come as their own PRs
+      # so they get individual review.
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"

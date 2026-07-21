@@ -1,0 +1,36 @@
+---
+import { STORE_SORTS } from '../features/products/sort';
+import { queryHref } from '../pagination';
+
+interface Props {
+  base: string; // e.g. '/' or '/category/kitchen'
+  sort: string | null;
+  dir: string | null;
+}
+
+const { base, sort, dir } = Astro.props;
+const curSort = sort ?? 'newest';
+const curDir = dir === 'asc' || dir === 'desc' ? dir : 'desc';
+---
+
+<div class="mb-8 flex flex-wrap items-baseline gap-x-5 gap-y-1 text-xs uppercase tracking-widest text-gray-500">
+  <span>Sort</span>
+  {
+    STORE_SORTS.map((o) => {
+      const active = curSort === o.sort;
+      // Active field: clicking flips direction. Inactive: apply its default dir.
+      const nextDir = active ? (curDir === 'asc' ? 'desc' : 'asc') : o.dir;
+      const arrow = active ? (curDir === 'asc' ? ' ↑' : ' ↓') : '';
+      return (
+        <a
+          href={queryHref(base, { sort: o.sort, dir: nextDir })}
+          aria-current={active ? 'true' : undefined}
+          class={`hover:text-brand ${active ? 'text-brand' : ''}`}
+        >
+          {o.label}
+          {arrow}
+        </a>
+      );
+    })
+  }
+</div>
