@@ -15,12 +15,12 @@
 
 # Key-encryption key for the D1 payment-key vault. REQUIRED to store/use any
 # provider key (without it the vault is dormant → demo-only). Any long random
-# string; never goes in D1.
-# SECRETS_KEK=choose-a-long-random-string
+# string; never goes in D1. Replace before storing real keys — e.g. `openssl rand -base64 32`.
+SECRETS_KEK=replace_with_a_long_random_string
 
 # Signs admin + customer sessions (magic-link tokens, session cookies). Any long
-# random string. Needed for admin login and customer accounts.
-# AUTH_SECRET=choose-a-long-random-string
+# random string, DIFFERENT from SECRETS_KEK. Needed for admin login + accounts.
+AUTH_SECRET=replace_with_a_different_long_random_string
 
 # Cloudflare Email Sending binding (optional) — only when using the 'cloudflare'
 # email provider (Workers Paid plan + an onboarded sender domain). Declared in

@@ -47,7 +47,68 @@ function isProtected(pathname: string): boolean {
   );
 }
 
+// Placeholder values shipped in .dev.vars.example. If a real environment still
+// has these, the encryption KEK and session signing key are public knowledge, so
+// we fail CLOSED — block every route with fix instructions rather than run with a
+// predictable key. Keep these in sync with .dev.vars.example.
+const PLACEHOLDER_KEK = 'replace_with_a_long_random_string';
+const PLACEHOLDER_AUTH = 'replace_with_a_different_long_random_string';
+
+/** Secret vars still set to their .dev.vars.example placeholder (empty = fine). */
+function defaultedSecrets(): string[] {
+  const bad: string[] = [];
+  if (env.SECRETS_KEK === PLACEHOLDER_KEK) bad.push('SECRETS_KEK');
+  if (env.AUTH_SECRET === PLACEHOLDER_AUTH) bad.push('AUTH_SECRET');
+  return bad;
+}
+
+/** Full-stop error (HTML for pages, text for APIs/assets) telling the operator how to fix. */
+function placeholderSecretResponse(vars: string[], apiOrAsset: boolean): Response {
+  const gen = 'openssl rand -base64 32';
+  const local = vars.map((v) => `${v}=<paste-generated-value>`).join('\n');
+  const prod = vars.map((v) => `wrangler secret put ${v}`).join('\n');
+  if (apiOrAsset) {
+    const body =
+      `Store misconfigured: ${vars.join(', ')} still set to the .dev.vars.example placeholder.\n\n` +
+      `Generate a strong random value for each (they must differ):\n  ${gen}\n\n` +
+      `Local dev — add to .dev.vars (gitignored):\n  ${local.replace(/\n/g, '\n  ')}\n\n` +
+      `Production — set each as a Worker secret:\n  ${prod.replace(/\n/g, '\n  ')}\n\n` +
+      `Then restart the dev server / redeploy.\n`;
+    return new Response(body, { status: 500, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+  }
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Store misconfigured</title>
+<style>body{font:16px/1.6 system-ui,-apple-system,sans-serif;max-width:44rem;margin:4rem auto;padding:0 1.25rem;color:#18181b}
+h1{font-size:1.4rem}h2{font-size:1.05rem;margin-top:1.75rem}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+pre{background:#f4f4f5;padding:.9rem 1rem;border-radius:8px;overflow-x:auto;font-size:.9rem}
+.vars code{background:#fee2e2;padding:.1rem .4rem;border-radius:4px;margin-right:.35rem}
+.muted{color:#71717a;font-size:.9rem}</style></head><body>
+<h1>⚠ Store misconfigured — placeholder secrets</h1>
+<p>These Worker secrets are still set to the example placeholder from <code>.dev.vars.example</code>:</p>
+<p class="vars">${vars.map((v) => `<code>${v}</code>`).join('')}</p>
+<p>Running with them makes your encryption key and session signing key public. Every route is blocked until real values are set.</p>
+<h2>Fix</h2>
+<p>1. Generate a strong random value for <strong>each</strong> (they must be different):</p>
+<pre>${gen}</pre>
+<p>2. Local dev — add to <code>.dev.vars</code> (gitignored):</p>
+<pre>${local.replace(/</g, '&lt;')}</pre>
+<p>3. Production — set as Worker secrets:</p>
+<pre>${prod}</pre>
+<p class="muted">Then restart the dev server (or redeploy) and reload.</p>
+</body></html>`;
+  return new Response(html, { status: 500, headers: { 'content-type': 'text/html; charset=utf-8' } });
+}
+
 export const onRequest = defineMiddleware(async (context, next) => {
+  // Fail closed if secrets are still the shipped placeholders — before any other
+  // work, so no route (page, API, or asset) serves under a public key.
+  const defaulted = defaultedSecrets();
+  if (defaulted.length > 0) {
+    const p = context.url.pathname;
+    return placeholderSecretResponse(defaulted, p.startsWith('/api/') || p.startsWith('/_'));
+  }
+
   // Runtime settings overlay (store name etc.) — only for HTML page requests, so
   // the storefront/admin can reflect wizard-set values without a redeploy. APIs and
   // static assets skip it (one indexed D1 read per page, not per asset/API call).
