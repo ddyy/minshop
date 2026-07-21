@@ -40,7 +40,7 @@
     "miniflare": "^4.20260714.0",
     "@tailwindcss/vite": "^4.3.1",
     "tailwindcss": "^4.3.1",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.10",
     "wrangler": "^4.112.0"
   }
