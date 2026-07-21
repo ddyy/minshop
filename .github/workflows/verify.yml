@@ -37,5 +37,14 @@ jobs:
       - name: Install MCP dependencies
         run: npm ci --prefix mcp
 
+      - name: Create isolated Wrangler configuration
+        run: |
+          sed \
+            -e 's/__NAME__/minshop-check/g' \
+            -e 's/__DB_NAME__/minshop-check-db/g' \
+            -e 's/__DB_ID__/00000000-0000-0000-0000-000000000000/g' \
+            -e 's/__BUCKET__/minshop-check-images/g' \
+            wrangler.template.jsonc > wrangler.jsonc
+
       - name: Run complete verification
         run: npm run verify
