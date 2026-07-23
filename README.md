@@ -69,6 +69,14 @@ The order shows up in `/admin` (and in D1: `npx wrangler d1 execute minshop-db -
 
 ## Deploy
 
+### One-click (Deploy to Cloudflare)
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/ddyy/minshop)
+
+Forks the repo, provisions D1 (`minshop-db`) + R2 (`minshop-images`), applies migrations, and deploys — free-plan resources only. **When prompted for secrets, paste a fresh random value into *each* of `SECRETS_KEK` and `AUTH_SECRET`** (they must differ) — run `openssl rand -base64 32` twice. The button can't generate them yet, and if you accept the `replace_with_*` example defaults the store fails closed with fix instructions on every route (by design — see [Gotchas](#gotchas)). Then finish onboarding at `/admin/setup` (below). Optional paid add-ons (Images, semantic search, Cloudflare Email) are commented in `wrangler.jsonc` — uncomment + redeploy.
+
+### CLI (one shot)
+
 **One shot** — provisions a fresh, fully-independent instance (its own D1, R2, Vectorize index, Worker) and sets both Worker secrets:
 
 ```sh
@@ -81,7 +89,9 @@ Or **manually**:
 ```sh
 npx wrangler login
 
-# Provision real resources, then paste the D1 id into wrangler.jsonc
+# Provision real resources, then set the printed D1 id in wrangler.jsonc —
+# replace the placeholder "00000000-…" database_id (the committed file is a
+# free-plan default; real ids/extra bindings shouldn't be committed).
 npx wrangler d1 create minshop-db
 npx wrangler r2 bucket create minshop-images
 npm run db:migrate:remote          # applies migrations/ to the production DB
@@ -242,6 +252,7 @@ Collected while building (the kind of thing that costs an afternoon):
 - **One local dev server at a time** — two `astro dev` instances share the same `.wrangler` local-D1 state and race, surfacing as transient `no such table` errors. Use one server, or pass a separate persist dir.
 - **`wrangler d1 export` fails with FTS5 virtual tables** — D1 can't export a DB that has virtual tables. To back up: drop `products_fts`, export, then recreate it (re-run migration `0003`).
 - **FTS5 `MATCH` throws on raw input** — special chars (`-`, `"`, `:`, `*`) cause `fts5: syntax error`. Sanitize to alphanumeric prefix tokens before querying (see `features/products/search.ts`).
+- **Placeholder secrets fail closed** — if `SECRETS_KEK` or `AUTH_SECRET` is still the `replace_with_*` value shipped in `.dev.vars.example`, `src/middleware.ts` blocks *every* route with a 500 + fix instructions (rather than run under a public key). The `provision:local` / `provision:cf` scripts generate real values; only hand-copying `.dev.vars.example` → `.dev.vars` without editing trips it.
 
 ## Search
 

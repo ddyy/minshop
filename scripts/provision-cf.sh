@@ -48,7 +48,9 @@ $W r2 bucket create "$BUCKET"
 # wrangler.template.jsonc (see the comments there), then re-run/redeploy.
 
 echo "▸ [3/5] Rendering instance config → wrangler.jsonc (original backed up)…"
-cp wrangler.jsonc wrangler.jsonc.bak
+# wrangler.jsonc is committed (placeholder config), so it normally exists; guard the
+# backup anyway so a fresh clone that deleted it doesn't abort under `set -e`.
+[ -f wrangler.jsonc ] && cp wrangler.jsonc wrangler.jsonc.bak
 sed -e "s/__NAME__/$SLUG/g" \
     -e "s/__DB_NAME__/$DB_NAME/g" \
     -e "s/__DB_ID__/$DB_ID/g" \

@@ -15,9 +15,9 @@ dist/
 # Per-instance provisioning artifacts (scripts/provision-cf.sh)
 .instances/
 wrangler.jsonc.bak
-# Per-instance deploy config: real ids/names live here, never published.
-# The clean templates are *.template.jsonc; provision-cf.sh renders these.
-/wrangler.jsonc
+# NOTE: /wrangler.jsonc is now COMMITTED (free-plan default + Deploy-button config,
+# with a placeholder database_id). provision-cf.sh renders instance ids over it and
+# restores it on exit. Keep real deployed-instance configs OUTSIDE the repo.
 /mcp/wrangler.jsonc
 
 # Environment & local overrides

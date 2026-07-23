@@ -1,0 +1,74 @@
+{
+	// Committed default config. Read by the one-click "Deploy to Cloudflare" button
+	// (which provisions D1 + R2 and rewrites database_id) AND by local `astro dev`.
+	//
+	// FREE-PLAN DEFAULT: D1 + R2 only — both on the Cloudflare free plan. Optional
+	// paid add-ons (Images, Workers AI + Vectorize for semantic search, Cloudflare
+	// Email) are commented below; uncomment + redeploy to enable. Every one degrades
+	// gracefully when its binding is absent, so the store runs without them.
+	//
+	// No `main`/`assets` here: @astrojs/cloudflare supplies the worker entry itself.
+	//
+	// Per-instance CLI deploys use scripts/provision-cf.sh, which renders an instance
+	// config from wrangler.template.jsonc (real ids) and restores this file after.
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "minshop",
+	"compatibility_date": "2026-07-20",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"observability": {
+		"enabled": true
+	},
+	// Native Workers rate limiting. Namespace ids are account-scoped; keys also
+	// include the hostname so multiple stores can safely share these namespaces.
+	"ratelimits": [
+		{
+			"name": "AUTH_RATE_LIMITER",
+			"namespace_id": "10001",
+			"simple": { "limit": 10, "period": 60 }
+		},
+		{
+			"name": "CHECKOUT_RATE_LIMITER",
+			"namespace_id": "10002",
+			"simple": { "limit": 20, "period": 60 }
+		}
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "minshop-db",
+			// Placeholder — the Deploy button provisions a fresh D1 and replaces this.
+			// Manual/CLI deploy: paste your `wrangler d1 create minshop-db` id here.
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"migrations_dir": "migrations"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "BUCKET",
+			"bucket_name": "minshop-images"
+		}
+	],
+	// Optional paid add-ons — uncomment + redeploy to enable (see README → Search,
+	// Settings). Each is just a binding; the code checks for it and falls back.
+	//   "images": { "binding": "IMAGES" },
+	//   "ai": { "binding": "AI" },
+	//   "vectorize": [{ "binding": "VECTORIZE", "index_name": "minshop-products" }],
+	//   "send_email": [{ "name": "EMAIL" }],
+	// Non-secret config. Secrets (SECRETS_KEK, AUTH_SECRET, provider keys) are set
+	// with `wrangler secret put` / the admin dashboard — never here.
+	"vars": {
+		"STORE_NAME": "My Shop",
+		// IANA time zone for admin date display (see src/config.ts → timeZone).
+		"TIME_ZONE": "UTC",
+		// Default search backend. 'fts' = SQLite keyword search ($0, works immediately).
+		// Semantic search (Workers AI + Vectorize) is switched on at runtime in
+		// Admin → Settings → Search once those bindings are uncommented above.
+		"SEARCH_PROVIDER": "fts"
+		// Optional Cloudflare Access JWT verification (src/middleware.ts) — add both to
+		// forge-proof the admin gate against direct *.workers.dev hits:
+		//   "CF_ACCESS_TEAM_DOMAIN": "https://<team>.cloudflareaccess.com",
+		//   "CF_ACCESS_AUD": "<your Access application's AUD tag>"
+	}
+}
