@@ -73,7 +73,13 @@ The order shows up in `/admin` (and in D1: `npx wrangler d1 execute minshop-db -
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/ddyy/minshop)
 
-Forks the repo, provisions D1 (`minshop-db`) + R2 (`minshop-images`), applies migrations, and deploys — free-plan resources only. **When prompted for secrets, paste a fresh random value into *each* of `SECRETS_KEK` and `AUTH_SECRET`** (they must differ) — run `openssl rand -base64 32` twice. The button can't generate them yet, and if you accept the `replace_with_*` example defaults the store fails closed with fix instructions on every route (by design — see [Gotchas](#gotchas)). Then finish onboarding at `/admin/setup` (below). Optional paid add-ons (Images, semantic search, Cloudflare Email) are commented in `wrangler.jsonc` — uncomment + redeploy.
+Forks the repo, provisions D1 (`minshop-db`) + R2 (`minshop-images`), applies migrations, and deploys — free-plan resources only. Then finish onboarding at `/admin/setup` (below). Optional paid add-ons (Images, semantic search, Cloudflare Email) are commented in `wrangler.jsonc` — uncomment + redeploy.
+
+**Fields the deploy form shows:**
+
+- **`SECRETS_KEK`, `AUTH_SECRET`** (masked) — the only two you must set. Paste a fresh random value into *each* (they must differ): run `openssl rand -base64 32` twice. The button can't generate them yet, and because these fields are masked their placeholder hints are hidden — so a leading label field, **`SET_SECRETS_KEK_AND_AUTH_SECRET_BELOW`**, appears above them as a reminder (ignore its value; it's unused). If you skip them and deploy with the `replace_with_*` defaults, the store fails closed with fix instructions on every route (by design — see [Gotchas](#gotchas)).
+- **Location hint** — Cloudflare's own field for where to place the D1 database; pick the region nearest your shoppers.
+- **No store name / time zone / search fields** — those are runtime settings you configure in the setup wizard and **Admin → Settings** (stored in D1), not at deploy time. Defaults until then: `My Shop` / `UTC` / keyword (FTS) search.
 
 ### CLI (one shot)
 

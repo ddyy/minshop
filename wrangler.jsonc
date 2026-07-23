@@ -53,19 +53,18 @@
 	//   "ai": { "binding": "AI" },
 	//   "vectorize": [{ "binding": "VECTORIZE", "index_name": "minshop-products" }],
 	//   "send_email": [{ "name": "EMAIL" }],
-	// Non-secret config. Secrets (SECRETS_KEK, AUTH_SECRET, provider keys) are set
-	// with `wrangler secret put` / the admin dashboard — never here.
-	"vars": {
-		"STORE_NAME": "My Shop",
-		// IANA time zone for admin date display (see src/config.ts → timeZone).
-		"TIME_ZONE": "UTC",
-		// Default search backend. 'fts' = SQLite keyword search ($0, works immediately).
-		// Semantic search (Workers AI + Vectorize) is switched on at runtime in
-		// Admin → Settings → Search once those bindings are uncommented above.
-		"SEARCH_PROVIDER": "fts"
-		// Optional Cloudflare Access JWT verification (src/middleware.ts) — add both to
-		// forge-proof the admin gate against direct *.workers.dev hits:
-		//   "CF_ACCESS_TEAM_DOMAIN": "https://<team>.cloudflareaccess.com",
-		//   "CF_ACCESS_AUD": "<your Access application's AUD tag>"
-	}
+	// No build-time vars. Store name, time zone, and the search backend are all set
+	// at RUNTIME in the first-run setup wizard / Admin → Settings (stored in D1), so
+	// the one-click deploy doesn't prompt for them — free-form deploy fields would
+	// only invite a typo that a wizard field validates. Code defaults apply until the
+	// wizard runs: "My Shop" / "UTC" / FTS keyword search (see src/config.ts).
+	//
+	// Secrets (SECRETS_KEK, AUTH_SECRET, provider keys) are set with `wrangler secret
+	// put` / the admin dashboard — never here.
+	//
+	// To forge-proof the admin gate with Cloudflare Access (src/middleware.ts), add:
+	//   "vars": {
+	//     "CF_ACCESS_TEAM_DOMAIN": "https://<team>.cloudflareaccess.com",
+	//     "CF_ACCESS_AUD": "<your Access application's AUD tag>"
+	//   }
 }

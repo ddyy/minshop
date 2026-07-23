@@ -13,6 +13,13 @@
 # `npm run provision:local` generates both of these into .dev.vars automatically,
 # so you usually don't edit this file by hand.
 
+# ── One-click deploy note (the field below is a visible LABEL, not a real secret) ──
+# In the "Deploy to Cloudflare" button, SECRETS_KEK and AUTH_SECRET render as
+# MASKED fields, so their placeholder hints are hidden. This first entry's NAME acts
+# as a visible instruction above them; its value is unused (it just keeps the button
+# from marking the field "required"). Locally, ignore it.
+SET_SECRETS_KEK_AND_AUTH_SECRET_BELOW=generate_each_with__openssl_rand_base64_32
+
 # Key-encryption key for the D1 payment-key vault. REQUIRED to store/use any
 # provider key (without it the vault is dormant → demo-only). Any long random
 # string; never goes in D1. Replace before storing real keys — e.g. `openssl rand -base64 32`.
