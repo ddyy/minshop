@@ -77,7 +77,7 @@ Forks the repo, provisions D1 (`minshop-db`) + R2 (`minshop-images`), applies mi
 
 **Fields the deploy form shows:**
 
-- **`SECRETS_KEK`, `AUTH_SECRET`** (masked) — the only two you must set. Paste a fresh random value into *each* (they must differ): run `openssl rand -base64 32` twice. The button can't generate them yet, and because these fields are masked their placeholder hints are hidden — so a leading label field, **`SET_SECRETS_KEK_AND_AUTH_SECRET_BELOW`**, appears above them as a reminder (ignore its value; it's unused). If you skip them and deploy with the `replace_with_*` defaults, the store fails closed with fix instructions on every route (by design — see [Gotchas](#gotchas)).
+- **`SECRETS_KEK`, `AUTH_SECRET`** (masked, required) — the only two you must set. Paste a fresh random value into *each* (they must differ): run `openssl rand -base64 32` twice. The button can't generate them, and because the fields are masked their hints are hidden — so a leading label field, **`USE_A_LONG_RANDOM_STRING_FOR_SECRETS_KEK_AND_AUTH_SECRET`**, carries the instruction above them (its own value is unused filler). Left empty, the store still runs: `SECRETS_KEK` unset keeps the payment-key vault dormant (demo checkout only), `AUTH_SECRET` unset disables customer accounts — both configurable later.
 - **Location hint** — Cloudflare's own field for where to place the D1 database; pick the region nearest your shoppers.
 - **No store name / time zone / search fields** — those are runtime settings you configure in the setup wizard and **Admin → Settings** (stored in D1), not at deploy time. Defaults until then: `My Shop` / `UTC` / keyword (FTS) search.
 
@@ -259,7 +259,6 @@ Collected while building (the kind of thing that costs an afternoon):
 - **One local dev server at a time** — two `astro dev` instances share the same `.wrangler` local-D1 state and race, surfacing as transient `no such table` errors. Use one server, or pass a separate persist dir.
 - **`wrangler d1 export` fails with FTS5 virtual tables** — D1 can't export a DB that has virtual tables. To back up: drop `products_fts`, export, then recreate it (re-run migration `0003`).
 - **FTS5 `MATCH` throws on raw input** — special chars (`-`, `"`, `:`, `*`) cause `fts5: syntax error`. Sanitize to alphanumeric prefix tokens before querying (see `features/products/search.ts`).
-- **Placeholder secrets fail closed** — if `SECRETS_KEK` or `AUTH_SECRET` is still the `replace_with_*` value shipped in `.dev.vars.example`, `src/middleware.ts` blocks *every* route with a 500 + fix instructions (rather than run under a public key). The `provision:local` / `provision:cf` scripts generate real values; only hand-copying `.dev.vars.example` → `.dev.vars` without editing trips it.
 
 ## Search
 

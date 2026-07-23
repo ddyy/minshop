@@ -13,21 +13,23 @@
 # `npm run provision:local` generates both of these into .dev.vars automatically,
 # so you usually don't edit this file by hand.
 
-# ── One-click deploy note (the field below is a visible LABEL, not a real secret) ──
-# In the "Deploy to Cloudflare" button, SECRETS_KEK and AUTH_SECRET render as
-# MASKED fields, so their placeholder hints are hidden. This first entry's NAME acts
-# as a visible instruction above them; its value is unused (it just keeps the button
-# from marking the field "required"). Locally, ignore it.
-SET_SECRETS_KEK_AND_AUTH_SECRET_BELOW=generate_each_with__openssl_rand_base64_32
+# ── One-click deploy hint (this is a visible LABEL, not a real secret) ──
+# SECRETS_KEK and AUTH_SECRET below are MASKED, *required* fields in the "Deploy to
+# Cloudflare" button, so any hint on them is hidden. This first entry's NAME shows a
+# visible instruction above them for what value to use; its own value is unused (and
+# keeps this field from being marked required). Locally, ignore it.
+USE_A_LONG_RANDOM_STRING_FOR_SECRETS_KEK_AND_AUTH_SECRET=unused
 
-# Key-encryption key for the D1 payment-key vault. REQUIRED to store/use any
-# provider key (without it the vault is dormant → demo-only). Any long random
-# string; never goes in D1. Replace before storing real keys — e.g. `openssl rand -base64 32`.
-SECRETS_KEK=replace_with_a_long_random_string
+# Key-encryption key for the D1 payment-key vault. Left EMPTY on purpose: the deploy
+# form then shows a *required* field you must fill (no hidden default to accept), and
+# locally an empty value keeps the vault dormant (demo-only) until you set one.
+# Generate with: openssl rand -base64 32   (never goes in D1)
+SECRETS_KEK=
 
-# Signs admin + customer sessions (magic-link tokens, session cookies). Any long
-# random string, DIFFERENT from SECRETS_KEK. Needed for admin login + accounts.
-AUTH_SECRET=replace_with_a_different_long_random_string
+# Signs admin + customer sessions (magic-link tokens, session cookies). Empty for the
+# same reason — a required field, not a silent default. Use a DIFFERENT long random
+# string from SECRETS_KEK.
+AUTH_SECRET=
 
 # Cloudflare Email Sending binding (optional) — only when using the 'cloudflare'
 # email provider (Workers Paid plan + an onboarded sender domain). Declared in
