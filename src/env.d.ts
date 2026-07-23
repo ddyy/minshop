@@ -1,5 +1,13 @@
 /// <reference types="astro/client" />
 
+// Raw .sql imports (Vite `?raw`) — used to run seed files at runtime (see
+// src/features/seed/demo.ts). `types` in tsconfig.json overrides the default
+// lib set, so declare it explicitly rather than relying on vite/client.
+declare module '*.sql?raw' {
+  const content: string;
+  export default content;
+}
+
 // Astro 7 + @astrojs/cloudflare v14: bindings are accessed via
 //   import { env } from 'cloudflare:workers'
 // and `env` is typed as Cloudflare.Env. Declare the shape here.

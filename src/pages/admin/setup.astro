@@ -8,6 +8,7 @@ import { normalizeTimeZone } from '../../features/settings/timeZone';
 import { setAdminPassword, adminPasswordHash } from '../../features/auth/admin';
 import { signSession } from '../../features/auth/session';
 import { offeredMethods, isMethodAvailable, paymentsInDemoMode } from '../../features/payments';
+import { catalogIsEmpty, seedDemoCatalog } from '../../features/seed/demo';
 
 // First-run setup wizard (onboarding). Reachable unauthenticated ONLY while no
 // admin password is set yet (bootstrap — see src/middleware.ts); once a password
@@ -76,6 +77,16 @@ if (Astro.request.method === 'POST') {
       finishError =
         'Set an admin password above first (or put /admin behind Cloudflare Access) — without one, the dashboard is unreachable and this setup page stays public.';
     } else {
+      // Optional: load the demo catalog if requested and the store is still empty
+      // (guarded so it never clobbers a store that already has products). Seed
+      // failures shouldn't block finishing — the store just starts empty.
+      if (form.get('seed_demo') === 'on' && (await catalogIsEmpty(env.DB))) {
+        try {
+          await seedDemoCatalog(env.DB);
+        } catch (err) {
+          console.error('Demo catalog seed failed:', err);
+        }
+      }
       await setSetting(env.DB, 'setup_complete', '1');
       return Astro.redirect('/admin?msg=setup-complete', 303);
     }
@@ -100,6 +111,8 @@ const methods = offeredMethods(settings).map((m) => ({
   ready: m === 'demo' || isMethodAvailable(m, settings),
 }));
 const demoOnly = paymentsInDemoMode(settings);
+// Only offer the demo catalog when the store has no products yet.
+const catalogEmpty = await catalogIsEmpty(env.DB);
 ---
 
 <AdminLayout title="Setup" active="dashboard">
@@ -239,12 +252,25 @@ const demoOnly = paymentsInDemoMode(settings);
         </p>
       )
     }
-    <form method="POST" class={`${finishError ? 'mt-3' : 'mt-8'} flex items-center gap-4`}>
+    <form method="POST" class={`${finishError ? 'mt-3' : 'mt-8'} flex flex-col gap-4`}>
       <input type="hidden" name="_action" value="finish" />
       <input type="hidden" name="time_zone" value={timeZone} data-finish-time-zone />
+      {catalogEmpty && (
+        <label class="flex items-start gap-2 text-sm text-gray-600">
+          <input
+            type="checkbox"
+            name="seed_demo"
+            class="mt-0.5 rounded border-gray-300 text-brand focus:ring-brand"
+          />
+          <span>
+            Load the <strong>demo catalog</strong> — 30 sample products across 6 categories,
+            to explore the storefront. Leave unchecked to start empty and add your own.
+          </span>
+        </label>
+      )}
       <button
         type="submit"
-        class="rounded-md bg-brand px-5 py-2.5 text-sm font-medium text-white hover:bg-brand-hover"
+        class="w-fit rounded-md bg-brand px-5 py-2.5 text-sm font-medium text-white hover:bg-brand-hover"
       >
         Finish setup
       </button>
