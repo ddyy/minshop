@@ -89,9 +89,10 @@ Or **manually**:
 ```sh
 npx wrangler login
 
-# Provision real resources, then set the printed D1 id in wrangler.jsonc —
-# replace the placeholder "00000000-…" database_id (the committed file is a
-# free-plan default; real ids/extra bindings shouldn't be committed).
+# Provision real resources. The committed wrangler.jsonc declares D1/R2 by NAME
+# with no ids (so a one-click / Workers Builds deploy auto-provisions them); for a
+# manual deploy, add the printed database_id to the "DB" entry — or let
+# `wrangler deploy` create it.
 npx wrangler d1 create minshop-db
 npx wrangler r2 bucket create minshop-images
 npm run db:migrate:remote          # applies migrations/ to the production DB

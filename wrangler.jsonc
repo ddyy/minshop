@@ -38,9 +38,6 @@
 		{
 			"binding": "DB",
 			"database_name": "minshop-db",
-			// Placeholder — the Deploy button provisions a fresh D1 and replaces this.
-			// Manual/CLI deploy: paste your `wrangler d1 create minshop-db` id here.
-			"database_id": "00000000-0000-0000-0000-000000000000",
 			"migrations_dir": "migrations"
 		}
 	],
