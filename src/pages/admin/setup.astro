@@ -4,48 +4,53 @@ import { env } from 'cloudflare:workers';
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import { getConfig } from '../../config';
 import { setSetting, getSetting, getStoreSettings } from '../../features/settings/db';
-import { normalizeTimeZone } from '../../features/settings/timeZone';
+import { normalizeTimeZone, allTimeZones } from '../../features/settings/timeZone';
 import { setAdminPassword, adminPasswordHash } from '../../features/auth/admin';
 import { signSession } from '../../features/auth/session';
-import { offeredMethods, isMethodAvailable, paymentsInDemoMode } from '../../features/payments';
 import { catalogIsEmpty, seedDemoCatalog } from '../../features/seed/demo';
 
 // First-run setup wizard (onboarding). Reachable unauthenticated ONLY while no
 // admin password is set yet (bootstrap — see src/middleware.ts); once a password
-// exists the normal gate applies. Persists a few values to D1 (runtime settings) so
-// the owner can configure a fresh store without a redeploy, then marks setup done.
+// exists the normal gate applies. A single form saves store basics + the admin
+// password, optionally seeds the demo catalog, then marks setup done. Payment
+// methods are configured later in Settings — not required to get running.
 const cfg = getConfig();
 const SESSION_TTL = 7 * 24 * 3600; // 7 days (matches /admin/login)
-
-let saved = '';
-let finishError = '';
-let passwordError = '';
-let timeZoneError = '';
 const MIN_PW = 8;
+
+let timeZoneError = '';
+let passwordError = '';
+
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
-  const action = String(form.get('_action'));
-  if (action === 'save_store') {
-    const name = String(form.get('store_name') ?? '').trim();
-    const timeZone = normalizeTimeZone(String(form.get('time_zone') ?? ''));
-    // Empty → clear the override (fall back to the build-time STORE_NAME).
+  const name = String(form.get('store_name') ?? '').trim();
+  const tz = normalizeTimeZone(String(form.get('time_zone') ?? ''));
+  const pw = String(form.get('admin_password') ?? '');
+  const hasPasswordAlready = !!(await getSetting(env.DB, 'admin_password_hash'));
+  // Middleware sets adminEmail only after verifying the Access JWT — a safe signal.
+  const behindAccess = !!Astro.locals.adminEmail;
+
+  // Validate everything BEFORE persisting anything, so a bad field never half-saves.
+  if (!tz) timeZoneError = 'Enter a valid IANA time zone, such as UTC or America/New_York.';
+  if (pw && pw.length < MIN_PW) passwordError = `Password must be at least ${MIN_PW} characters.`;
+  // Finishing without any admin credential would strand the operator (the bootstrap
+  // gate keeps bouncing /admin back here, and this page stays public). Require a
+  // password — unless one's already set, Access fronts /admin, or this is local dev.
+  const willHaveCredential = hasPasswordAlready || behindAccess || pw.length >= MIN_PW;
+  if (!import.meta.env.DEV && !willHaveCredential && !passwordError) {
+    passwordError =
+      'Set an admin password — without one the dashboard is unreachable and this page stays public.';
+  }
+
+  if (!timeZoneError && !passwordError) {
+    // Empty name → clear the override (fall back to the build-time STORE_NAME).
     await setSetting(env.DB, 'store_name', name || null);
-    if (timeZone) {
-      await setSetting(env.DB, 'time_zone', timeZone);
-      saved = 'store';
-    } else {
-      timeZoneError = 'Enter a valid IANA time zone, such as UTC or America/New_York.';
-    }
-  } else if (action === 'set_password') {
-    // Hash + store the admin password in D1. Enforce a minimum length SERVER-SIDE
-    // (the HTML minlength is only a client hint — a crafted POST can skip it).
-    const pw = String(form.get('admin_password') ?? '');
-    if (pw && pw.length < MIN_PW) {
-      passwordError = `Password must be at least ${MIN_PW} characters.`;
-    } else if (pw) {
+    await setSetting(env.DB, 'time_zone', tz!);
+    if (pw) {
+      // Hash + store the admin password (server-side min-length already enforced).
       await setAdminPassword(env.DB, pw);
-      // Setting the password activates the admin gate immediately. Issue a session
-      // now (auto-login) so the operator isn't locked out of the rest of the wizard.
+      // Setting the password activates the admin gate; issue a session now (auto-login)
+      // so the operator isn't locked out on the redirect to /admin.
       const hash = (await adminPasswordHash(env.DB))!;
       const signingKey = env.AUTH_SECRET || hash;
       const token = await signSession(signingKey, hash, SESSION_TTL, Date.now() / 1000);
@@ -56,62 +61,26 @@ if (Astro.request.method === 'POST') {
         path: '/',
         maxAge: SESSION_TTL,
       });
-      saved = 'password';
     }
-  } else if (action === 'finish') {
-    // Persist the browser-detected zone even if the owner skipped the separate
-    // Store basics Save button. Never overwrite a zone they already saved.
-    if (!(await getSetting(env.DB, 'time_zone'))) {
-      const detectedZone = normalizeTimeZone(String(form.get('time_zone') ?? ''));
-      if (detectedZone) await setSetting(env.DB, 'time_zone', detectedZone);
-    }
-    // GUARD: finishing without any admin credential in production would strand the
-    // operator — the bootstrap gate (src/middleware.ts) keeps bouncing /admin back
-    // here forever, and the wizard stays publicly reachable. Require a password (or
-    // Cloudflare Access in front) first. Local dev bypasses the gate, so it's exempt.
-    const hasCredential = !!(await adminPasswordHash(env.DB));
-    // Middleware sets this only after signature/issuer/audience verification.
-    // Never use raw header presence as an authorization signal here.
-    const behindAccess = !!Astro.locals.adminEmail;
-    if (!import.meta.env.DEV && !hasCredential && !behindAccess) {
-      finishError =
-        'Set an admin password above first (or put /admin behind Cloudflare Access) — without one, the dashboard is unreachable and this setup page stays public.';
-    } else {
-      // Optional: load the demo catalog if requested and the store is still empty
-      // (guarded so it never clobbers a store that already has products). Seed
-      // failures shouldn't block finishing — the store just starts empty.
-      if (form.get('seed_demo') === 'on' && (await catalogIsEmpty(env.DB))) {
-        try {
-          await seedDemoCatalog(env.DB);
-        } catch (err) {
-          console.error('Demo catalog seed failed:', err);
-        }
+    // Optional demo catalog (guarded so it never clobbers an existing catalog; a
+    // seed failure shouldn't block finishing — the store just starts empty).
+    if (form.get('seed_demo') === 'on' && (await catalogIsEmpty(env.DB))) {
+      try {
+        await seedDemoCatalog(env.DB);
+      } catch (err) {
+        console.error('Demo catalog seed failed:', err);
       }
-      await setSetting(env.DB, 'setup_complete', '1');
-      return Astro.redirect('/admin?msg=setup-complete', 303);
     }
+    await setSetting(env.DB, 'setup_complete', '1');
+    return Astro.redirect('/admin?msg=setup-complete', 303);
   }
 }
 
 const settings = await getStoreSettings(env.DB);
 const storeName = settings.storeName ?? cfg.storeName;
 const timeZone = settings.timeZone ?? cfg.timeZone;
+const timeZones = allTimeZones();
 const hasPassword = !!(await getSetting(env.DB, 'admin_password_hash'));
-
-// Payment status: which offered methods are live vs. need setup.
-const METHOD_LABEL: Record<string, string> = {
-  stripe: 'Card (Stripe)',
-  lightning: 'Lightning',
-  opennode: 'Bitcoin (OpenNode)',
-  demo: 'Demo',
-};
-const methods = offeredMethods(settings).map((m) => ({
-  m,
-  label: METHOD_LABEL[m] ?? m,
-  ready: m === 'demo' || isMethodAvailable(m, settings),
-}));
-const demoOnly = paymentsInDemoMode(settings);
-// Only offer the demo catalog when the store has no products yet.
 const catalogEmpty = await catalogIsEmpty(env.DB);
 ---
 
@@ -119,79 +88,62 @@ const catalogEmpty = await catalogIsEmpty(env.DB);
   <div class="mx-auto max-w-2xl">
     <h1 class="text-2xl font-bold">Set up your store</h1>
     <p class="mt-1 text-sm text-gray-500">
-      A few first-run settings. You can change these any time — payments, email, and
-      other keys are set in Settings; this just gets you running.
+      A few first-run settings — you can change them any time in Settings. This just gets
+      you running.
     </p>
 
-    {/* ── Store basics ─────────────────────────────────────────────────────── */}
-    <section class="mt-8 rounded-lg border border-line bg-white p-5">
-      <h2 class="text-sm font-semibold uppercase tracking-widest text-gray-500">Store basics</h2>
-      <form method="POST" class="mt-4 flex flex-wrap items-end gap-3">
-        <input type="hidden" name="_action" value="save_store" />
-        <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-gray-400">
-          Store name
-          <input
-            type="text"
-            name="store_name"
-            value={storeName}
-            class="w-64 rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal focus:border-brand focus:outline-none"
-          />
-        </label>
-        <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-gray-400">
-          Store time zone
-          <input
-            type="text"
-            name="time_zone"
-            value={timeZone}
-            required
-            data-time-zone
-            data-auto-detect={settings.timeZone ? 'false' : 'true'}
-            placeholder="UTC"
-            class="w-64 rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal focus:border-brand focus:outline-none"
-          />
-        </label>
-        <button
-          type="submit"
-          class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand hover:text-brand"
-        >
-          Save
-        </button>
-        {saved === 'store' && <span class="pb-2 text-xs text-green-600">Saved ✓</span>}
-        {timeZoneError && <span class="basis-full text-xs text-red-600">{timeZoneError}</span>}
-      </form>
-      <p class="mt-2 text-xs text-gray-400">
-        Currency stays a build-time setting (it's wired through every price) — set
-        <code class="rounded bg-gray-100 px-1">currency</code> in
-        <code class="rounded bg-gray-100 px-1">src/config.ts</code>. Current:
-        {' '}{cfg.currency.toUpperCase()}.
-      </p>
-    </section>
+    <form method="POST" class="mt-8 space-y-6">
+      {/* ── Store basics ─────────────────────────────────────────────────────── */}
+      <section class="rounded-lg border border-line bg-white p-5">
+        <h2 class="text-sm font-semibold uppercase tracking-widest text-gray-500">Store basics</h2>
+        <div class="mt-4 flex flex-wrap items-end gap-3">
+          <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-gray-400">
+            Store name
+            <input
+              type="text"
+              name="store_name"
+              value={storeName}
+              class="w-64 rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal focus:border-brand focus:outline-none"
+            />
+          </label>
+          <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-gray-400">
+            Store time zone
+            <input
+              type="text"
+              name="time_zone"
+              value={timeZone}
+              required
+              list="tz-list"
+              data-time-zone
+              data-auto-detect={settings.timeZone ? 'false' : 'true'}
+              placeholder="Search e.g. America/New_York"
+              class="w-64 rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal focus:border-brand focus:outline-none"
+            />
+            <datalist id="tz-list">
+              {timeZones.map((z) => <option value={z} />)}
+            </datalist>
+          </label>
+        </div>
+        {timeZoneError && <p class="mt-2 text-xs text-red-600">{timeZoneError}</p>}
+        <p class="mt-3 text-xs text-gray-400">
+          Currency stays a build-time setting (it's wired through every price) — set
+          <code class="rounded bg-gray-100 px-1">currency</code> in
+          <code class="rounded bg-gray-100 px-1">src/config.ts</code>. Current:
+          {' '}{cfg.currency.toUpperCase()}.
+        </p>
+      </section>
 
-    <script>
-      const input = document.querySelector<HTMLInputElement>('[data-time-zone]');
-      const finishInput = document.querySelector<HTMLInputElement>('[data-finish-time-zone]');
-      if (input?.dataset.autoDetect === 'true') {
-        const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        if (detected) {
-          input.value = detected;
-          if (finishInput) finishInput.value = detected;
-        }
-      }
-    </script>
-
-    {/* ── Admin password ───────────────────────────────────────────────────── */}
-    <section class="mt-6 rounded-lg border border-line bg-white p-5">
-      <h2 class="text-sm font-semibold uppercase tracking-widest text-gray-500">Admin password</h2>
-      <p class="mt-1 text-sm text-gray-500">
-        Password for <code class="rounded bg-gray-100 px-1">/admin/login</code> — stored
-        hashed (PBKDF2) in the database, never in plaintext.{' '}
-        {hasPassword ? 'A password is set.' : 'No password set yet.'} Cloudflare Access is the
-        recommended production auth; this is the simpler stopgap.
-      </p>
-      <form method="POST" class="mt-4 flex flex-wrap items-end gap-3">
-        <input type="hidden" name="_action" value="set_password" />
-        <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-gray-400">
-          New password
+      {/* ── Admin password ───────────────────────────────────────────────────── */}
+      <section class="rounded-lg border border-line bg-white p-5">
+        <h2 class="text-sm font-semibold uppercase tracking-widest text-gray-500">Admin password</h2>
+        <p class="mt-1 text-sm text-gray-500">
+          Password for <code class="rounded bg-gray-100 px-1">/admin/login</code> — stored hashed
+          (PBKDF2), never plaintext.{' '}
+          {hasPassword ? 'A password is already set; leave blank to keep it.' : 'Required to finish.'}
+          {' '}Cloudflare Access is the recommended production auth; this is the simpler stopgap.
+        </p>
+        <label class="mt-4 flex flex-col gap-1 text-xs uppercase tracking-widest text-gray-400">
+          {hasPassword ? 'New password (optional)' : 'New password'}
           <input
             type="password"
             name="admin_password"
@@ -201,60 +153,20 @@ const catalogEmpty = await catalogIsEmpty(env.DB);
             class="w-64 rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal focus:border-brand focus:outline-none"
           />
         </label>
-        <button
-          type="submit"
-          class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand hover:text-brand"
-        >
-          {hasPassword ? 'Change' : 'Set'} password
-        </button>
-        {saved === 'password' && <span class="pb-2 text-xs text-green-600">Saved ✓</span>}
-        {passwordError && <span class="pb-2 text-xs text-red-600">{passwordError}</span>}
-      </form>
-    </section>
+        {passwordError && <p class="mt-2 text-xs text-red-600">{passwordError}</p>}
+      </section>
 
-    {/* ── Payments ─────────────────────────────────────────────────────────── */}
-    <section class="mt-6 rounded-lg border border-line bg-white p-5">
-      <h2 class="text-sm font-semibold uppercase tracking-widest text-gray-500">Payments</h2>
-      {demoOnly && (
-        <p class="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          No real payment method is configured yet — only <strong>Demo</strong> can take orders.
-          Add a key to go live; shoppers see setup links until then.
+      {/* ── Payments (configured later in Settings — not needed to get running) ─ */}
+      <section class="rounded-lg border border-line bg-white p-5">
+        <h2 class="text-sm font-semibold uppercase tracking-widest text-gray-500">Payments</h2>
+        <p class="mt-2 text-sm text-gray-500">
+          <strong>Demo</strong> checkout works right away. Set up real payment methods (card via
+          Stripe, Bitcoin Lightning, or OpenNode) whenever you're ready in
+          {' '}<strong>Settings → Payments</strong> — no need to do it now.
         </p>
-      )}
-      <ul class="mt-4 space-y-2">
-        {methods.map((x) => (
-          <li class="flex items-center justify-between gap-3 text-sm">
-            <span>{x.label}</span>
-            {x.ready ? (
-              <span class="rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">
-                Ready
-              </span>
-            ) : (
-              <a
-                href={`/payment-setup?method=${x.m}`}
-                target="_blank"
-                rel="noopener"
-                class="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-500 hover:text-brand"
-              >
-                Set up →
-              </a>
-            )}
-          </li>
-        ))}
-      </ul>
-    </section>
+      </section>
 
-    {/* ── Finish ───────────────────────────────────────────────────────────── */}
-    {
-      finishError && (
-        <p class="mt-8 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {finishError}
-        </p>
-      )
-    }
-    <form method="POST" class={`${finishError ? 'mt-3' : 'mt-8'} flex flex-col gap-4`}>
-      <input type="hidden" name="_action" value="finish" />
-      <input type="hidden" name="time_zone" value={timeZone} data-finish-time-zone />
+      {/* ── Optional demo catalog + single finish button ─────────────────────── */}
       {catalogEmpty && (
         <label class="flex items-start gap-2 text-sm text-gray-600">
           <input
@@ -276,4 +188,13 @@ const catalogEmpty = await catalogIsEmpty(env.DB);
       </button>
     </form>
   </div>
+
+  <script>
+    // Pre-fill the time zone with the browser's zone on a fresh store (no saved zone).
+    const input = document.querySelector<HTMLInputElement>('[data-time-zone]');
+    if (input?.dataset.autoDetect === 'true') {
+      const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (detected) input.value = detected;
+    }
+  </script>
 </AdminLayout>

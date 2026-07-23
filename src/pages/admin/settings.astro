@@ -11,7 +11,7 @@ import {
   type FeatureKey,
 } from '../../features/settings/db';
 import { setSecret, vaultReady, type SecretName } from '../../features/secrets/store';
-import { normalizeTimeZone } from '../../features/settings/timeZone';
+import { normalizeTimeZone, allTimeZones } from '../../features/settings/timeZone';
 import SecretField from '../../components/SecretField.astro';
 import MethodToggle from '../../components/MethodToggle.astro';
 
@@ -125,6 +125,7 @@ const disabledSet = new Set(settings.disabledPaymentMethods);
 // Store name is a runtime overlay (this field / the setup wizard) over STORE_NAME.
 const storeName = settings.storeName ?? cfg.storeName;
 const timeZone = settings.timeZone ?? cfg.timeZone;
+const timeZones = allTimeZones();
 
 // Search backend: runtime overlay (toggle below) over the build-time default.
 // Semantic search needs the AI + VECTORIZE bindings; without them the toggle is
@@ -271,9 +272,13 @@ const sections = [
             name="time_zone"
             value={timeZone}
             required
-            placeholder="UTC"
+            list="tz-list"
+            placeholder="Search e.g. America/New_York"
             class="w-64 rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none"
           />
+          <datalist id="tz-list">
+            {timeZones.map((z) => <option value={z} />)}
+          </datalist>
         </label>
         <button
           type="submit"
