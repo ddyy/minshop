@@ -8,6 +8,7 @@
     "build": "astro build",
     "preview": "wrangler dev -c dist/server/wrangler.json --persist-to .wrangler/state",
     "deploy": "wrangler d1 migrations apply DB --remote && astro build && wrangler deploy",
+    "deploy:ci": "wrangler d1 migrations apply DB --remote && wrangler deploy",
     "check": "astro check",
     "test": "vitest run",
     "test:watch": "vitest",
