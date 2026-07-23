@@ -8,6 +8,7 @@ import {
 } from '../../../../features/orders/db';
 import { getEmailProvider } from '../../../../features/email';
 import { orderShippedEmail } from '../../../../features/email/orderConfirmation';
+import { shouldSendCustomerOrderEmail } from '../../../../features/email/orderPolicy';
 import { getPaymentProvider, type PaymentMethod } from '../../../../features/payments';
 
 export const prerender = false;
@@ -58,11 +59,12 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
   const trackingNumber = String(form.get('tracking_number') ?? '').trim() || null;
   await fulfillOrder(env.DB, id, carrier, trackingNumber);
 
-  // Notify the customer their order shipped (gated; email failure never blocks).
-  const emailer = await getEmailProvider();
-  if (emailer) {
-    const order = await getOrder(env.DB, id);
-    if (order?.email) {
+  // Demo orders never contact customers. Real orders retain the normal shipping
+  // notification, and email failure never blocks fulfillment.
+  const order = await getOrder(env.DB, id);
+  if (order?.email && shouldSendCustomerOrderEmail(order.payment_method)) {
+    const emailer = await getEmailProvider();
+    if (emailer) {
       try {
         await emailer.send(orderShippedEmail(order, new URL(request.url).origin));
       } catch (err) {

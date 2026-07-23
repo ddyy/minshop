@@ -8,6 +8,7 @@ import {
 } from './db';
 import { getEmailProvider } from '../email';
 import { orderConfirmationEmail, orderNotificationEmail } from '../email/orderConfirmation';
+import { shouldSendCustomerOrderEmail } from '../email/orderPolicy';
 import { getConfig } from '../../config';
 import { getSetting } from '../settings/db';
 import {
@@ -81,7 +82,9 @@ export async function recordPaidWebhookOrder(
   // Dashboard setting (Settings → Email) wins; falls back to store.config.ts notifyTo.
   const notifyTo = (await getSetting(env.DB, 'email_notify_to')) || getConfig().email.notifyTo;
   const messages = [
-    ...(order.email ? [orderConfirmationEmail(order, items, origin)] : []),
+    ...(order.email && shouldSendCustomerOrderEmail(paymentMethod)
+      ? [orderConfirmationEmail(order, items, origin)]
+      : []),
     ...(notifyTo ? [orderNotificationEmail(order, items, notifyTo, origin)] : []),
   ];
   for (const msg of messages) {
