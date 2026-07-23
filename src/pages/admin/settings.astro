@@ -579,25 +579,37 @@ const sections = [
         </div>
         <form method="POST" class="space-y-3 border-t border-gray-100 pt-3">
           <input type="hidden" name="_action" value="save_lightning" />
-          <div class="flex flex-wrap items-end gap-3">
-            <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-gray-400">
-              Node
-              <select name="lightning_backend" data-lightning-backend class="w-36 rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none">
-                <option value="phoenixd" selected={payments.lightningBackend === 'phoenixd'}>phoenixd</option>
-                <option value="lnbits" selected={payments.lightningBackend === 'lnbits'}>LNbits</option>
-              </select>
-            </label>
+          <label class="flex w-fit flex-col gap-1 text-xs uppercase tracking-widest text-gray-400">
+            Backend
+            <select name="lightning_backend" data-lightning-backend class="w-40 rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none">
+              <option value="phoenixd" selected={payments.lightningBackend === 'phoenixd'}>phoenixd</option>
+              <option value="lnbits" selected={payments.lightningBackend === 'lnbits'}>LNbits</option>
+            </select>
+          </label>
+
+          <div
+            data-lightning-when="lnbits"
+            hidden={payments.lightningBackend !== 'lnbits'}
+            class="space-y-3 rounded-md border border-gray-100 bg-gray-50 p-3"
+          >
             <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-gray-400">
               LNbits URL
               <input type="url" name="lnbits_url" value={payments.lnbitsUrl} required={payments.lightningBackend === 'lnbits'} data-lightning-required-when="lnbits" placeholder="https://lnbits.example.com" class="w-64 max-w-full rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none" />
             </label>
+            <SecretField name="lnbits_api_key" label="LNbits invoice/read key" hint="invoice/read key (not admin)" storedInD1={inD1('lnbits_api_key')} vault={vault} required={payments.lightningBackend === 'lnbits'} requiredWhen="lnbits" />
+          </div>
+
+          <div
+            data-lightning-when="phoenixd"
+            hidden={payments.lightningBackend !== 'phoenixd'}
+            class="space-y-3 rounded-md border border-gray-100 bg-gray-50 p-3"
+          >
             <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-gray-400">
               phoenixd URL
               <input type="url" name="phoenixd_url" value={payments.phoenixdUrl} required={payments.lightningBackend === 'phoenixd'} data-lightning-required-when="phoenixd" placeholder="https://ln.example.com" class="w-64 max-w-full rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none" />
             </label>
+            <SecretField name="phoenixd_password" label="phoenixd password" hint="http-password-limited-access" storedInD1={inD1('phoenixd_password')} vault={vault} required={payments.lightningBackend === 'phoenixd'} requiredWhen="phoenixd" />
           </div>
-          <SecretField name="lnbits_api_key" label="LNbits invoice/read key" hint="invoice/read key (not admin)" storedInD1={inD1('lnbits_api_key')} vault={vault} required={payments.lightningBackend === 'lnbits'} requiredWhen="lnbits" />
-          <SecretField name="phoenixd_password" label="phoenixd password" hint="http-password-limited-access" storedInD1={inD1('phoenixd_password')} vault={vault} required={payments.lightningBackend === 'phoenixd'} requiredWhen="phoenixd" />
           {vault && (
             <button type="submit" class="rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover">
               Save
@@ -956,6 +968,10 @@ const sections = [
       function syncLightning(sel) {
         var section = sel.closest('section');
         if (!section) return;
+        var blocks = section.querySelectorAll('[data-lightning-when]');
+        Array.prototype.forEach.call(blocks, function (block) {
+          block.hidden = block.getAttribute('data-lightning-when') !== sel.value;
+        });
         var fields = section.querySelectorAll('[data-lightning-required-when]');
         Array.prototype.forEach.call(fields, function (field) {
           var active = field.getAttribute('data-lightning-required-when') === sel.value;
