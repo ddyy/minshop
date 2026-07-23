@@ -70,6 +70,7 @@ if (Astro.request.method === 'POST') {
     await setSetting(env.DB, 'email_provider', ep === 'cloudflare' ? 'cloudflare' : null);
     await setSetting(env.DB, 'email_from', String(form.get('email_from') ?? '').trim() || null);
     await setSetting(env.DB, 'email_from_name', String(form.get('email_from_name') ?? '').trim() || null);
+    await setSetting(env.DB, 'email_notify_to', String(form.get('email_notify_to') ?? '').trim() || null);
     await applySecrets(['resend_api_key']);
   } else if (action === 'save_turnstile') {
     await setSetting(env.DB, 'turnstile_enabled', String(form.get('turnstile_enabled')) === '1' ? '1' : null);
@@ -189,6 +190,8 @@ const email = {
   from: settings.emailFrom ?? '',
   fromName: settings.emailFromName ?? '',
   fromPlaceholder: cfg.email.from,
+  notifyTo: settings.emailNotifyTo ?? '',
+  notifyPlaceholder: cfg.email.notifyTo || 'you@yourdomain.com',
 };
 const resendStoredInD1 = inD1('resend_api_key');
 // The Cloudflare `send_email` binding is present when declared in wrangler.jsonc.
@@ -511,6 +514,17 @@ const sections = [
             placeholder={storeName}
             class="w-48 rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none"
           />
+        </label>
+        <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-gray-400">
+          New-order alerts to
+          <input
+            type="email"
+            name="email_notify_to"
+            value={email.notifyTo}
+            placeholder={email.notifyPlaceholder}
+            class="w-64 rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none"
+          />
+          <span class="normal-case tracking-normal text-gray-400">Owner gets a "new order" email here. Blank = off.</span>
         </label>
       </div>
 

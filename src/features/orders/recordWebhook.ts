@@ -9,6 +9,7 @@ import {
 import { getEmailProvider } from '../email';
 import { orderConfirmationEmail, orderNotificationEmail } from '../email/orderConfirmation';
 import { getConfig } from '../../config';
+import { getSetting } from '../settings/db';
 import {
   getActiveReservationItems,
   markInventoryReservationPaymentPending,
@@ -77,7 +78,8 @@ export async function recordPaidWebhookOrder(
   if (!order) return;
 
   const items = await listOrderItemsWithImages(env.DB, orderId);
-  const notifyTo = getConfig().email.notifyTo;
+  // Dashboard setting (Settings → Email) wins; falls back to store.config.ts notifyTo.
+  const notifyTo = (await getSetting(env.DB, 'email_notify_to')) || getConfig().email.notifyTo;
   const messages = [
     ...(order.email ? [orderConfirmationEmail(order, items, origin)] : []),
     ...(notifyTo ? [orderNotificationEmail(order, items, notifyTo, origin)] : []),

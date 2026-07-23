@@ -24,6 +24,7 @@ export type SettingKey =
   | 'email_provider' // 'resend' | 'cloudflare'; absent = resend
   | 'email_from' // sender address; absent = build-time default
   | 'email_from_name' // sender display name; absent = store name
+  | 'email_notify_to' // owner "new order" alert recipient; absent = store.config.ts notifyTo
   | 'turnstile_enabled' // '1' = bot challenge on (admin login + customer sign-in); absent = off
   | 'turnstile_site_key' // Turnstile public sitekey
   | 'payment_provider' // 'stripe' | 'lightning' | 'opennode'; absent = stripe
@@ -64,6 +65,7 @@ export interface StoreSettings {
   /** Sender address / display name, or null to use the build-time defaults. */
   emailFrom: string | null;
   emailFromName: string | null;
+  emailNotifyTo: string | null;
   /** Turnstile bot challenge on (admin login + customer sign-in). Default off. */
   turnstileEnabled: boolean;
   /** Turnstile public sitekey, or null. (The secret lives in the vault.) */
@@ -135,6 +137,7 @@ export async function getStoreSettings(db: D1Database): Promise<StoreSettings> {
     emailProvider: map.get('email_provider') === 'cloudflare' ? 'cloudflare' : 'resend',
     emailFrom: map.get('email_from') ?? null,
     emailFromName: map.get('email_from_name') ?? null,
+    emailNotifyTo: map.get('email_notify_to') ?? null,
     turnstileEnabled: map.get('turnstile_enabled') === '1',
     turnstileSiteKey: map.get('turnstile_site_key') ?? null,
     paymentProvider:
