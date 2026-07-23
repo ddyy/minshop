@@ -1,5 +1,6 @@
 import { env } from 'cloudflare:workers';
 import { getConfig } from '../../config';
+import { getSetting } from '../settings/db';
 
 /**
  * Optionally downscale + recompress an uploaded image to WebP before it's stored,
@@ -16,8 +17,11 @@ import { getConfig } from '../../config';
  */
 export async function optimizeUpload(file: File): Promise<File> {
   const cfg = getConfig().images;
+  // Settings → Features toggle (D1 `image_optimize`) wins over the build-time default.
+  const override = await getSetting(env.DB, 'image_optimize');
+  const optimize = override == null ? cfg.optimizeOnUpload : override === '1';
   // Feature off, or the IMAGES binding isn't declared (free-plan default) → store as-is.
-  if (!cfg.optimizeOnUpload || !env.IMAGES) return file;
+  if (!optimize || !env.IMAGES) return file;
 
   try {
     const out = await env.IMAGES.input(file.stream())

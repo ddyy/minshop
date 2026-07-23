@@ -7,7 +7,7 @@ import { accountsEnabled, getCustomerEmail } from '../../features/auth/customer'
 import { listOrdersByEmail } from '../../features/orders/db';
 import { orderNumber } from '../../features/orders/number';
 
-if (!accountsEnabled()) return Astro.redirect('/', 303);
+if (!(await accountsEnabled())) return Astro.redirect('/', 303);
 const email = await getCustomerEmail(Astro.cookies);
 if (!email) return Astro.redirect('/account/login', 303);
 

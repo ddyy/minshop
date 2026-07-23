@@ -12,7 +12,7 @@ import { verifyTurnstileToken, TURNSTILE_FIELD } from '../../features/auth/turns
 import { getSecret } from '../../features/secrets/store';
 import Turnstile from '../../features/auth/Turnstile.astro';
 
-if (!accountsEnabled()) return Astro.redirect('/', 303);
+if (!(await accountsEnabled())) return Astro.redirect('/', 303);
 // Already signed in → account.
 if (await getCustomerEmail(Astro.cookies)) return Astro.redirect('/account', 303);
 

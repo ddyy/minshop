@@ -267,8 +267,8 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
       // so inventory remains held until its verified expiry/failure webhook.
       cancelUrl,
       shipping,
-      allowPromotionCodes: cfg.discounts.enabled,
-      automaticTax: cfg.tax.enabled,
+      allowPromotionCodes: settings.discountsEnabled ?? cfg.discounts.enabled,
+      automaticTax: settings.taxEnabled ?? cfg.tax.enabled,
       orderItemsJson: JSON.stringify(
         lines.map((l) => ({ id: l.product.id, q: l.qty, n: l.name, p: l.unitPriceCents, v: l.variantId })),
       ),
@@ -453,8 +453,8 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
       successUrl: `${origin}/order/${publicId}`,
       cancelUrl: `${origin}/`,
       shipping,
-      allowPromotionCodes: cfg.discounts.enabled,
-      automaticTax: cfg.tax.enabled,
+      allowPromotionCodes: jsonSettings.discountsEnabled ?? cfg.discounts.enabled,
+      automaticTax: jsonSettings.taxEnabled ?? cfg.tax.enabled,
       orderItemsJson: JSON.stringify(
         lines.map((l) => ({ id: l.product.id, q: l.qty, n: l.name, p: l.unitPriceCents, v: l.variantId })),
       ),

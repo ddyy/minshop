@@ -17,6 +17,8 @@ const { features } = config;
 const storeName = Astro.locals.settings?.storeName ?? config.storeName;
 // Cart can be switched off at runtime → browse-only catalog (hide the cart link).
 const cartEnabled = Astro.locals.settings?.cartEnabled ?? true;
+// Accounts nav link: the runtime toggle wins over the build-time default.
+const accountsOn = Astro.locals.settings?.accountsEnabled ?? features.accounts;
 const pageTitle = title ? `${title} — ${storeName}` : storeName;
 const count = cartCount(readCart(Astro.cookies));
 const query = Astro.url.searchParams.get('q') ?? '';
@@ -78,7 +80,7 @@ const ogImage = image ? new URL(image, Astro.url.origin).href : undefined;
               </a>
             )
           }
-          {features.accounts && <a href="/account" class="hover:text-brand">Account</a>}
+          {accountsOn && <a href="/account" class="hover:text-brand">Account</a>}
         </nav>
       </div>
     </header>

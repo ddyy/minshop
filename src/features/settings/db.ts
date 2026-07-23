@@ -17,6 +17,11 @@ export type SettingKey =
   | 'cart_enabled' // '0' = cart/checkout off (browse-only catalog); absent = on
   | 'buy_now_enabled' // '0' = hide "Buy now" (cart-only purchase); absent = on
   | 'search_provider' // 'fts' | 'vector' — overrides config/SEARCH_PROVIDER; absent = default
+  // Runtime overrides of build-time config toggles ('1'/'0'; absent = inherit config).
+  | 'discounts_enabled' // overrides config.discounts.enabled
+  | 'tax_enabled' // overrides config.tax.enabled
+  | 'accounts_enabled' // overrides config.features.accounts
+  | 'image_optimize' // overrides config.images.optimizeOnUpload
   | 'admin_password_hash' // PBKDF2 hash of the admin password (set at setup). NOT in StoreSettings — read only by the auth layer, never loaded into locals.
   // Integrations configured in the admin dashboard (non-secret halves; the keys
   // live encrypted in the vault — see features/secrets/store.ts).
@@ -66,6 +71,11 @@ export interface StoreSettings {
   emailFrom: string | null;
   emailFromName: string | null;
   emailNotifyTo: string | null;
+  // Nullable = inherit the build-time config default (resolve at the consumer).
+  discountsEnabled: boolean | null;
+  taxEnabled: boolean | null;
+  accountsEnabled: boolean | null;
+  imageOptimize: boolean | null;
   /** Turnstile bot challenge on (admin login + customer sign-in). Default off. */
   turnstileEnabled: boolean;
   /** Turnstile public sitekey, or null. (The secret lives in the vault.) */
@@ -138,6 +148,10 @@ export async function getStoreSettings(db: D1Database): Promise<StoreSettings> {
     emailFrom: map.get('email_from') ?? null,
     emailFromName: map.get('email_from_name') ?? null,
     emailNotifyTo: map.get('email_notify_to') ?? null,
+    discountsEnabled: map.get('discounts_enabled') == null ? null : map.get('discounts_enabled') === '1',
+    taxEnabled: map.get('tax_enabled') == null ? null : map.get('tax_enabled') === '1',
+    accountsEnabled: map.get('accounts_enabled') == null ? null : map.get('accounts_enabled') === '1',
+    imageOptimize: map.get('image_optimize') == null ? null : map.get('image_optimize') === '1',
     turnstileEnabled: map.get('turnstile_enabled') === '1',
     turnstileSiteKey: map.get('turnstile_site_key') ?? null,
     paymentProvider:

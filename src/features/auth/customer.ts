@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 import type { AstroCookies } from 'astro';
 import { getConfig } from '../../config';
+import { getSetting } from '../settings/db';
 import { getEmailProvider } from '../email';
 import { loginLinkEmail } from '../email/loginLink';
 import { signToken, verifyToken } from './token';
@@ -19,9 +20,15 @@ const COOKIE = 'customer_session';
 const now = () => Date.now() / 1000;
 const normalize = (email: string) => email.trim().toLowerCase();
 
-/** Accounts are usable only when the feature is on AND the signing secret is set. */
-export function accountsEnabled(): boolean {
-  return getConfig().features.accounts && !!env.AUTH_SECRET;
+/**
+ * Accounts are usable only when the feature is on AND the signing secret is set.
+ * The on/off flag is the Settings → Features toggle (D1 `accounts_enabled`),
+ * falling back to the build-time `features.accounts` default when unset.
+ */
+export async function accountsEnabled(): Promise<boolean> {
+  const override = await getSetting(env.DB, 'accounts_enabled');
+  const on = override == null ? getConfig().features.accounts : override === '1';
+  return on && !!env.AUTH_SECRET;
 }
 
 export function isValidEmail(email: string): boolean {
