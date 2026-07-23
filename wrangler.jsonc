@@ -12,7 +12,7 @@
 	// Per-instance CLI deploys use scripts/provision-cf.sh, which renders an instance
 	// config from wrangler.template.jsonc (real ids) and restores this file after.
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "minshop",
+	"name": "cfshop",
 	"compatibility_date": "2026-07-20",
 	"compatibility_flags": [
 		"nodejs_compat"
