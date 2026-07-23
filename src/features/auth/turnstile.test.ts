@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { verifyTurnstileToken } from './turnstile';
+import { verifyConfiguredTurnstile, verifyTurnstileToken } from './turnstile';
 
 const SECRET = 'test-secret';
 
@@ -49,5 +49,21 @@ describe('verifyTurnstileToken', () => {
       }),
     );
     expect(await verifyTurnstileToken('tok', SECRET)).toBe(false);
+  });
+});
+
+describe('verifyConfiguredTurnstile', () => {
+  it('is a no-op when protection is disabled', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await verifyConfiguredTurnstile(false, null, null)).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when protection is enabled without a secret', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await verifyConfiguredTurnstile(true, 'tok', null)).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

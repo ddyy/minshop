@@ -2,7 +2,7 @@
 #
 # Provision + deploy a FRESH, fully-independent minshop instance:
 #   its own D1 database, R2 bucket, Worker, and secrets (AUTH_SECRET + SECRETS_KEK).
-#   FREE-PLAN default — optional add-ons (Vectorize/AI, Images, send_email) are
+#   FREE-PLAN default — optional integrations (Vectorize/AI, Images, send_email) are
 #   opt-in via wrangler.template.jsonc (see the comments there).
 #
 #   Usage:  scripts/provision-cf.sh <slug>
@@ -43,9 +43,9 @@ echo "    database_id=$DB_ID"
 echo "▸ [2/5] Creating R2 bucket '$BUCKET'…"
 $W r2 bucket create "$BUCKET"
 
-# FREE-PLAN DEFAULT: D1 + R2 only. Semantic search (Workers AI + Vectorize — the
-# latter needs the PAID plan) is opt-in: create the index and add its bindings to
-# wrangler.template.jsonc (see the comments there), then re-run/redeploy.
+# FREE-PLAN DEFAULT: D1 + R2 only. Semantic search (Workers AI + Vectorize) is
+# opt-in: create the index and add its bindings to wrangler.template.jsonc (see
+# the comments there), then re-run/redeploy.
 
 echo "▸ [3/5] Rendering instance config → wrangler.jsonc (original backed up)…"
 # wrangler.jsonc is committed (placeholder config), so it normally exists; guard the

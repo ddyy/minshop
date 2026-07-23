@@ -9,6 +9,9 @@ import tailwindcss from '@tailwindcss/vite';
 export default defineConfig({
   output: 'server',
   adapter: cloudflare({
+    // Keep Cloudflare Images opt-in. The adapter otherwise auto-provisions an
+    // IMAGES binding even though minshop stores and serves originals from R2.
+    imageService: 'passthrough',
     platformProxy: { enabled: true },
   }),
   vite: {

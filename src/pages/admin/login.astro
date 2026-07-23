@@ -2,7 +2,7 @@
 export const prerender = false;
 import { env } from 'cloudflare:workers';
 import Layout from '../../layouts/Layout.astro';
-import { verifyTurnstileToken, TURNSTILE_FIELD } from '../../features/auth/turnstile';
+import { verifyConfiguredTurnstile, TURNSTILE_FIELD } from '../../features/auth/turnstile';
 import { signSession, verifySession } from '../../features/auth/session';
 import { adminCredential } from '../../features/auth/admin';
 import { getSecret } from '../../features/secrets/store';
@@ -33,16 +33,16 @@ let error = '';
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   // Bot challenge (if enabled in Settings): verify with the vault secret.
-  const tsSecret = Astro.locals.settings?.turnstileEnabled
+  const turnstileEnabled = Astro.locals.settings?.turnstileEnabled === true;
+  const tsSecret = turnstileEnabled
     ? await getSecret(env.DB, 'turnstile_secret_key')
     : null;
-  const tsOk = tsSecret
-    ? await verifyTurnstileToken(
-        form.get(TURNSTILE_FIELD)?.toString(),
-        tsSecret,
-        Astro.request.headers.get('CF-Connecting-IP'),
-      )
-    : true;
+  const tsOk = await verifyConfiguredTurnstile(
+    turnstileEnabled,
+    form.get(TURNSTILE_FIELD)?.toString(),
+    tsSecret,
+    Astro.request.headers.get('CF-Connecting-IP'),
+  );
   const pwOk = await cred.verify(form.get('password')?.toString() ?? '');
 
   if (!tsOk) {

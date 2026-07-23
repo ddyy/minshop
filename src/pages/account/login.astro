@@ -8,7 +8,7 @@ import {
   isValidEmail,
   getCustomerEmail,
 } from '../../features/auth/customer';
-import { verifyTurnstileToken, TURNSTILE_FIELD } from '../../features/auth/turnstile';
+import { verifyConfiguredTurnstile, TURNSTILE_FIELD } from '../../features/auth/turnstile';
 import { getSecret } from '../../features/secrets/store';
 import Turnstile from '../../features/auth/Turnstile.astro';
 
@@ -23,16 +23,16 @@ if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const email = String(form.get('email') ?? '');
   // Bot challenge (if enabled in Settings → Bot protection): verify with the vault secret.
-  const tsSecret = Astro.locals.settings?.turnstileEnabled
+  const turnstileEnabled = Astro.locals.settings?.turnstileEnabled === true;
+  const tsSecret = turnstileEnabled
     ? await getSecret(env.DB, 'turnstile_secret_key')
     : null;
-  const tsOk = tsSecret
-    ? await verifyTurnstileToken(
-        form.get(TURNSTILE_FIELD)?.toString(),
-        tsSecret,
-        Astro.request.headers.get('CF-Connecting-IP'),
-      )
-    : true;
+  const tsOk = await verifyConfiguredTurnstile(
+    turnstileEnabled,
+    form.get(TURNSTILE_FIELD)?.toString(),
+    tsSecret,
+    Astro.request.headers.get('CF-Connecting-IP'),
+  );
   if (!tsOk) {
     error = 'Verification failed — please try again.';
   } else if (!isValidEmail(email)) {

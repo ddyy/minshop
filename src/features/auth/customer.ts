@@ -28,7 +28,8 @@ const normalize = (email: string) => email.trim().toLowerCase();
 export async function accountsEnabled(): Promise<boolean> {
   const override = await getSetting(env.DB, 'accounts_enabled');
   const on = override == null ? getConfig().features.accounts : override === '1';
-  return on && !!env.AUTH_SECRET;
+  if (!on || !env.AUTH_SECRET) return false;
+  return (await getEmailProvider()) !== null;
 }
 
 export function isValidEmail(email: string): boolean {

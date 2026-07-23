@@ -3,7 +3,7 @@
 	// (which provisions D1 + R2 and rewrites database_id) AND by local `astro dev`.
 	//
 	// FREE-PLAN DEFAULT: D1 + R2 only — both on the Cloudflare free plan. Optional
-	// paid add-ons (Images, Workers AI + Vectorize for semantic search, Cloudflare
+	// integrations (Images, Workers AI + Vectorize for semantic search, Cloudflare
 	// Email) are commented below; uncomment + redeploy to enable. Every one degrades
 	// gracefully when its binding is absent, so the store runs without them.
 	//
@@ -26,12 +26,18 @@
 		{
 			"name": "AUTH_RATE_LIMITER",
 			"namespace_id": "10001",
-			"simple": { "limit": 10, "period": 60 }
+			"simple": {
+				"limit": 10,
+				"period": 60
+			}
 		},
 		{
 			"name": "CHECKOUT_RATE_LIMITER",
 			"namespace_id": "10002",
-			"simple": { "limit": 20, "period": 60 }
+			"simple": {
+				"limit": 20,
+				"period": 60
+			}
 		}
 	],
 	"d1_databases": [
@@ -45,9 +51,13 @@
 		{
 			"binding": "BUCKET",
 			"bucket_name": "minshop-images"
+		},
+		{
+			"bucket_name": "minshop-images",
+			"binding": "minshop_images"
 		}
 	],
-	// Optional paid add-ons — uncomment + redeploy to enable (see README → Search,
+	// Optional integrations — uncomment + redeploy to enable (see README → Search,
 	// Settings). Each is just a binding; the code checks for it and falls back.
 	//   "images": { "binding": "IMAGES" },
 	//   "ai": { "binding": "AI" },

@@ -10,10 +10,11 @@
   //   • Semantic search — add  "ai": { "binding": "AI" }  and
   //     "vectorize": [{ "binding": "VECTORIZE", "index_name": "<name>-products" }]
   //     (create the index first: wrangler vectorize create <name>-products
-  //     --dimensions=768 --metric=cosine — Vectorize needs the Workers PAID plan),
+  //     --dimensions=768 --metric=cosine),
   //     then flip it on in Admin → Settings → Search. Until then: keyword (FTS5).
-  //   • Image optimize-on-upload — add  "images": { "binding": "IMAGES" }  (enable
-  //     Transformations in the dash). Without it, uploads are stored as-is in R2.
+  //   • Image optimize-on-upload — add "images": { "binding": "IMAGES" }, set
+  //     images.optimizeOnUpload in src/store.config.ts, and redeploy. Without the
+  //     binding, uploads are stored as-is in R2.
   //   • Cloudflare-native email — add  "send_email": [{ "name": "EMAIL" }]  (Workers
   //     PAID plan + onboarded sender domain). Resend (HTTP) works on the free plan
   //     and is configured entirely in Admin → Settings → Email.
@@ -44,7 +45,7 @@
   ],
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "__BUCKET__" }],
   "vars": {
-    "STORE_NAME": "My Store",
+    "STORE_NAME": "My Shop",
     "TIME_ZONE": "UTC"
   }
 }

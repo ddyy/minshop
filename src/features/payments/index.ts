@@ -7,7 +7,7 @@ import { createLightningProvider } from './lightning-provider';
 import { getLightningBackend } from './lightning';
 import { createOpenNodeProvider } from './opennode';
 import { createDemoProvider } from './demo';
-import { getSecret } from '../secrets/store';
+import { getSecret, vaultReady } from '../secrets/store';
 
 export type { PaymentProvider } from './provider';
 export {
@@ -24,6 +24,10 @@ const ALL_METHODS: PaymentMethod[] = ['stripe', 'lightning', 'opennode'];
 // else its button leads to setup instructions; demo always works.
 const OFFERED: PaymentMethod[] = ['stripe', 'lightning', 'demo'];
 
+export function isPaymentMethod(value: string): value is PaymentMethod {
+  return value === 'stripe' || value === 'lightning' || value === 'opennode' || value === 'demo';
+}
+
 /**
  * Whether a method can actually process a payment right now. Real rails need their
  * keys (and Lightning its node URL) — all configured in the admin dashboard and
@@ -31,8 +35,12 @@ const OFFERED: PaymentMethod[] = ['stripe', 'lightning', 'demo'];
  * getStoreSettings). Sync (no decryption) so it's cheap per render — the actual key
  * is only decrypted in getPaymentProvider. Demo always works.
  */
-export function isMethodAvailable(method: PaymentMethod, settings: StoreSettings): boolean {
-  const has = (name: string) => settings.configuredSecrets.includes(name);
+export function isMethodAvailable(
+  method: PaymentMethod,
+  settings: StoreSettings,
+  vault = vaultReady(),
+): boolean {
+  const has = (name: string) => vault && settings.configuredSecrets.includes(name);
   switch (method) {
     case 'stripe':
       return has('stripe_secret_key') && has('stripe_webhook_secret');
@@ -48,13 +56,13 @@ export function isMethodAvailable(method: PaymentMethod, settings: StoreSettings
 }
 
 /** True when at least one REAL payment rail is configured (demo doesn't count). */
-export function hasRealMethod(settings: StoreSettings): boolean {
-  return ALL_METHODS.some((m) => isMethodAvailable(m, settings));
+export function hasRealMethod(settings: StoreSettings, vault = vaultReady()): boolean {
+  return ALL_METHODS.some((m) => isMethodAvailable(m, settings, vault));
 }
 
 /** No real rail configured: only the demo method can take a payment. */
-export function paymentsInDemoMode(settings: StoreSettings): boolean {
-  return !hasRealMethod(settings);
+export function paymentsInDemoMode(settings: StoreSettings, vault = vaultReady()): boolean {
+  return !hasRealMethod(settings, vault);
 }
 
 /** The store's default rail (Settings → Payments; default 'stripe'). */
@@ -69,13 +77,20 @@ export function defaultMethod(settings: StoreSettings): PaymentMethod {
  * (or has been switched off). May be EMPTY (admin disabled everything) — callers
  * hide checkout rather than falling back to a method nobody enabled.
  */
-export function enabledMethods(settings: StoreSettings): PaymentMethod[] {
+export function enabledMethods(
+  settings: StoreSettings,
+  vault = vaultReady(),
+): PaymentMethod[] {
   const off = new Set(settings.disabledPaymentMethods);
   const def = defaultMethod(settings);
-  const real = [def, ...ALL_METHODS.filter((m) => m !== def)]
-    .filter((m) => isMethodAvailable(m, settings))
+  const orderedReal =
+    def === 'demo' ? ALL_METHODS : [def, ...ALL_METHODS.filter((m) => m !== def)];
+  const real = orderedReal
+    .filter((m): m is Exclude<PaymentMethod, 'demo'> => m !== 'demo')
+    .filter((m) => isMethodAvailable(m, settings, vault))
     .filter((m) => !off.has(m));
-  return off.has('demo') ? real : [...real, 'demo'];
+  if (off.has('demo')) return real;
+  return def === 'demo' ? ['demo', ...real] : [...real, 'demo'];
 }
 
 /**
@@ -85,9 +100,14 @@ export function enabledMethods(settings: StoreSettings): PaymentMethod[] {
  * render a "set this up" link. May be EMPTY when the admin disables everything —
  * the cart/product pages then hide checkout entirely.
  */
-export function offeredMethods(settings: StoreSettings): PaymentMethod[] {
+export function offeredMethods(
+  settings: StoreSettings,
+  vault = vaultReady(),
+): PaymentMethod[] {
   const off = new Set(settings.disabledPaymentMethods);
-  const extra = ALL_METHODS.filter((m) => !OFFERED.includes(m) && isMethodAvailable(m, settings));
+  const extra = ALL_METHODS.filter(
+    (m) => !OFFERED.includes(m) && isMethodAvailable(m, settings, vault),
+  );
   return (['stripe', 'lightning', ...extra, 'demo'] as PaymentMethod[]).filter((m) => !off.has(m));
 }
 

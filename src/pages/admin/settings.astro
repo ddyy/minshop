@@ -2,17 +2,43 @@
 import { env } from 'cloudflare:workers';
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import { getConfig, formatPrice } from '../../config';
-import { isMethodAvailable, type PaymentMethod } from '../../features/payments';
+import {
+  isMethodAvailable,
+  isPaymentMethod,
+  type PaymentMethod,
+} from '../../features/payments';
 import {
   getStoreSettings,
   setSetting,
   setPaymentMethodDisabled,
   setFeatureEnabled,
 } from '../../features/settings/db';
-import { setSecret, vaultReady, type SecretName } from '../../features/secrets/store';
+import {
+  getSecret,
+  setSecret,
+  vaultReady,
+  type SecretName,
+} from '../../features/secrets/store';
+import {
+  featureAvailability,
+  lightningConfigurationError,
+  semanticSearchAvailable,
+  turnstileConfigured,
+  type RuntimeCapabilities,
+} from '../../features/settings/availability';
+import { getEmailProvider } from '../../features/email';
 import { normalizeTimeZone, allTimeZones } from '../../features/settings/timeZone';
 import SecretField from '../../components/SecretField.astro';
 import MethodToggle from '../../components/MethodToggle.astro';
+
+const capabilities: RuntimeCapabilities = {
+  vault: vaultReady(),
+  authSecret: !!env.AUTH_SECRET,
+  images: !!env.IMAGES,
+  emailBinding: !!env.EMAIL,
+  ai: !!env.AI,
+  vectorize: !!env.VECTORIZE,
+};
 
 // Runtime mutations (POST). On success set a one-time flash cookie and redirect to a
 // CLEAN url (no ?msg lingering) — the GET below reads + clears it (Post/Redirect/Get).
@@ -38,7 +64,15 @@ if (Astro.request.method === 'POST') {
   if (action === 'toggle_payment') {
     const method = String(form.get('method') ?? '');
     // `disabled` carries the NEW state the click applies (1 = turn off, 0 = turn on).
-    if (method) await setPaymentMethodDisabled(env.DB, method, String(form.get('disabled')) === '1');
+    const disabled = String(form.get('disabled')) === '1';
+    const current = await getStoreSettings(env.DB);
+    if (!isPaymentMethod(method)) {
+      validationError = 'Unknown payment method.';
+    } else if (!disabled && !isMethodAvailable(method, current, capabilities.vault)) {
+      validationError = 'Configure this payment method before enabling it.';
+    } else {
+      await setPaymentMethodDisabled(env.DB, method, disabled);
+    }
   } else if (action === 'toggle_feature') {
     const feature = String(form.get('feature') ?? '');
     const on = String(form.get('enabled')) === '1'; // `enabled` carries the NEW state
@@ -50,8 +84,28 @@ if (Astro.request.method === 'POST') {
       feature === 'accounts_enabled' ||
       feature === 'image_optimize'
     ) {
-      // These default OFF, so store an explicit '1'/'0' (absent = inherit config).
-      await setSetting(env.DB, feature, on ? '1' : '0');
+      let prerequisiteError = '';
+      if (on && (feature === 'discounts_enabled' || feature === 'tax_enabled')) {
+        const stripeSecret = await getSecret(env.DB, 'stripe_secret_key');
+        const stripeWebhook = await getSecret(env.DB, 'stripe_webhook_secret');
+        if (!stripeSecret || !stripeWebhook) {
+          prerequisiteError = 'Configure Stripe before enabling this Stripe-only feature.';
+        }
+      } else if (on && feature === 'accounts_enabled') {
+        if (!env.AUTH_SECRET) {
+          prerequisiteError = 'Set AUTH_SECRET before enabling customer accounts.';
+        } else if (!(await getEmailProvider())) {
+          prerequisiteError = 'Enable and configure email before enabling customer accounts.';
+        }
+      } else if (on && feature === 'image_optimize' && !env.IMAGES) {
+        prerequisiteError = 'Add the IMAGES binding and redeploy before enabling image optimization.';
+      }
+      if (prerequisiteError) {
+        validationError = prerequisiteError;
+      } else {
+        // These default OFF, so store an explicit '1'/'0' (absent = inherit config).
+        await setSetting(env.DB, feature, on ? '1' : '0');
+      }
     }
   } else if (action === 'save_store') {
     // Empty → setSetting deletes the row → falls back to the STORE_NAME default.
@@ -66,35 +120,89 @@ if (Astro.request.method === 'POST') {
     // Runtime search backend. 'vector' needs the AI + VECTORIZE bindings; the
     // search dispatcher falls back to keyword (FTS5) at query time if they're absent.
     const provider = String(form.get('provider') ?? '');
-    if (provider === 'fts' || provider === 'vector') {
+    if (provider === 'vector' && !semanticSearchAvailable(capabilities)) {
+      validationError = 'Add the AI and VECTORIZE bindings before enabling semantic search.';
+    } else if (provider === 'fts' || provider === 'vector') {
       await setSetting(env.DB, 'search_provider', provider);
     }
   } else if (action === 'save_email') {
     // Whole Email section: config + the Resend key, in one save. Store only the
     // non-default config values so the table stays tidy (absent = default).
-    await setSetting(env.DB, 'email_enabled', String(form.get('email_enabled')) === '1' ? null : '0');
+    const requestedEnabled = String(form.get('email_enabled')) === '1';
     const ep = String(form.get('email_provider') ?? '');
-    await setSetting(env.DB, 'email_provider', ep === 'cloudflare' ? 'cloudflare' : null);
+    const provider = ep === 'cloudflare' ? 'cloudflare' : 'resend';
+    await setSetting(env.DB, 'email_provider', provider === 'cloudflare' ? 'cloudflare' : null);
     await setSetting(env.DB, 'email_from', String(form.get('email_from') ?? '').trim() || null);
     await setSetting(env.DB, 'email_from_name', String(form.get('email_from_name') ?? '').trim() || null);
     await setSetting(env.DB, 'email_notify_to', String(form.get('email_notify_to') ?? '').trim() || null);
     await applySecrets(['resend_api_key']);
+    const ready =
+      provider === 'cloudflare'
+        ? !!env.EMAIL
+        : !!(await getSecret(env.DB, 'resend_api_key'));
+    await setSetting(env.DB, 'email_enabled', requestedEnabled && ready ? null : '0');
+    if (requestedEnabled && !ready) {
+      validationError =
+        provider === 'cloudflare'
+          ? 'Add the EMAIL binding and redeploy before enabling Cloudflare Email.'
+          : 'Add a Resend API key before enabling email.';
+    }
   } else if (action === 'save_turnstile') {
-    await setSetting(env.DB, 'turnstile_enabled', String(form.get('turnstile_enabled')) === '1' ? '1' : null);
-    await setSetting(env.DB, 'turnstile_site_key', String(form.get('turnstile_site_key') ?? '').trim() || null);
+    const requestedEnabled = String(form.get('turnstile_enabled')) === '1';
+    const siteKey = String(form.get('turnstile_site_key') ?? '').trim();
+    await setSetting(env.DB, 'turnstile_site_key', siteKey || null);
     await applySecrets(['turnstile_secret_key']);
+    const secret = await getSecret(env.DB, 'turnstile_secret_key');
+    const ready = !!siteKey && !!secret;
+    await setSetting(env.DB, 'turnstile_enabled', requestedEnabled && ready ? '1' : null);
+    if (requestedEnabled && !ready) {
+      validationError = 'Add both the Turnstile site key and secret before enabling bot protection.';
+    }
   } else if (action === 'save_default') {
-    // Store-wide default rail (store only non-default values).
     const prov = String(form.get('payment_provider') ?? '');
-    await setSetting(env.DB, 'payment_provider', prov === 'lightning' ? 'lightning' : prov === 'opennode' ? 'opennode' : null);
+    const current = await getStoreSettings(env.DB);
+    const disabled = new Set(current.disabledPaymentMethods);
+    if (
+      !isPaymentMethod(prov) ||
+      !isMethodAvailable(prov, current, capabilities.vault) ||
+      disabled.has(prov)
+    ) {
+      validationError = 'Choose an enabled, configured payment method as the default.';
+    } else {
+      await setSetting(
+        env.DB,
+        'payment_provider',
+        prov === 'stripe' ? null : prov,
+      );
+    }
   } else if (action === 'save_stripe') {
     await applySecrets(['stripe_secret_key', 'stripe_webhook_secret']);
   } else if (action === 'save_lightning') {
-    const be = String(form.get('lightning_backend') ?? '');
-    await setSetting(env.DB, 'lightning_backend', be === 'lnbits' ? 'lnbits' : null);
-    await setSetting(env.DB, 'lnbits_url', String(form.get('lnbits_url') ?? '').trim() || null);
-    await setSetting(env.DB, 'phoenixd_url', String(form.get('phoenixd_url') ?? '').trim() || null);
-    await applySecrets(['lnbits_api_key', 'phoenixd_password']);
+    const requestedBackend = String(form.get('lightning_backend') ?? '');
+    if (requestedBackend !== 'lnbits' && requestedBackend !== 'phoenixd') {
+      validationError = 'Choose a valid Lightning backend.';
+    } else {
+      const backend = requestedBackend;
+      const urlField = backend === 'lnbits' ? 'lnbits_url' : 'phoenixd_url';
+      const secretName: SecretName =
+        backend === 'lnbits' ? 'lnbits_api_key' : 'phoenixd_password';
+      const url = String(form.get(urlField) ?? '').trim();
+      const suppliedSecret = String(form.get(`secret:${secretName}`) ?? '').trim();
+      const clearSecret = form.get(`clear:${secretName}`) === '1';
+      const existingSecret = clearSecret ? null : await getSecret(env.DB, secretName);
+      validationError =
+        lightningConfigurationError(
+          backend,
+          url,
+          !clearSecret && (!!suppliedSecret || !!existingSecret),
+        ) ?? '';
+
+      if (!validationError) {
+        await setSetting(env.DB, 'lightning_backend', backend === 'lnbits' ? 'lnbits' : null);
+        await setSetting(env.DB, urlField, url);
+        await applySecrets([secretName]);
+      }
+    }
   } else if (action === 'save_opennode') {
     await setSetting(env.DB, 'opennode_api_url', String(form.get('opennode_api_url') ?? '').trim() || null);
     await applySecrets(['opennode_api_key']);
@@ -139,10 +247,10 @@ const timeZones = allTimeZones();
 // Semantic search needs the AI + VECTORIZE bindings; without them the toggle is
 // disabled and search stays on keyword (FTS5).
 const searchProvider = settings.searchProvider ?? cfg.search.provider;
-const vectorBindingsReady = !!env.AI && !!env.VECTORIZE;
+const vectorBindingsReady = semanticSearchAvailable(capabilities);
 
 // Storefront feature switches (runtime, default on).
-const featureRows: { key: string; label: string; desc: string; on: boolean }[] = [
+const baseFeatureRows: { key: string; label: string; desc: string; on: boolean }[] = [
   {
     key: 'cart_enabled',
     label: 'Cart & checkout',
@@ -180,6 +288,10 @@ const featureRows: { key: string; label: string; desc: string; on: boolean }[] =
     on: settings.imageOptimize ?? cfg.images.optimizeOnUpload,
   },
 ];
+const featureRows = baseFeatureRows.map((row) => ({
+  ...row,
+  ...featureAvailability(row.key, settings, capabilities),
+}));
 
 const paymentMethods: { m: PaymentMethod; label: string }[] = [
   { m: 'stripe', label: 'Card (Stripe)' },
@@ -188,7 +300,7 @@ const paymentMethods: { m: PaymentMethod; label: string }[] = [
   { m: 'demo', label: 'Demo checkout' },
 ];
 const pmRows = paymentMethods.map((r) => {
-  const installed = isMethodAvailable(r.m, settings);
+  const installed = isMethodAvailable(r.m, settings, capabilities.vault);
   return { ...r, installed, enabled: installed && !disabledSet.has(r.m) };
 });
 
@@ -205,7 +317,7 @@ const payments = {
 // Encrypted key vault (features/secrets). Keys are write-only — stored AES-GCM in
 // D1 under SECRETS_KEK, never echoed back. Needs a KEK; without it the vault is
 // dormant (the store runs demo-only).
-const vault = vaultReady();
+const vault = capabilities.vault;
 const inD1 = (name: string) => settings.configuredSecrets.includes(name);
 // Per-method toggle/installed state, keyed by method for the cards below.
 const pmMap = Object.fromEntries(pmRows.map((r) => [r.m, r])) as Record<
@@ -225,11 +337,14 @@ const email = {
   notifyPlaceholder: cfg.email.notifyTo || 'you@yourdomain.com',
 };
 const resendStoredInD1 = inD1('resend_api_key');
+const resendReady = !!(await getSecret(env.DB, 'resend_api_key'));
 // The Cloudflare `send_email` binding is present when declared in wrangler.jsonc.
 // Presence ≠ deliverable: sending still needs a Workers Paid plan + an onboarded
 // sender domain (that only fails at send time). Mirrors the Search section's
 // AI/Vectorize binding check.
 const emailBindingReady = !!env.EMAIL;
+const selectedEmailReady =
+  email.provider === 'cloudflare' ? emailBindingReady : resendReady;
 
 // Turnstile (bot protection) — enabled + sitekey in D1, secret in the vault.
 const turnstile = {
@@ -237,6 +352,9 @@ const turnstile = {
   siteKey: settings.turnstileSiteKey ?? '',
 };
 const turnstileSecretInD1 = inD1('turnstile_secret_key');
+const turnstileSecretReady = !!(await getSecret(env.DB, 'turnstile_secret_key'));
+const turnstileReady =
+  turnstileConfigured(settings, capabilities) && turnstileSecretReady;
 
 // Jump sub-nav targets.
 const sections = [
@@ -333,28 +451,38 @@ const sections = [
           <li class="flex items-center justify-between gap-4 px-4 py-4">
             <div class="min-w-0">
               <p class="font-medium">{f.label}</p>
-              <p class="text-xs text-gray-500">{f.desc}</p>
+              <p class={f.available ? 'text-xs text-gray-500' : 'text-xs text-amber-700'}>
+                {f.available ? f.desc : f.reason}
+              </p>
             </div>
-            <form method="POST" class="shrink-0">
-              <input type="hidden" name="_action" value="toggle_feature" />
-              <input type="hidden" name="feature" value={f.key} />
-              <input type="hidden" name="enabled" value={f.on ? '0' : '1'} />
-              <button
-                type="submit"
-                role="switch"
-                aria-checked={f.on ? 'true' : 'false'}
-                aria-label={`${f.on ? 'Disable' : 'Enable'} ${f.label}`}
-                class={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
-                  f.on ? 'bg-brand' : 'bg-gray-300'
-                }`}
-              >
-                <span
-                  class={`inline-block size-5 rounded-full bg-white shadow transition ${
-                    f.on ? 'translate-x-5' : 'translate-x-0.5'
-                  }`}
-                />
-              </button>
-            </form>
+            {
+              f.available || f.on ? (
+                <form method="POST" class="shrink-0">
+                  <input type="hidden" name="_action" value="toggle_feature" />
+                  <input type="hidden" name="feature" value={f.key} />
+                  <input type="hidden" name="enabled" value={f.on ? '0' : '1'} />
+                  <button
+                    type="submit"
+                    role="switch"
+                    aria-checked={f.on ? 'true' : 'false'}
+                    aria-label={`${f.on ? 'Disable' : 'Enable'} ${f.label}`}
+                    class={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
+                      f.on ? 'bg-brand' : 'bg-gray-300'
+                    }`}
+                  >
+                    <span
+                      class={`inline-block size-5 rounded-full bg-white shadow transition ${
+                        f.on ? 'translate-x-5' : 'translate-x-0.5'
+                      }`}
+                    />
+                  </button>
+                </form>
+              ) : (
+                <span class="shrink-0 text-xs uppercase tracking-widest text-gray-400">
+                  Unavailable
+                </span>
+              )
+            }
           </li>
         ))
       }
@@ -389,13 +517,29 @@ const sections = [
           name="payment_provider"
           class="w-48 rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none"
         >
-          <option value="stripe" selected={payments.provider === 'stripe'}>Card (Stripe)</option>
-          <option value="lightning" selected={payments.provider === 'lightning'}>Lightning</option>
-          <option value="opennode" selected={payments.provider === 'opennode'}>Bitcoin (OpenNode)</option>
+          {
+            pmRows.map((row) => (
+              <option
+                value={row.m}
+                selected={payments.provider === row.m}
+                disabled={!row.enabled}
+              >
+                {row.label}{row.enabled ? '' : ' — unavailable'}
+              </option>
+            ))
+          }
         </select>
       </label>
-      <button type="submit" class="rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover">Save</button>
-      <p class="basis-full text-xs text-gray-400">The rail offered first at checkout.</p>
+      <button
+        type="submit"
+        disabled={!pmRows.some((row) => row.enabled)}
+        class="rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover disabled:cursor-not-allowed disabled:bg-gray-300"
+      >
+        Save
+      </button>
+      <p class="basis-full text-xs text-gray-400">
+        The enabled, configured method offered first at checkout.
+      </p>
     </form>
 
     <div class="space-y-4">
@@ -405,7 +549,7 @@ const sections = [
           <div>
             <p class="font-medium">Card (Stripe)</p>
             <p class={pmMap.stripe.installed ? 'text-xs text-gray-500' : 'text-xs text-amber-700'}>
-              {pmMap.stripe.installed ? 'Live' : 'Add the secret key to go live'}
+              {pmMap.stripe.installed ? 'Live' : 'Add both Stripe keys to go live'}
             </p>
           </div>
           {pmMap.stripe.installed && <MethodToggle method="stripe" enabled={pmMap.stripe.enabled} label="Card (Stripe)" />}
@@ -438,25 +582,27 @@ const sections = [
           <div class="flex flex-wrap items-end gap-3">
             <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-gray-400">
               Node
-              <select name="lightning_backend" class="w-36 rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none">
+              <select name="lightning_backend" data-lightning-backend class="w-36 rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none">
                 <option value="phoenixd" selected={payments.lightningBackend === 'phoenixd'}>phoenixd</option>
                 <option value="lnbits" selected={payments.lightningBackend === 'lnbits'}>LNbits</option>
               </select>
             </label>
             <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-gray-400">
               LNbits URL
-              <input type="url" name="lnbits_url" value={payments.lnbitsUrl} placeholder="https://lnbits.example.com" class="w-64 max-w-full rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none" />
+              <input type="url" name="lnbits_url" value={payments.lnbitsUrl} required={payments.lightningBackend === 'lnbits'} data-lightning-required-when="lnbits" placeholder="https://lnbits.example.com" class="w-64 max-w-full rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none" />
             </label>
             <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-gray-400">
               phoenixd URL
-              <input type="url" name="phoenixd_url" value={payments.phoenixdUrl} placeholder="https://ln.example.com" class="w-64 max-w-full rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none" />
+              <input type="url" name="phoenixd_url" value={payments.phoenixdUrl} required={payments.lightningBackend === 'phoenixd'} data-lightning-required-when="phoenixd" placeholder="https://ln.example.com" class="w-64 max-w-full rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none" />
             </label>
           </div>
-          <SecretField name="lnbits_api_key" label="LNbits invoice/read key" hint="invoice/read key (not admin)" storedInD1={inD1('lnbits_api_key')} vault={vault} />
-          <SecretField name="phoenixd_password" label="phoenixd password" hint="http-password-limited-access" storedInD1={inD1('phoenixd_password')} vault={vault} />
-          <button type="submit" class="rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover">
-            Save
-          </button>
+          <SecretField name="lnbits_api_key" label="LNbits invoice/read key" hint="invoice/read key (not admin)" storedInD1={inD1('lnbits_api_key')} vault={vault} required={payments.lightningBackend === 'lnbits'} requiredWhen="lnbits" />
+          <SecretField name="phoenixd_password" label="phoenixd password" hint="http-password-limited-access" storedInD1={inD1('phoenixd_password')} vault={vault} required={payments.lightningBackend === 'phoenixd'} requiredWhen="phoenixd" />
+          {vault && (
+            <button type="submit" class="rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover">
+              Save
+            </button>
+          )}
         </form>
       </div>
 
@@ -511,8 +657,20 @@ const sections = [
     <form method="POST" class="mb-4 space-y-4 rounded-lg border border-gray-200 bg-white p-4">
       <input type="hidden" name="_action" value="save_email" />
       <label class="flex items-center gap-3 text-sm">
-        <input type="checkbox" name="email_enabled" value="1" checked={email.enabled} class="size-4" />
+        <input
+          type="checkbox"
+          name="email_enabled"
+          value="1"
+          checked={email.enabled && selectedEmailReady}
+          disabled={email.provider === 'cloudflare' && !emailBindingReady}
+          class="size-4"
+        />
         <span class="font-medium">Send email</span>
+        {
+          email.provider === 'cloudflare' && !emailBindingReady && (
+            <span class="text-xs uppercase tracking-widest text-gray-400">Unavailable</span>
+          )
+        }
       </label>
       <div class="flex flex-wrap gap-4">
         <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-gray-400">
@@ -523,7 +681,13 @@ const sections = [
             class="w-64 rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none"
           >
             <option value="resend" selected={email.provider === 'resend'}>Resend</option>
-            <option value="cloudflare" selected={email.provider === 'cloudflare'}>Cloudflare (Workers Paid plan)</option>
+            <option
+              value="cloudflare"
+              selected={email.provider === 'cloudflare'}
+              disabled={!emailBindingReady && email.provider !== 'cloudflare'}
+            >
+              Cloudflare — {emailBindingReady ? 'Workers Paid plan' : 'unavailable (EMAIL binding missing)'}
+            </option>
           </select>
         </label>
         <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-gray-400">
@@ -600,7 +764,8 @@ const sections = [
       />
       <button
         type="submit"
-        class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand hover:text-brand"
+        disabled={!email.enabled || !selectedEmailReady}
+        class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:text-gray-300"
       >
         Send test
       </button>
@@ -620,8 +785,22 @@ const sections = [
     <form method="POST" class="mb-10 space-y-4 rounded-lg border border-gray-200 bg-white p-4">
       <input type="hidden" name="_action" value="save_turnstile" />
       <label class="flex items-center gap-3 text-sm">
-        <input type="checkbox" name="turnstile_enabled" value="1" checked={turnstile.enabled} class="size-4" />
+        <input
+          type="checkbox"
+          name="turnstile_enabled"
+          value="1"
+          checked={turnstile.enabled && turnstileReady}
+          disabled={!vault}
+          class="size-4"
+        />
         <span class="font-medium">Enable Turnstile</span>
+        {
+          !vault ? (
+            <span class="text-xs uppercase tracking-widest text-gray-400">Unavailable</span>
+          ) : !turnstileReady ? (
+            <span class="text-xs text-amber-700">Add both keys before enabling</span>
+          ) : null
+        }
       </label>
       <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-gray-400">
         Site key (public)
@@ -733,7 +912,7 @@ const sections = [
         <dd class="col-span-2">
           <p class="mb-1">{currency.toUpperCase()} — e.g. {formatPrice(2500)}</p>
           <p class="text-sm text-gray-500">
-            Edit <code>currency</code> in <code>src/config.ts</code>. Drives all price formatting,
+            Override <code>currency</code> in <code>src/store.config.ts</code>. Drives all price formatting,
             the new-product default, and checkout.
           </p>
         </dd>
@@ -767,6 +946,29 @@ const sections = [
         }, 3500);
       if (location.search.indexOf('msg=') !== -1)
         history.replaceState(null, '', location.pathname + location.hash);
+    })();
+  </script>
+
+  <script is:inline>
+    // The selected Lightning backend owns the required URL + credential pair.
+    // Delegated events survive the settings section's inline-save replacement.
+    (function () {
+      function syncLightning(sel) {
+        var section = sel.closest('section');
+        if (!section) return;
+        var fields = section.querySelectorAll('[data-lightning-required-when]');
+        Array.prototype.forEach.call(fields, function (field) {
+          var active = field.getAttribute('data-lightning-required-when') === sel.value;
+          var stored = field.getAttribute('data-secret-stored') === '1';
+          field.required = active && !stored;
+        });
+      }
+      document.addEventListener('change', function (e) {
+        var target = e.target;
+        if (target && target.matches && target.matches('[data-lightning-backend]')) {
+          syncLightning(target);
+        }
+      });
     })();
   </script>
 

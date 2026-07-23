@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Tear down an instance created by scripts/provision-cf.sh: deletes the Worker, its
-# Vectorize index, R2 bucket, and D1 database.
+# Vectorize index, R2 bucket, D1 database, and the auto-provisioned sessions KV.
 #
 #   Usage:  scripts/destroy-cf.sh <slug>
 #
@@ -19,6 +19,7 @@ W="npx --yes wrangler"
 DB_NAME="${SLUG}-db"
 BUCKET="${SLUG}-images"
 INDEX="${SLUG}-products"
+KV_TITLE="${SLUG}-session" # Astro sessions KV, auto-provisioned by the adapter on deploy
 META=".instances/${SLUG}.env"
 
 echo "About to DELETE instance '$SLUG':"
@@ -26,6 +27,7 @@ echo "  • Worker          $SLUG"
 echo "  • Vectorize index $INDEX"
 echo "  • R2 bucket       $BUCKET   (must be empty)"
 echo "  • D1 database     $DB_NAME"
+echo "  • KV namespace    $KV_TITLE"
 read -rp "This is IRREVERSIBLE. Type the slug to confirm: " confirm
 [[ "$confirm" == "$SLUG" ]] || { echo "aborted."; exit 0; }
 
@@ -42,6 +44,17 @@ $W r2 bucket delete "$BUCKET" || echo "  (could not delete — bucket may be non
 
 echo "▸ Deleting D1 database '$DB_NAME'…"
 $W d1 delete "$DB_NAME" || echo "  (database not found)"
+
+echo "▸ Deleting KV namespace '$KV_TITLE' (Astro sessions)…"
+# KV can only be deleted by id, so resolve it from the namespace list by title.
+# node (already required by wrangler) keeps this portable — no jq/python dependency.
+KV_ID="$($W kv namespace list 2>/dev/null \
+  | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{const m=d.match(/\[[\s\S]*\]/);const a=m?JSON.parse(m[0]):[];const n=a.find(x=>x.title===process.argv[1]);process.stdout.write(n&&n.id?n.id:"")}catch(e){}})' "$KV_TITLE" 2>/dev/null || true)"
+if [[ -n "$KV_ID" ]]; then
+  $W kv namespace delete --namespace-id "$KV_ID" || echo "  (KV delete failed / already gone)"
+else
+  echo "  (no KV namespace '$KV_TITLE' found — nothing to delete)"
+fi
 
 rm -f "$META"
 echo "✓ Teardown of '$SLUG' issued. Check the Cloudflare dashboard to confirm."

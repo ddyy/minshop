@@ -1,21 +1,23 @@
 # minshop
 
-A small, full-Cloudflare ecommerce store: storefront + admin + Stripe payments, running on Cloudflare Workers. No brand baked in — the store name is a config value, so it clones cleanly as a template.
+A small ecommerce store for Cloudflare Workers: server-rendered storefront, full admin, multiple payment rails, and an optional MCP server. No brand is baked in — store name and time zone are set during onboarding, so it clones cleanly as a template.
 
-It's intentionally lightweight and cheap to run: Cloudflare's free tier covers it until real volume, and the only hard cost is Stripe's per-sale fee.
+**[Live demo](https://demo.minshop.dev/)** — uses test payments; do not enter real personal information.
+
+It's intentionally lightweight and cheap to start. The default deployment uses Cloudflare Workers, D1, and R2 and can fit within their free-plan allowances; payment providers and optional services have their own pricing.
 
 ## Features
 
 - **Storefront** — server-rendered product list + product detail, near-zero client JS
 - **Cart** — cookie-based (no client JS), with both "Add to cart" and one-click "Buy now"
-- **Search** — FTS5 full-text (bm25, prefix match, typo-correct), no JS — or **semantic search** via Workers AI + Vectorize, one config toggle (see [Search](#search))
+- **Search** — FTS5 full-text (bm25, prefix match, typo-correct), no JS — or optional **semantic search** via Workers AI + Vectorize (see [Search](#search))
 - **Categories** — nested (arbitrary-depth tree), many-to-many with products; storefront category pages with breadcrumbs + sub-category drill-down (recursive descendant queries)
-- **Admin** — product CRUD (create / edit / delete) with image upload, plus a recent-orders view
-- **Payments** — Stripe Checkout (hosted, single or multi-item) with a signature-verified webhook that records orders + line items — or **Bitcoin Lightning** (phoenixd / LNbits self-hosted, or OpenNode hosted), one config switch (see [Payments](#payments))
-- **Shipping** — Stripe Checkout collects the shipping address + offers configurable rates (flat rates + free-over-threshold); the address & cost are captured onto the order
+- **Admin** — products, categories, orders, customers, fulfillment, CSV export, and runtime store settings
+- **Payments** — Stripe Checkout, self-hosted Bitcoin Lightning (phoenixd or LNbits), hosted OpenNode, or a built-in demo rail; configure enabled methods and the default in Admin (see [Payments](#payments))
+- **Shipping** — configurable zones, flat rates, and free-over-threshold rules; supported checkout flows capture the address and shipping cost on the order
 - **Discount codes** — promo-code field on checkout (toggle in config); codes are created/managed in the Stripe Dashboard, and the applied discount is captured onto the order
 - **Tax** — sales tax / VAT via Stripe Tax (off by default — **activate Stripe Tax in the Dashboard first**); computed from the customer address and captured onto the order
-- **Order email** — confirmation email behind an `EmailProvider` seam with two adapters: **Resend** (HTTPS API, works on the Workers free plan) or **Cloudflare Email** (binding, paid plan); gated by config (off until configured, then it's a flag)
+- **Order email** — confirmation email behind an `EmailProvider` seam with two adapters: **Resend** (HTTPS API, works on the Workers free plan) or **Cloudflare Email** (binding, paid plan); configured in Admin and a safe no-op until a provider is ready
 - **Images** — uploaded to R2, served through the app (no public bucket required)
 - **Swappable seams** — payments and storage sit behind interfaces (see [Architecture](#architecture))
 
@@ -27,7 +29,7 @@ It's intentionally lightweight and cheap to run: Cloudflare's free tier covers i
 | Styling | Tailwind CSS v4 (`@tailwindcss/vite`) |
 | Data | Cloudflare D1 (SQLite) — products, orders |
 | Images | Cloudflare R2 — zero egress |
-| Payments | Stripe Checkout, or Bitcoin Lightning (phoenixd / LNbits / OpenNode) |
+| Payments | Stripe Checkout, Bitcoin Lightning (phoenixd / LNbits), OpenNode, or demo |
 
 ## Quick start (local)
 
@@ -73,11 +75,11 @@ The order shows up in `/admin` (and in D1: `npx wrangler d1 execute minshop-db -
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/ddyy/minshop)
 
-Forks the repo, provisions D1 (`minshop-db`) + R2 (`minshop-images`), applies migrations, and deploys — free-plan resources only. Then finish onboarding at `/admin/setup` (below). Optional paid add-ons (Images, semantic search, Cloudflare Email) are commented in `wrangler.jsonc` — uncomment + redeploy.
+Forks the repo, provisions D1 (`minshop-db`) + R2 (`minshop-images`), applies migrations, and deploys the free-plan default. Then finish onboarding at `/admin/setup` (below). Cloudflare Images, semantic search, and Cloudflare Email are opt-in; their bindings are commented in `wrangler.jsonc`.
 
 **Fields the deploy form shows:**
 
-- **`SECRETS_KEK`, `AUTH_SECRET`** (masked, required) — the only two you must set. Paste a fresh random value into *each* (they must differ): run `openssl rand -base64 32` twice. The button can't generate them, and because the fields are masked their hints are hidden — so a leading label field, **`USE_A_LONG_RANDOM_STRING_FOR_SECRETS_KEK_AND_AUTH_SECRET`**, carries the instruction above them (its own value is unused filler). Left empty, the store still runs: `SECRETS_KEK` unset keeps the payment-key vault dormant (demo checkout only), `AUTH_SECRET` unset disables customer accounts — both configurable later.
+- **`SECRETS_KEK`, `AUTH_SECRET`** (masked, required) — the only two values you must supply. Paste a fresh random value into *each* (they must differ): run `openssl rand -base64 32` twice. The button can't generate them, and masked-field hints are hidden, so a leading label field named **`USE_A_LONG_RANDOM_STRING_FOR_SECRETS_KEK_AND_AUTH_SECRET`** carries the instruction above them; its value is unused.
 - **Location hint** — Cloudflare's own field for where to place the D1 database; pick the region nearest your shoppers.
 - **No store name / time zone / search fields** — those are runtime settings you configure in the setup wizard and **Admin → Settings** (stored in D1), not at deploy time. Defaults until then: `My Shop` / `UTC` / keyword (FTS) search.
 
@@ -165,28 +167,32 @@ Two ports, nested: the outer `PaymentProvider` (stripe / lightning / opennode) a
 
 ## Architecture
 
-Organized as **feature folders** (vertical slices) — each owns its data access, types, and components. Deleting a folder still builds.
+Organized as **feature folders** (vertical slices) — each owns its data access, types, and components.
 
 ```
 src/
-  config.ts                  store name + feature toggles
+  config.ts                  build-time defaults and feature toggles
+  store.config.ts            per-store build-time overrides
   layouts/Layout.astro
   features/
-    products/  db · form · image · ProductForm.astro
-    orders/    db
-    payments/  provider (port) · stripe (adapter) · index (factory)
-    storage/   provider (port) · r2 (adapter) · index (factory)
+    auth/       admin, customer sessions, Access, Turnstile
+    products/   catalog data, forms, inventory, image handling
+    orders/     order data, reservations, tracking
+    payments/   provider port + Stripe, Lightning, OpenNode, demo adapters
+    settings/   runtime D1 settings
+    storage/    provider port + R2 adapter
   pages/
-    index.astro              storefront
-    product/[id].astro
-    admin/                   admin UI (CRUD)
-    images/[...key].ts       serves R2 objects
-    api/                     checkout · webhook · admin product endpoints
+    index.astro               storefront
+    product/[slug].astro
+    category/[slug].astro
+    admin/                    products, categories, orders, customers, settings
+    images/[...key].ts        serves private R2 objects
+    api/                      catalog, checkout, webhooks, admin mutations
 ```
 
 Two **ports-and-adapters seams** keep vendor code at the edges:
 
-- **`PaymentProvider`** — `checkout.ts` / `webhook.ts` depend on the interface, not Stripe. Swapping to Paddle / Lemon Squeezy is one new adapter file.
+- **`PaymentProvider`** — checkout and webhook routes depend on the interface rather than a single provider. Adding another rail means implementing an adapter and wiring its settings and webhook route.
 - **`StorageProvider`** — the app stores and serves images by key; R2 is one adapter.
 
 Deliberately **no runtime plugin system** — Workers bundle at build time, so composition is just imports + a factory.
@@ -218,19 +224,31 @@ A few **data-coupled** settings stay build-time (change + `npm run deploy`):
 
 | Setting | Where | Effect |
 |---|---|---|
-| Currency | `currency` in `src/config.ts` | One store-wide currency — prices are stored as integer minor-units bound to it, so it can't safely flip at runtime |
-| Image optimization | `images.optimizeOnUpload` / `images.maxWidth` in `src/config.ts` | Off by default ($0). On = downscale uploads to `maxWidth` px + WebP via Cloudflare Images (**paid** feature; doesn't transform in local dev — falls back to the original) |
-| Order number | `orderNumber.{offset,step,randomStep}` in `src/config.ts` | Friendly customer-facing number derived from the internal id (e.g. `#1000`). `step` spaces them out; `randomStep` adds jitter to obscure the count (keep `step > randomStep`). The URL/security uses the random `public_id`, not this number |
+| Currency | `currency` in `src/store.config.ts` | One store-wide currency — prices are stored as integer minor-units bound to it, so it can't safely flip at runtime |
+| Image optimization | `images.optimizeOnUpload` / `images.maxWidth` in `src/store.config.ts` | Off by default. On = downscale uploads to `maxWidth` px + WebP through an opt-in Cloudflare Images binding; local development falls back to the original |
+| Order number | `orderNumber.{offset,step,randomStep}` in `src/store.config.ts` | Friendly customer-facing number derived from the internal id (e.g. `#1000`). `step` spaces them out; `randomStep` adds jitter to obscure the count (keep `step > randomStep`). The URL/security uses the random `public_id`, not this number |
 | Favicon | replace `public/favicon.svg` | Browser tab icon |
 
 Change a value, then `npm run deploy`. Currency uses `Intl.NumberFormat`, so `usd → $`, `eur → €`, `gbp → £`, `jpy → ¥` (decimals handled per-currency).
 
+### Optional Cloudflare Images optimization
+
+The default deployment stores original uploads in R2 and serves them through the Worker. Astro uses its `passthrough` image service, so deploying minshop does **not** automatically provision an `IMAGES` binding.
+
+To optimize new uploads:
+
+1. Uncomment `"images": { "binding": "IMAGES" }` in `wrangler.jsonc` (or add the same binding to a provisioned instance config).
+2. Set `images: { optimizeOnUpload: true }` in `src/store.config.ts`; optionally override `maxWidth`.
+3. Run `npm run deploy`.
+
+[Cloudflare Images transformations](https://developers.cloudflare.com/images/pricing/) are available on Free and Paid plans. The Free plan currently includes 5,000 unique transformations per month; when the binding is missing or a transformation fails, minshop stores the original upload instead. Existing R2 objects are not retroactively transformed.
+
 ### Shipping (config) & order email (dashboard)
 
-- **`shipping`** — lives in `src/config.ts`: `enabled` + destination **`zones`** (provider-agnostic, see `features/shipping/calculator`). Each zone has `countries` (ISO alpha-2, or `['*']` catch-all, matched top-to-bottom), `rates` (label + amount), and `freeOverCents` (a $0 "Free shipping" option once the subtotal qualifies; `null` to disable). The same engine feeds **Stripe Checkout's** options and the **Lightning** `/checkout` total, so both rails charge the same shipping. (Stripe shows a static list — the first zone's rates — since it collects the address after; the Lightning `/checkout` page is zone-accurate per the entered country.)
+- **`shipping`** — override it in `src/store.config.ts`: `enabled` + destination **`zones`** (provider-agnostic, see `features/shipping/calculator`). Each zone has `countries` (ISO alpha-2, or `['*']` catch-all, matched top-to-bottom), `rates` (label + amount), and `freeOverCents` (a $0 "Free shipping" option once the subtotal qualifies; `null` to disable). The same engine feeds **Stripe Checkout's** options and the **Lightning** `/checkout` total, so both rails charge the same shipping. (Stripe shows a static list — the first zone's rates — since it collects the address after; the Lightning `/checkout` page is zone-accurate per the entered country.)
 - **Email** — configured in **Admin → Settings → Email** (on/off, provider, from-address; the key in the encrypted vault). Unconfigured it's a safe no-op — checkout still succeeds. A **Send test email** button verifies real delivery. Two providers:
   - **Resend** (default, **works on the Workers free plan** — a plain HTTPS call): get a free key at [resend.com](https://resend.com), paste it in Settings → Email, and set the from-address (a Resend-verified domain, or `onboarding@resend.dev` to test to your own address).
-  - **Cloudflare (Workers Paid plan)**: `wrangler email sending enable <yourdomain.com>` (the `EMAIL` binding is already declared), then pick Cloudflare in Settings → Email with a from-address on that domain. The section flags whether the binding is wired.
+  - **Cloudflare (Workers Paid plan)**: onboard a sender domain, add the commented `send_email` binding from `wrangler.jsonc`, redeploy, then pick Cloudflare in Settings → Email with a from-address on that domain. The section flags whether the binding is wired.
 
 ## Theming
 
@@ -262,7 +280,7 @@ Collected while building (the kind of thing that costs an afternoon):
 
 ## Search
 
-Product search sits behind a `SearchProvider` seam (`features/search`) with a one-line toggle, `search.provider` in `src/config.ts` (or the `SEARCH_PROVIDER` var):
+Product search sits behind a `SearchProvider` seam (`features/search`). Choose the active backend in **Admin → Settings → Search** (or use the `SEARCH_PROVIDER` build-time fallback):
 
 - **`fts`** *(default)* — SQLite **FTS5** keyword search: $0, fully local, exact-match + typo-correction ("did you mean"). Nothing to set up.
 - **`vector`** — **semantic** search via **Workers AI** embeddings + **Vectorize**: matches by *meaning* ("something to drink coffee from" → mug), and powers similarity. Needs the AI + Vectorize bindings, so:
@@ -271,8 +289,8 @@ Product search sits behind a `SearchProvider` seam (`features/search`) with a on
 # 1. Create the index (dimensions must match the model — bge-base = 768)
 wrangler vectorize create minshop-products --dimensions=768 --metric=cosine
 # 2. Uncomment the "ai" + "vectorize" bindings in wrangler.jsonc
-# 3. Turn it on: SEARCH_PROVIDER=vector (var) — or search.provider in store.config.ts
-# 4. Backfill existing products: POST /api/admin/search/reindex (button in /admin/settings)
+# 3. Select semantic search in Admin → Settings → Search
+# 4. Use the Reindex button there to backfill existing products
 ```
 
 The same embeddings also power **"you may also like"** on product pages — semantic similarity (the product's nearest neighbours in Vectorize), falling back to category-based related when vector search is off. After enabling, products are embedded automatically on create/update (and removed on delete). If `vector` is selected but the bindings are missing, it **falls back to FTS** rather than breaking. FTS stays available either way — keep it for exact/SKU lookups. Cost: Workers AI is pay-per-inference (cheap embeddings, free daily allocation) and Vectorize is usage-billed beyond a free tier — so semantic search trades the strict $0 for meaning-based matching.
@@ -293,7 +311,7 @@ In local dev the magic link is also logged to the server console, so you can tes
 
 ## MCP server (operate the store from an assistant)
 
-`mcp/` is a **standalone Cloudflare Worker** (Cloudflare Agents SDK / `McpAgent`) that exposes store operations as MCP tools, so an assistant like Claude can run the store conversationally — "what was revenue this week?", "mark order 1142 shipped", "create a product". It binds the **same D1** as the storefront and **reuses `features/*/db.ts`** (no duplicated logic).
+`mcp/` is a **standalone Cloudflare Worker** that exposes store operations as MCP tools, so compatible MCP clients can run the store conversationally — "what was revenue this week?", "mark order 1142 shipped", "create a product". It binds the **same D1** as the storefront and **reuses `features/*/db.ts`** (no duplicated logic).
 
 **Why a separate Worker** (own `mcp/package.json`, own `node_modules`): the Astro adapter owns the storefront Worker's entry, and the Agents SDK pulls in workerd/miniflare deps that perturb Astro's build if hoisted into the root tree. Keeping it a sibling Worker isolates both.
 
@@ -352,4 +370,4 @@ Complete payment with the Stripe **test** card `4242 4242 4242 4242` (any future
 
 ## Cost
 
-Cloudflare free tier (Workers 100k req/day, D1 5 GB, R2 10 GB) covers a small store comfortably — effectively $0 until scale. Stripe charges only per transaction.
+The default Worker, D1 database, and R2 bucket can run within Cloudflare's free-plan allowances for a small store. Usage above those allowances is billed under Cloudflare's current pricing. Payment processors, email providers, semantic search, and optional image transformations may have separate free allowances or fees, so review the services you enable before going live.
