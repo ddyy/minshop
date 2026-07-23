@@ -1,8 +1,10 @@
 # minshop
 
-A small ecommerce store for Cloudflare Workers: server-rendered storefront, full admin, multiple payment rails, and an optional MCP server. No brand is baked in — store name and time zone are set during onboarding, so it clones cleanly as a template.
+An open-source store an agent can pay for itself. Agents read the catalog and pay a Lightning invoice with no human in the loop; people check out the normal way with Stripe. Merchants can run it over MCP too.
 
-**[Live demo](https://demo.minshop.dev/)** — uses test payments; do not enter real personal information.
+It's a small, server-rendered store for Cloudflare Workers (D1 + R2) with a full admin, multiple payment rails, and an optional MCP server, within the free tier to start. No brand is baked in: store name and time zone are set during onboarding, so it clones cleanly as a template.
+
+**[Live demo](https://demo.minshop.dev/)** (agent API at /api/products, /api/checkout). Uses test payments; do not enter real personal information.
 
 It's intentionally lightweight and cheap to start. The default deployment uses Cloudflare Workers, D1, and R2 and can fit within their free-plan allowances; payment providers and optional services have their own pricing.
 
