@@ -37,7 +37,7 @@ const error = Astro.url.searchParams.get('error');
 // Lightning path collects the country on its own /checkout page, so skip it there.
 const cfg = getConfig();
 const shipCountries =
-  cfg.shipping.enabled && settings?.paymentProvider !== 'lightning'
+  (settings?.shippingEnabled ?? cfg.shipping.enabled) && settings?.paymentProvider !== 'lightning'
     ? allowedCountries(cfg.shipping)
     : [];
 const showCountry = shipCountries.length > 1;

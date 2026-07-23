@@ -6,22 +6,20 @@ import type { DeepPartial, SiteConfig } from './config';
  * so list ONLY what you change; anything omitted keeps its default. Arrays
  * (shipping rates, allowed countries) replace wholesale.
  *
- * Single-value defaults can also be set via wrangler vars (STORE_NAME,
- * TIME_ZONE). The setup wizard stores the effective name/time zone in D1.
+ * Store identity, feature switches, integrations, and provider credentials are
+ * configured at runtime in Admin → Settings and do not belong in this file.
  */
 export const storeOverrides: DeepPartial<SiteConfig> = {
-  // storeName: 'My Shop',           // or set STORE_NAME in wrangler.jsonc
   // currency: 'usd',                // ISO 4217, lowercase
-  // timeZone: 'UTC',                // fallback; setup/admin settings override it
   //
-  // features: { blog: false, reviews: false, accounts: false },  // accounts = magic-link login (needs AUTH_SECRET + email)
+  // features: { blog: false, reviews: false },
   //
-  // images: { optimizeOnUpload: false, maxWidth: 1000 },
+  // images: { maxWidth: 1000 },      // optimization on/off lives in Admin
   //
   // orderNumber: { offset: 1000, step: 1, randomStep: 0 },
   //
   // shipping: {
-  //   enabled: true,
+  //   // Shipping on/off lives in Admin; zones and rates remain build-time.
   //   zones: [                        // first zone matching the country wins ('*' last)
   //     {
   //       countries: ['US'],
@@ -33,17 +31,5 @@ export const storeOverrides: DeepPartial<SiteConfig> = {
   //     },
   //     { countries: ['*'], rates: [{ label: 'International', amountCents: 3000 }], freeOverCents: null },
   //   ],
-  // },
-  //
-  // discounts: { enabled: true },
-  // tax: { enabled: false },        // true only after activating Stripe Tax
-  //
-  // search: { provider: 'fts' },    // 'fts' (default) | 'vector' (semantic — needs AI + Vectorize, see README → Search)
-  //
-  // email: {
-  //   enabled: true,
-  //   provider: 'resend',           // 'resend' (free plan) | 'cloudflare' (paid)
-  //   from: 'orders@yourdomain.com',
-  //   notifyTo: 'you@yourdomain.com', // '' = no owner notification
   // },
 };

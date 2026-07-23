@@ -15,7 +15,7 @@ It's intentionally lightweight and cheap to start. The default deployment uses C
 - **Admin** — products, categories, orders, customers, fulfillment, CSV export, and runtime store settings
 - **Payments** — Stripe Checkout, self-hosted Bitcoin Lightning (phoenixd or LNbits), hosted OpenNode, or a built-in demo rail; configure enabled methods and the default in Admin (see [Payments](#payments))
 - **Shipping** — configurable zones, flat rates, and free-over-threshold rules; supported checkout flows capture the address and shipping cost on the order
-- **Discount codes** — promo-code field on checkout (toggle in config); codes are created/managed in the Stripe Dashboard, and the applied discount is captured onto the order
+- **Discount codes** — promo-code field enabled from Admin; codes are created/managed in the Stripe Dashboard, and the applied discount is captured onto the order
 - **Tax** — sales tax / VAT via Stripe Tax (off by default — **activate Stripe Tax in the Dashboard first**); computed from the customer address and captured onto the order
 - **Order email** — confirmation email behind an `EmailProvider` seam with two adapters: **Resend** (HTTPS API, works on the Workers free plan) or **Cloudflare Email** (binding, paid plan); configured in Admin and a safe no-op until a provider is ready
 - **Images** — uploaded to R2, served through the app (no public bucket required)
@@ -150,7 +150,7 @@ Two ports, nested: the outer `PaymentProvider` (stripe / lightning / opennode) a
 
 **How settlement is trusted.** Lightning webhooks are treated as an untrusted *nudge* — on receipt minshop **re-polls the node** for the payment (the authority), so a forged webhook can't fake a sale. The `/pay` page also settles on load by polling, so it works even with no public webhook (e.g. local dev). Orders stay "paid-only": unpaid invoices live in a `pending_payments` table, never in `orders`.
 
-**Shipping (Lightning).** When `shipping.enabled`, the Lightning cart routes through minshop's own `/checkout` page — a server-rendered address + shipping-option step (zone-based rates from `cfg.shipping`, see [Shipping](#shipping--order-email-config)) — so the invoice total includes shipping and the address + email land on the order, same as Stripe. (Stripe keeps its own hosted address/shipping collection, unchanged.)
+**Shipping (Lightning).** When shipping is enabled in Admin, the Lightning cart routes through minshop's own `/checkout` page — a server-rendered address + shipping-option step (zone-based rates from `store.config.ts`, see [Shipping](#shipping-and-order-email)) — so the invoice total includes shipping and the address + email land on the order, same as Stripe. Programmatic checkout accepts the same address as a `ship_to` object. (Stripe keeps its own hosted address/shipping collection, unchanged.)
 
 **Limitations (Lightning).** **Tax** and promo codes are still Stripe-Checkout features and are skipped on the Lightning path — to charge tax on a non-Stripe rail you'd compute it yourself (e.g. Stripe's Tax *Calculation* API) and add it to the total. No automatic refunds (Lightning can't reverse in place). Invoices are priced in sats from a BTC spot rate fetched at checkout (`payments.lightning.rateUrl`, default Coinbase — no key).
 
@@ -214,7 +214,8 @@ npm run db:migrate:remote     # production
 
 Most settings are **runtime** — changed in **`/admin/settings`**, stored in a D1 `settings` table, applied instantly, no redeploy. Secret keys are stored in the same table **AES-256-GCM-encrypted** under the `SECRETS_KEK` Worker secret (write-only from the UI, never echoed back), which is what makes an instance fully configurable — and clonable — from the dashboard:
 
-- **General** — store name, cart/checkout on/off, "Buy now" on/off.
+- **General** — store name.
+- **Features** — cart/checkout, "Buy now", discounts, tax, customer accounts, shipping, and image optimization.
 - **Payments** — one card per rail (Stripe / Lightning / OpenNode / Demo): its on/off toggle, config (node URLs, default rail), and keys.
 - **Email** — on/off, provider (Resend / Cloudflare), from-address, key, send-test button.
 - **Bot protection** — Turnstile toggle + sitekey + secret.
@@ -225,7 +226,7 @@ A few **data-coupled** settings stay build-time (change + `npm run deploy`):
 | Setting | Where | Effect |
 |---|---|---|
 | Currency | `currency` in `src/store.config.ts` | One store-wide currency — prices are stored as integer minor-units bound to it, so it can't safely flip at runtime |
-| Image optimization | `images.optimizeOnUpload` / `images.maxWidth` in `src/store.config.ts` | Off by default. On = downscale uploads to `maxWidth` px + WebP through an opt-in Cloudflare Images binding; local development falls back to the original |
+| Image width | `images.maxWidth` in `src/store.config.ts` | Maximum width used when image optimization is enabled in Admin |
 | Order number | `orderNumber.{offset,step,randomStep}` in `src/store.config.ts` | Friendly customer-facing number derived from the internal id (e.g. `#1000`). `step` spaces them out; `randomStep` adds jitter to obscure the count (keep `step > randomStep`). The URL/security uses the random `public_id`, not this number |
 | Favicon | replace `public/favicon.svg` | Browser tab icon |
 
@@ -238,21 +239,21 @@ The default deployment stores original uploads in R2 and serves them through the
 To optimize new uploads:
 
 1. Uncomment `"images": { "binding": "IMAGES" }` in `wrangler.jsonc` (or add the same binding to a provisioned instance config).
-2. Set `images: { optimizeOnUpload: true }` in `src/store.config.ts`; optionally override `maxWidth`.
-3. Run `npm run deploy`.
+2. Run `npm run deploy`.
+3. Enable **Optimize images on upload** in Admin → Settings. Optionally override `images.maxWidth` in `src/store.config.ts`.
 
 [Cloudflare Images transformations](https://developers.cloudflare.com/images/pricing/) are available on Free and Paid plans. The Free plan currently includes 5,000 unique transformations per month; when the binding is missing or a transformation fails, minshop stores the original upload instead. Existing R2 objects are not retroactively transformed.
 
-### Shipping (config) & order email (dashboard)
+### Shipping and order email
 
-- **`shipping`** — override it in `src/store.config.ts`: `enabled` + destination **`zones`** (provider-agnostic, see `features/shipping/calculator`). Each zone has `countries` (ISO alpha-2, or `['*']` catch-all, matched top-to-bottom), `rates` (label + amount), and `freeOverCents` (a $0 "Free shipping" option once the subtotal qualifies; `null` to disable). The same engine feeds **Stripe Checkout's** options and the **Lightning** `/checkout` total, so both rails charge the same shipping. (Stripe shows a static list — the first zone's rates — since it collects the address after; the Lightning `/checkout` page is zone-accurate per the entered country.)
+- **Shipping** — switch it on or off in **Admin → Settings**. Define destination **`zones`** in `src/store.config.ts` (provider-agnostic, see `features/shipping/calculator`). Each zone has `countries` (ISO alpha-2, or `['*']` catch-all, matched top-to-bottom), `rates` (label + amount), and `freeOverCents` (a $0 "Free shipping" option once the subtotal qualifies; `null` to disable). The same engine feeds **Stripe Checkout's** options and the **Lightning** checkout total. Stripe uses the country selected in the cart; Lightning prices the entered `ship_to.country`.
 - **Email** — configured in **Admin → Settings → Email** (on/off, provider, from-address; the key in the encrypted vault). Unconfigured it's a safe no-op — checkout still succeeds. A **Send test email** button verifies real delivery. Two providers:
   - **Resend** (default, **works on the Workers free plan** — a plain HTTPS call): get a free key at [resend.com](https://resend.com), paste it in Settings → Email, and set the from-address (a Resend-verified domain, or `onboarding@resend.dev` to test to your own address).
   - **Cloudflare (Workers Paid plan)**: onboard a sender domain, add the commented `send_email` binding from `wrangler.jsonc`, redeploy, then pick Cloudflare in Settings → Email with a from-address on that domain. The section flags whether the binding is wired.
 
 ## Theming
 
-Brand color, accent, font, and corner radius are **design tokens** in `src/styles/global.css` (a Tailwind v4 `@theme` block) — rebrand a clone by editing a few values, no component changes:
+Brand color, accent, font, and corner radius are **design tokens** in `src/styles/theme.css` (a Tailwind v4 `@theme` block) — rebrand a clone by editing a few values, no component changes:
 
 ```css
 @theme {
@@ -297,14 +298,14 @@ The same embeddings also power **"you may also like"** on product pages — sema
 
 ## Accounts (passwordless customer login)
 
-Optional customer accounts via **magic-link** sign-in — no passwords, so no hashing/reset/breach liability. Off by default (`features.accounts`); guest checkout is unaffected (login is only for order history). When on it needs the `AUTH_SECRET` secret (signs the login token + session cookie) and email configured (to send the link).
+Optional customer accounts via **magic-link** sign-in — no passwords, so no hashing/reset/breach liability. Enable them in **Admin → Settings**; guest checkout is unaffected (login is only for order history). When on they need the `AUTH_SECRET` secret (signs the login token + session cookie) and email configured (to send the link).
 
 How it works: `/account/login` emails a single-use, 15-min link → `/account/verify` sets a 30-day signed session cookie → `/account` lists the customer's orders (queried by their verified email — which orders already store, so there's barely any new schema). Reuses the Web-Crypto HMAC token primitive and the `EmailProvider` seam; swapping to OAuth = replacing `features/auth/customer.ts`.
 
 ```sh
-# enable: features.accounts: true in store.config.ts
 # needs: the AUTH_SECRET worker secret (provision scripts set it automatically)
-#        + email configured in Admin → Settings → Email (to deliver the links)
+#        + email configured in Admin → Settings → Email
+# enable: Admin → Settings → Customer accounts
 ```
 
 In local dev the magic link is also logged to the server console, so you can test without email delivery.
@@ -337,6 +338,7 @@ A small, **public**, machine-readable API so an AI agent can **browse and buy** 
 |---|---|
 | `GET /api/products` | Active catalog. `?q=` (uses the active **search** backend — semantic when on), `?limit=` (1–100, default 24), `?offset=` |
 | `GET /api/products/:slug` | One product as JSON (404 if missing/inactive) |
+| `GET /api/checkout` | Available payment methods and the current default |
 | `POST /api/checkout` | Programmatic checkout. Body `{ "items": [{ "slug", "quantity" }] }` → `{ checkout_url, … }` |
 
 Each product is self-describing, price in both major + minor units:
@@ -349,7 +351,46 @@ Each product is self-describing, price in both major + minor units:
   "url": "https://…/product/merino-wool-beanie" }
 ```
 
-`POST /api/checkout` reuses the **same** Stripe/OpenNode session as the storefront (shipping/tax/discounts apply on the hosted page) and returns a `checkout_url` the agent hands to the human to pay — minshop stops at *"produce a pay link"*, not *"move money on the user's behalf"*, since agentic-payment standards aren't settled. The browser form checkout is unchanged; the JSON path triggers only on `Content-Type: application/json`.
+`POST /api/checkout` recalculates price and stock from D1. Set `method` to one of the values returned by `GET /api/checkout`; omitting it uses the default. Stripe and OpenNode return `flow: "redirect"` with a hosted `checkout_url`. Lightning returns `flow: "invoice"`, a browser/QR fallback in `checkout_url`, and a directly payable BOLT11 invoice:
+
+```json
+{
+  "method": "lightning",
+  "items": [
+    { "slug": "merino-wool-beanie", "quantity": 1, "variant_id": 12, "extras": [3] }
+  ],
+  "ship_to": {
+    "email": "buyer@example.com",
+    "name": "Example Buyer",
+    "line1": "123 Main Street",
+    "line2": null,
+    "city": "Portland",
+    "state": "OR",
+    "postal": "97205",
+    "country": "US"
+  },
+  "shipping_label": "Standard"
+}
+```
+
+When shipping is enabled, `ship_to` is required for Lightning; `shipping_label` is optional and defaults to the first rate for `ship_to.country`. When shipping is off, omit both fields. A successful Lightning response includes:
+
+```json
+{
+  "flow": "invoice",
+  "checkout_url": "https://shop.example/pay/…",
+  "lightning": {
+    "invoice": "lnbc…",
+    "amount_sat": 12345,
+    "payment_hash": "…",
+    "expires_at": "2026-07-23T20:30:00.000Z"
+  },
+  "shipping_cents": 500,
+  "total_cents": 3700
+}
+```
+
+The order is recorded only after the existing settlement verifier confirms payment. The browser form checkout is unchanged; the JSON path triggers only on `Content-Type: application/json`.
 
 ### Demo — an agent shops the store
 

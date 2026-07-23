@@ -11,7 +11,7 @@ const thumbCell = (imageKey: string | null, baseUrl: string): string =>
 
 /** One-line-per-field shipping address, blank lines dropped. */
 function formatShipAddress(order: Order): string {
-  if (!order.ship_address) return '—';
+  if (!order.ship_address) return '-';
   const a = JSON.parse(order.ship_address) as ShippingAddress;
   return [
     a.name,
@@ -50,18 +50,18 @@ export function orderConfirmationEmail(
   const orderUrl = order.public_id ? `${baseUrl}/order/${order.public_id}` : null;
 
   const rows = items.map(
-    (it) => `${it.name} × ${it.quantity} — ${money(it.price_cents * it.quantity)}`,
+    (it) => `${it.name} × ${it.quantity}: ${money(it.price_cents * it.quantity)}`,
   );
 
   const text = [
     `Thanks for your order!`,
     ``,
-    `Order #${num} — ${cfg.storeName}`,
+    `Order #${num}, ${cfg.storeName}`,
     ``,
     ...rows,
-    ...(order.shipping_cents > 0 ? [`Shipping — ${money(order.shipping_cents)}`] : []),
-    ...(order.discount_cents > 0 ? [`Discount — -${money(order.discount_cents)}`] : []),
-    ...(order.tax_cents > 0 ? [`Tax — ${money(order.tax_cents)}`] : []),
+    ...(order.shipping_cents > 0 ? [`Shipping: ${money(order.shipping_cents)}`] : []),
+    ...(order.discount_cents > 0 ? [`Discount: -${money(order.discount_cents)}`] : []),
+    ...(order.tax_cents > 0 ? [`Tax: ${money(order.tax_cents)}`] : []),
     `Total: ${money(order.amount_total_cents)}`,
     ...(orderUrl ? [``, `View your order: ${orderUrl}`] : []),
   ].join('\n');
@@ -77,7 +77,7 @@ export function orderConfirmationEmail(
 
   const html = `
     <h2>Thanks for your order!</h2>
-    <p>Order <strong>#${num}</strong> — ${escapeHtml(cfg.storeName)}</p>
+    <p>Order <strong>#${num}</strong>, ${escapeHtml(cfg.storeName)}</p>
     <table cellpadding="6" style="border-collapse:collapse">
       ${htmlRows}
       ${order.shipping_cents > 0 ? `<tr><td colspan="2">Shipping</td><td style="text-align:right">${money(order.shipping_cents)}</td></tr>` : ''}
@@ -112,21 +112,21 @@ export function orderNotificationEmail(
   const adminUrl = `${baseUrl}/admin/orders/${order.id}`;
 
   const rows = items.map(
-    (it) => `${it.name} × ${it.quantity} — ${money(it.price_cents * it.quantity)}`,
+    (it) => `${it.name} × ${it.quantity}: ${money(it.price_cents * it.quantity)}`,
   );
 
   const text = [
     `New order #${num}`,
     ``,
-    `Customer: ${order.email ?? '—'}`,
+    `Customer: ${order.email ?? '-'}`,
     ``,
     `Ship to:`,
     shipText,
     ``,
     ...rows,
-    ...(order.shipping_cents > 0 ? [`Shipping — ${money(order.shipping_cents)}`] : []),
-    ...(order.discount_cents > 0 ? [`Discount — -${money(order.discount_cents)}`] : []),
-    ...(order.tax_cents > 0 ? [`Tax — ${money(order.tax_cents)}`] : []),
+    ...(order.shipping_cents > 0 ? [`Shipping: ${money(order.shipping_cents)}`] : []),
+    ...(order.discount_cents > 0 ? [`Discount: -${money(order.discount_cents)}`] : []),
+    ...(order.tax_cents > 0 ? [`Tax: ${money(order.tax_cents)}`] : []),
     `Total: ${money(order.amount_total_cents)}`,
     ``,
     `View in admin: ${adminUrl}`,
@@ -143,7 +143,7 @@ export function orderNotificationEmail(
 
   const html = `
     <h2>New order #${num}</h2>
-    <p>Customer: ${escapeHtml(order.email ?? '—')}</p>
+    <p>Customer: ${escapeHtml(order.email ?? '-')}</p>
     <p><strong>Ship to:</strong><br>${escapeHtml(shipText).replace(/\n/g, '<br>')}</p>
     <table cellpadding="6" style="border-collapse:collapse">
       ${htmlRows}
@@ -156,7 +156,7 @@ export function orderNotificationEmail(
 
   return {
     to,
-    subject: `New order #${num} — ${cfg.storeName}`,
+    subject: `New ${cfg.storeName} order #${num}`,
     html,
     text,
   };
@@ -192,7 +192,7 @@ export function orderShippedEmail(order: Order, baseUrl: string): EmailMessage {
 
   const html = `
     <h2>Your order has shipped!</h2>
-    <p>Order <strong>#${num}</strong> — ${escapeHtml(cfg.storeName)}</p>
+    <p>Order <strong>#${num}</strong>, ${escapeHtml(cfg.storeName)}</p>
     ${trackingHtml}
     ${orderUrl ? `<p><a href="${orderUrl}">View your order</a></p>` : ''}`;
 

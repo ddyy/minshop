@@ -28,8 +28,38 @@ import {
   releaseInventoryReservation,
   type ReservationItem,
 } from '../../features/orders/reservations';
+import { mintLightningOrder } from '../../features/payments/lightning-provider';
+import { getLightningBackend } from '../../features/payments/lightning';
 
 export const prerender = false;
+
+interface ShipTo {
+  email: string;
+  name: string;
+  line1: string;
+  line2: string | null;
+  city: string;
+  state: string | null;
+  postal: string;
+  country: string;
+}
+
+/** Validate an agent-supplied `ship_to` object; null if incomplete/invalid. */
+function parseShipTo(raw: unknown): ShipTo | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const s = (k: string) => (typeof r[k] === 'string' ? (r[k] as string).trim() : '');
+  const email = s('email');
+  const name = s('name');
+  const line1 = s('line1');
+  const city = s('city');
+  const postal = s('postal');
+  const country = s('country').toUpperCase();
+  if (!/.+@.+\..+/.test(email) || !name || !line1 || !city || !postal || country.length !== 2) {
+    return null;
+  }
+  return { email, name, line1, line2: s('line2') || null, city, state: s('state') || null, postal, country };
+}
 
 interface LineDraft {
   product: Product;
@@ -200,7 +230,7 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
   // the order (zone-accurate shipping), so route to the own-checkout page. Carry the
   // buy-now product + variant/extras so it prices the same line. Stripe & OpenNode
   // collect/handle shipping on their own hosted page, so they continue below.
-  if (selected === 'lightning' && cfg.shipping.enabled) {
+  if (selected === 'lightning' && (settings.shippingEnabled ?? cfg.shipping.enabled)) {
     if (Number.isInteger(productId) && productId > 0) {
       const params = new URLSearchParams({ product_id: String(productId) });
       const vid = form.get('variant_id');
@@ -229,7 +259,7 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
   const selectedCountry = (form.get('country') ?? '').toString().trim().toUpperCase();
   const shipCountry =
     selectedCountry.length === 2 ? selectedCountry : (cfg.shipping.zones[0]?.countries[0] ?? 'US');
-  const shipping = cfg.shipping.enabled
+  const shipping = (settings.shippingEnabled ?? cfg.shipping.enabled)
     ? {
         addressCountries: shipCalc.allowedCountries(),
         options: shipCalc.optionsFor({ subtotalCents, country: shipCountry }),
@@ -349,14 +379,7 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
   const method: PaymentMethod = requested ?? available[0] ?? defaultMethod(jsonSettings);
 
   const cfg = getConfig();
-  // The Lightning + shipping flow needs an interactive address page an agent can't
-  // drive — require a hosted-redirect rail (Stripe/OpenNode) or no shipping.
-  if (method === 'lightning' && cfg.shipping.enabled) {
-    return cjson(
-      { error: 'Lightning + shipping needs an interactive address step. Pick a hosted method (stripe/opennode) or disable shipping.', available_methods: available },
-      409,
-    );
-  }
+  const shippingOn = jsonSettings.shippingEnabled ?? cfg.shipping.enabled;
 
   // Resolve each { slug, quantity, variant_id?, extras? } → a priced line,
   // validating active + variant choice + stock. Variant/extra ids come from the
@@ -428,9 +451,107 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
   const subtotalCents = lines.reduce((s, l) => s + l.unitPriceCents * l.qty, 0);
   const shipCalc = createConfigRatesCalculator(cfg.shipping);
   const shipCountry = cfg.shipping.zones[0]?.countries[0] ?? 'US';
-  const shipping = cfg.shipping.enabled
+  const shipping = shippingOn
     ? { addressCountries: shipCalc.allowedCountries(), options: shipCalc.optionsFor({ subtotalCents, country: shipCountry }) }
     : undefined;
+
+  // Lightning + shipping: the agent supplies a `ship_to` address (the JSON API has
+  // no interactive step). We price shipping for that country, capture the address,
+  // and mint an invoice whose total includes shipping — mirroring the /checkout page.
+  if (method === 'lightning' && shippingOn) {
+    const shipTo = parseShipTo((body as { ship_to?: unknown }).ship_to);
+    if (!shipTo) {
+      return cjson(
+        {
+          error: 'A shipped Lightning order needs a "ship_to" address: { email, name, line1, city, postal, country }.',
+          available_methods: available,
+        },
+        400,
+      );
+    }
+    const shipOptions = shipCalc.optionsFor({ subtotalCents, country: shipTo.country });
+    if (shipOptions.length === 0) {
+      return cjson({ error: `This store does not ship to ${shipTo.country}.` }, 409);
+    }
+    const wantLabel =
+      typeof (body as { shipping_label?: unknown }).shipping_label === 'string'
+        ? (body as { shipping_label: string }).shipping_label
+        : null;
+    const chosen = wantLabel ? shipOptions.find((o) => o.label === wantLabel) : shipOptions[0];
+    if (!chosen) {
+      return cjson(
+        {
+          error: `Unknown shipping_label "${wantLabel}".`,
+          shipping_options: shipOptions.map((o) => ({ label: o.label, amount_cents: o.amountCents })),
+        },
+        400,
+      );
+    }
+    const lnPublicId = crypto.randomUUID();
+    const lnReserved = await reserveInventory(
+      env.DB,
+      lnPublicId,
+      reservationItems(lines),
+      reservationTtlSeconds('lightning'),
+      'lightning',
+    );
+    if (!lnReserved) return cjson({ error: 'Some inventory just sold out. Refresh the catalog and retry.' }, 409);
+    try {
+      const minted = await mintLightningOrder(env.DB, await getLightningBackend(), {
+        origin,
+        publicId: lnPublicId,
+        currency: storeCurrency,
+        subtotalCents,
+        shippingCents: chosen.amountCents,
+        itemsJson: JSON.stringify(
+          lines.map((l) => ({ id: l.product.id, v: l.variantId, q: l.qty, n: l.name, p: l.unitPriceCents })),
+        ),
+        email: shipTo.email,
+        shippingAddress: {
+          name: shipTo.name,
+          line1: shipTo.line1,
+          line2: shipTo.line2,
+          city: shipTo.city,
+          state: shipTo.state,
+          postal: shipTo.postal,
+          country: shipTo.country,
+        },
+        reservationId: lnPublicId,
+      });
+      return cjson({
+        method,
+        available_methods: available,
+        flow: 'invoice',
+        checkout_url: minted.payUrl,
+        lightning: {
+          invoice: minted.bolt11,
+          amount_sat: minted.amountSat,
+          payment_hash: minted.paymentHash,
+          expires_at: minted.expiresAt,
+        },
+        order_public_id: lnPublicId,
+        currency: storeCurrency.toUpperCase(),
+        subtotal_cents: subtotalCents,
+        shipping_cents: chosen.amountCents,
+        shipping_label: chosen.label,
+        total_cents: subtotalCents + chosen.amountCents,
+        ship_to: shipTo,
+        items: lines.map((l) => ({
+          slug: l.product.slug,
+          name: l.name,
+          quantity: l.qty,
+          variant: l.variant ? { id: l.variant.id, label: l.variant.label } : null,
+          extras: l.extras.map((e) => ({ id: e.id, label: e.label })),
+          unit_price_cents: l.unitPriceCents,
+          line_total_cents: l.unitPriceCents * l.qty,
+        })),
+        note: 'Pay the BOLT11 `lightning.invoice` from any Lightning wallet — the total includes shipping, and the order captures your ship_to address. Settlement is confirmed by the webhook.',
+      });
+    } catch (error) {
+      await releaseInventoryReservation(env.DB, lnPublicId);
+      throw error;
+    }
+  }
 
   const publicId = crypto.randomUUID();
   const provider = await getPaymentProvider(method);

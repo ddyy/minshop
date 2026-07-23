@@ -1,9 +1,9 @@
 # AGENTS.md — working on minshop
 
-A guide for AI coding agents (and humans) making changes to minshop: a small,
-full-Cloudflare ecommerce store (Astro 7 SSR on Workers + D1 + R2 + Stripe /
-Lightning). Read this before editing. It's the map, the rules, the recipes, and
-the traps.
+A guide for contributors and automated tooling making changes to minshop: a
+small, full-Cloudflare ecommerce store (Astro 7 SSR on Workers + D1 + R2 +
+Stripe / Lightning). Read this before editing. It's the map, the rules, the
+recipes, and the traps.
 
 ## The loop (run this constantly)
 
@@ -21,6 +21,35 @@ Other commands: `npm run dev` (astro dev), `npm run preview` (wrangler dev =
 production mode, for testing middleware/auth), `npm run db:migrate` (local D1),
 `npm test`.
 
+## Customizing a cloned shop
+
+Use the narrowest customization surface that fits the change:
+
+1. **Admin → Settings** for runtime settings: store identity, time zone,
+   storefront toggles, payment rails, email, bot protection, and search. These
+   values live in D1 and apply without a deploy.
+2. **`src/store.config.ts`** for versioned, build-time settings: currency,
+   shipping zones and rates, image dimensions, order numbering, and
+   template-only features. Override only changed keys; never customize
+   `src/config.ts` defaults directly.
+3. **`src/styles/theme.css`** for brand colors, fonts, surfaces, and corner
+   radii. Keep structural styles in `global.css` and avoid restyling individual
+   components when a shared token will do.
+4. **`public/favicon.svg`** for the browser icon. Products, categories, images,
+   and other catalog content belong in the admin, not source files.
+5. **`wrangler.jsonc`** for optional infrastructure bindings such as image
+   optimization, semantic search, and email delivery. Keep optional bindings
+   disabled unless the corresponding feature is configured.
+
+Provider credentials belong in Admin → Settings, where the secret vault stores
+them encrypted. Deployment-only secrets belong in the platform secret store.
+Never put real credentials, customer data, payment data, personal paths, or
+local environment files in the repository.
+
+Before handing off a customized shop, run `npm run verify` and review
+`git diff --check` plus `git status --short`. Add a new numbered migration for
+schema changes; never rewrite a migration that may already have run.
+
 ## Architecture in one screen
 
 **Feature folders (vertical slices).** Each owns its data access, types, and
@@ -29,7 +58,8 @@ components. Deleting a folder still builds.
 ```
 src/
   config.ts              SCHEMA + DEFAULTS (upstream-owned). getConfig() = source of truth.
-  store.config.ts        cloner overrides, deep-merged on top (the only file a cloner edits)
+  store.config.ts        build-time shop overrides, deep-merged on top
+  styles/theme.css       clone-safe brand tokens
   middleware.ts          admin auth gate (fail-closed)
   env.d.ts               Cloudflare.Env binding/secret types
   layouts/               Layout.astro (storefront), AdminLayout.astro
@@ -42,14 +72,14 @@ src/
     storage/   provider (port) · r2 · index (factory)
     email/     provider (port) · resend · cloudflare · index (factory) · orderConfirmation
     auth/      access (CF Access JWT) · session (admin login cookie) · turnstile · Turnstile.astro
-    catalog/   serialize · http  (public agent API shapes for /api/products)
+    catalog/   serialize · http  (public API shapes for /api/products)
     cart/ categories/ customers/
   pages/
     index, product/[slug], category/, search, cart, checkout (Lightning own-checkout)
     pay/[publicId] (Lightning invoice page), order/[token] (confirmation)
     admin/ (CRUD UI, login, logout)
     api/ (cart, webhook, admin/*; checkout — form OR JSON {items} → checkout_url;
-          products, products/[slug] — public machine-readable catalog for agents)
+          products, products/[slug] — public machine-readable catalog)
     images/[...key] (serves R2), sitemap.xml, robots.txt
 ```
 
@@ -77,9 +107,11 @@ To swap/add a provider, write one adapter file + wire the factory:
 2. **Orders are paid-only.** The `orders` table holds settled orders. In-flight
    Lightning invoices live in `pending_payments` until settled — never write an
    unpaid order.
-3. **Config is build-time.** No runtime settings table. Add settings to
-   `config.ts` (schema + default), read via `getConfig()`. Cloners override in
-   `store.config.ts`. Single store currency.
+3. **Config has two layers.** Operational settings live in the D1 settings table
+   and are managed through the admin. Data-coupled defaults live in `config.ts`
+   and are overridden by clones in `store.config.ts`. Read effective values
+   through the existing settings/config helpers. Currency remains build-time
+   and store-wide.
 4. **Provider-agnostic core.** `checkout.ts` / `webhook.ts` / shipping never
    import a vendor SDK directly — only the ports. Vendor code stays in adapters.
 5. **Admin is fail-closed.** In production, if nothing is configured the admin is

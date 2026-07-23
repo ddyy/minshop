@@ -82,7 +82,8 @@ if (Astro.request.method === 'POST') {
       feature === 'discounts_enabled' ||
       feature === 'tax_enabled' ||
       feature === 'accounts_enabled' ||
-      feature === 'image_optimize'
+      feature === 'image_optimize' ||
+      feature === 'shipping_enabled'
     ) {
       let prerequisiteError = '';
       if (on && (feature === 'discounts_enabled' || feature === 'tax_enabled')) {
@@ -286,6 +287,12 @@ const baseFeatureRows: { key: string; label: string; desc: string; on: boolean }
     label: 'Optimize images on upload',
     desc: 'WebP-downscale product images via Cloudflare Images. Needs the IMAGES binding.',
     on: settings.imageOptimize ?? cfg.images.optimizeOnUpload,
+  },
+  {
+    key: 'shipping_enabled',
+    label: 'Shipping',
+    desc: 'Collect an address and charge the zones/rates in store.config.ts. Programmatic Lightning checkout accepts a shipping address when this is on.',
+    on: settings.shippingEnabled ?? cfg.shipping.enabled,
   },
 ];
 const featureRows = baseFeatureRows.map((row) => ({

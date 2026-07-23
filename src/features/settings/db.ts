@@ -22,6 +22,7 @@ export type SettingKey =
   | 'tax_enabled' // overrides config.tax.enabled
   | 'accounts_enabled' // overrides config.features.accounts
   | 'image_optimize' // overrides config.images.optimizeOnUpload
+  | 'shipping_enabled' // overrides config.shipping.enabled (zones/rates stay build-time)
   | 'admin_password_hash' // PBKDF2 hash of the admin password (set at setup). NOT in StoreSettings — read only by the auth layer, never loaded into locals.
   // Integrations configured in the admin dashboard (non-secret halves; the keys
   // live encrypted in the vault — see features/secrets/store.ts).
@@ -76,6 +77,7 @@ export interface StoreSettings {
   taxEnabled: boolean | null;
   accountsEnabled: boolean | null;
   imageOptimize: boolean | null;
+  shippingEnabled: boolean | null;
   /** Turnstile bot challenge on (admin login + customer sign-in). Default off. */
   turnstileEnabled: boolean;
   /** Turnstile public sitekey, or null. (The secret lives in the vault.) */
@@ -152,6 +154,7 @@ export async function getStoreSettings(db: D1Database): Promise<StoreSettings> {
     taxEnabled: map.get('tax_enabled') == null ? null : map.get('tax_enabled') === '1',
     accountsEnabled: map.get('accounts_enabled') == null ? null : map.get('accounts_enabled') === '1',
     imageOptimize: map.get('image_optimize') == null ? null : map.get('image_optimize') === '1',
+    shippingEnabled: map.get('shipping_enabled') == null ? null : map.get('shipping_enabled') === '1',
     turnstileEnabled: map.get('turnstile_enabled') === '1',
     turnstileSiteKey: map.get('turnstile_site_key') ?? null,
     paymentProvider:
