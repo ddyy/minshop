@@ -12,7 +12,7 @@
     "check": "astro check",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify": "vitest run && astro check && astro build && node --experimental-strip-types scripts/test-reservations.mjs && bash scripts/test-d1-integration.sh && npm run mcp:check",
+    "verify": "vitest run && astro check && astro build && node --experimental-strip-types scripts/test-reservations.mjs && bash scripts/test-d1-integration.sh && npm run mcp:check && npm run scaffold:check",
     "test:d1": "astro build && node --experimental-strip-types scripts/test-reservations.mjs && bash scripts/test-d1-integration.sh",
     "db:migrate": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
@@ -27,7 +27,8 @@
     "reset:remote": "bash scripts/reset.sh --remote",
     "mcp:dev": "wrangler dev --config mcp/wrangler.jsonc --persist-to .wrangler/state",
     "mcp:deploy": "wrangler deploy --config mcp/wrangler.jsonc",
-    "mcp:check": "bash scripts/check-mcp.sh"
+    "mcp:check": "bash scripts/check-mcp.sh",
+    "scaffold:check": "npm test --prefix create-minshop && npm pack ./create-minshop --dry-run"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.1.4",

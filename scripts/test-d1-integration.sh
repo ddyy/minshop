@@ -21,6 +21,8 @@ npx wrangler d1 migrations apply DB --local --persist-to "$state_dir" >/dev/null
 npx wrangler d1 execute DB --local --persist-to "$state_dir" --file ./seed.sql >/dev/null
 npx wrangler d1 execute DB --local --persist-to "$state_dir" \
   --command "INSERT INTO settings (key, value) VALUES ('setup_complete', '1');" >/dev/null
+npx wrangler d1 execute DB --local --persist-to "$state_dir" \
+  --command "WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 30) INSERT INTO products (name, slug, description, price_cents, stock) SELECT 'Pagination Item ' || n, 'pagination-item-' || n, 'pagination fixture', 1000 + n, 10 FROM seq;" >/dev/null
 
 # The production build's generated Worker must resolve the same D1 binding. Boot
 # it against the isolated state and exercise the public catalog end-to-end.
@@ -57,6 +59,18 @@ node -e '
     throw new Error("catalog product shape is invalid");
   }
 ' "$catalog"
+
+# Search pagination must operate at the FTS query, not slice a fixed-size result.
+search_page="$(curl --fail --silent --show-error \
+  "http://127.0.0.1:$test_port/api/products?q=pagination&limit=10&offset=10")"
+node -e '
+  const body = JSON.parse(process.argv[1]);
+  if (body.total !== 30) throw new Error(`expected 30 search matches, got ${body.total}`);
+  if (body.limit !== 10 || body.offset !== 10) throw new Error("search page metadata is wrong");
+  if (!Array.isArray(body.products) || body.products.length !== 10) {
+    throw new Error("search page did not return the requested window");
+  }
+' "$search_page"
 
 # Exercise a real application write through the binding: demo checkout creates a
 # pending payment, settlement atomically writes the paid order + items, and the

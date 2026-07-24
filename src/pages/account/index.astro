@@ -4,14 +4,23 @@ import { env } from 'cloudflare:workers';
 import Layout from '../../layouts/Layout.astro';
 import { formatPrice, formatDate, getConfig } from '../../config';
 import { accountsEnabled, getCustomerEmail } from '../../features/auth/customer';
-import { listOrdersByEmail } from '../../features/orders/db';
+import { countOrdersByEmail, listOrdersByEmail } from '../../features/orders/db';
 import { orderNumber } from '../../features/orders/number';
+import { paginate, queryHref } from '../../pagination';
+import Pagination from '../../components/Pagination.astro';
 
 if (!(await accountsEnabled())) return Astro.redirect('/', 303);
 const email = await getCustomerEmail(Astro.cookies);
 if (!email) return Astro.redirect('/account/login', 303);
 
-const orders = await listOrdersByEmail(env.DB, email);
+const PAGE_SIZE = 20;
+const { page, offset, totalPages } = paginate(
+  Astro.url.searchParams,
+  await countOrdersByEmail(env.DB, email),
+  PAGE_SIZE,
+);
+const orders = await listOrdersByEmail(env.DB, email, PAGE_SIZE, offset);
+const hrefFor = (p: number) => queryHref('/account', { page: p > 1 ? p : undefined });
 const orderCfg = getConfig().orderNumber;
 const timeZone = Astro.locals.settings?.timeZone ?? getConfig().timeZone;
 ---
@@ -48,5 +57,6 @@ const timeZone = Astro.locals.settings?.timeZone ?? getConfig().timeZone;
         </ul>
       )
     }
+    <Pagination page={page} totalPages={totalPages} hrefFor={hrefFor} />
   </div>
 </Layout>

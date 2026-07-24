@@ -2,20 +2,30 @@
 import { env } from 'cloudflare:workers';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { formatPrice, formatDate, getConfig } from '../../../config';
-import { getCustomerOrders } from '../../../features/customers/db';
+import { getCustomerOrders, getCustomerSummary } from '../../../features/customers/db';
 import { orderNumber } from '../../../features/orders/number';
+import { paginate, queryHref } from '../../../pagination';
+import Pagination from '../../../components/Pagination.astro';
 
 const email = Astro.params.email ? decodeURIComponent(Astro.params.email) : '';
-const orders = email ? await getCustomerOrders(env.DB, email) : [];
+const summary = email ? await getCustomerSummary(env.DB, email) : null;
 
 // Unknown email (no orders) → 404, so the page can't be used to probe addresses.
-if (orders.length === 0) {
+if (!summary) {
   return new Response('Not found', { status: 404 });
 }
 
+const PAGE_SIZE = 50;
+const { page, offset, totalPages } = paginate(
+  Astro.url.searchParams,
+  summary.orders,
+  PAGE_SIZE,
+);
+const orders = await getCustomerOrders(env.DB, email, PAGE_SIZE, offset);
+const base = `/admin/customers/${encodeURIComponent(email)}`;
+const hrefFor = (p: number) => queryHref(base, { page: p > 1 ? p : undefined });
 const onCfg = getConfig().orderNumber;
 const timeZone = Astro.locals.settings?.timeZone ?? getConfig().timeZone;
-const lifetime = orders.reduce((sum, o) => sum + o.amount_total_cents, 0);
 ---
 
 <AdminLayout title={email} active="customers">
@@ -27,7 +37,7 @@ const lifetime = orders.reduce((sum, o) => sum + o.amount_total_cents, 0);
   </a>
   <h1 class="mt-4 mb-2 font-serif text-3xl tracking-tight break-all">{email}</h1>
   <p class="mb-8 text-sm text-gray-500">
-    {orders.length} order{orders.length === 1 ? '' : 's'} · {formatPrice(lifetime)} lifetime
+    {summary.orders} order{summary.orders === 1 ? '' : 's'} · {formatPrice(summary.lifetime_cents)} lifetime
   </p>
 
   <table class="admin-table w-full text-left text-sm">
@@ -59,4 +69,6 @@ const lifetime = orders.reduce((sum, o) => sum + o.amount_total_cents, 0);
       }
     </tbody>
   </table>
+
+  <Pagination page={page} totalPages={totalPages} hrefFor={hrefFor} />
 </AdminLayout>

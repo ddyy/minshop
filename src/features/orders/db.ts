@@ -74,21 +74,42 @@ export async function listOrders(
   db: D1Database,
   limit = 50,
   orderBy = 'created_at DESC',
+  offset = 0,
 ): Promise<Order[]> {
   const { results } = await db
-    .prepare(`SELECT * FROM orders ORDER BY ${orderBy} LIMIT ?`)
-    .bind(limit)
+    .prepare(`SELECT * FROM orders ORDER BY ${orderBy} LIMIT ? OFFSET ?`)
+    .bind(limit, offset)
     .all<Order>();
   return results ?? [];
 }
 
+/** Total settled orders, for admin/MCP pagination. */
+export async function countOrders(db: D1Database): Promise<number> {
+  const row = await db.prepare('SELECT COUNT(*) AS n FROM orders').first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
 /** A customer's own orders (for the /account page), newest first. */
-export async function listOrdersByEmail(db: D1Database, email: string): Promise<Order[]> {
+export async function listOrdersByEmail(
+  db: D1Database,
+  email: string,
+  limit = 20,
+  offset = 0,
+): Promise<Order[]> {
   const { results } = await db
-    .prepare('SELECT * FROM orders WHERE email = ? ORDER BY created_at DESC')
-    .bind(email)
+    .prepare('SELECT * FROM orders WHERE email = ? ORDER BY created_at DESC LIMIT ? OFFSET ?')
+    .bind(email, limit, offset)
     .all<Order>();
   return results ?? [];
+}
+
+/** Total orders belonging to one normalized customer email. */
+export async function countOrdersByEmail(db: D1Database, email: string): Promise<number> {
+  const row = await db
+    .prepare('SELECT COUNT(*) AS n FROM orders WHERE email = ?')
+    .bind(email)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
 }
 
 export interface DailyTotal {

@@ -4,14 +4,29 @@ import Layout from '../layouts/Layout.astro';
 import { getSearchProvider } from '../features/search';
 import { productsInSharedCategories } from '../features/categories/db';
 import ProductCard from '../components/ProductCard.astro';
+import { paginate, queryHref } from '../pagination';
+import Pagination from '../components/Pagination.astro';
 
 const q = (Astro.url.searchParams.get('q') ?? '').trim();
+const PAGE_SIZE = 24;
+const rawPage = Number(Astro.url.searchParams.get('page'));
+const requestedPage = Number.isInteger(rawPage) && rawPage >= 1 ? rawPage : 1;
+const requestedOffset = (requestedPage - 1) * PAGE_SIZE;
 
 // The active backend (FTS5 keyword by default, or semantic Vectorize when
 // configured) decides how to match — and whether it auto-corrected a typo.
-const { products, correctedTo: suggestion } = q
-  ? await (await getSearchProvider()).search(q)
-  : { products: [], correctedTo: null };
+const provider = await getSearchProvider();
+let result = q
+  ? await provider.search(q, { limit: PAGE_SIZE, offset: requestedOffset })
+  : { products: [], total: 0, correctedTo: null };
+const pageInfo = paginate(Astro.url.searchParams, result.total, PAGE_SIZE);
+if (q && pageInfo.offset !== requestedOffset) {
+  result = await provider.search(q, { limit: PAGE_SIZE, offset: pageInfo.offset });
+}
+const { products, total, correctedTo: suggestion } = result;
+const { page, totalPages } = pageInfo;
+const hrefFor = (p: number) =>
+  queryHref('/search', { q, page: p > 1 ? p : undefined });
 const autoCorrected = suggestion !== null;
 
 // Semantic search (with its relevance cutoff) can return only a handful of exact
@@ -20,7 +35,7 @@ const autoCorrected = suggestion !== null;
 // query that matched nothing stays empty, not padded with random items).
 const TARGET = 12;
 const fillers =
-  products.length > 0 && products.length < TARGET
+  page === 1 && total < TARGET && products.length > 0 && products.length < TARGET
     ? await productsInSharedCategories(
         env.DB,
         products.map((p) => p.id),
@@ -58,7 +73,7 @@ const fillers =
         </p>
       ) : products.length > 0 ? (
         <p class="mb-8 text-xs uppercase tracking-widest text-gray-500">
-          {products.length} result{products.length === 1 ? '' : 's'} for “{q}”
+          {total} result{total === 1 ? '' : 's'} for “{q}”
         </p>
       ) : null)
   }
@@ -93,4 +108,6 @@ const fillers =
       <p class="text-gray-500">No products match “{q}”. Try a different word.</p>
     )
   }
+
+  <Pagination page={page} totalPages={totalPages} hrefFor={hrefFor} />
 </Layout>

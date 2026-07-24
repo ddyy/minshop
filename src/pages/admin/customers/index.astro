@@ -2,13 +2,22 @@
 import { env } from 'cloudflare:workers';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { formatPrice, formatDate, getConfig } from '../../../config';
-import { listCustomers } from '../../../features/customers/db';
+import { countCustomers, listCustomers } from '../../../features/customers/db';
 import { orderByClause } from '../../../features/customers/sort';
-import { queryHref } from '../../../pagination';
+import { paginate, queryHref } from '../../../pagination';
+import Pagination from '../../../components/Pagination.astro';
 
 const sort = Astro.url.searchParams.get('sort');
 const dir = Astro.url.searchParams.get('dir');
-const customers = await listCustomers(env.DB, orderByClause(sort, dir));
+const PAGE_SIZE = 50;
+const { page, offset, totalPages } = paginate(
+  Astro.url.searchParams,
+  await countCustomers(env.DB),
+  PAGE_SIZE,
+);
+const customers = await listCustomers(env.DB, orderByClause(sort, dir), PAGE_SIZE, offset);
+const hrefFor = (p: number) =>
+  queryHref('/admin/customers', { sort, dir, page: p > 1 ? p : undefined });
 const timeZone = Astro.locals.settings?.timeZone ?? getConfig().timeZone;
 
 // Column header → sort by it, toggling direction (default desc on a new column).
@@ -71,4 +80,6 @@ const arrow = (col: string) => (sort === col ? (dir === 'asc' ? ' ↑' : ' ↓')
     </tbody>
     </table>
   </div>
+
+  <Pagination page={page} totalPages={totalPages} hrefFor={hrefFor} />
 </AdminLayout>

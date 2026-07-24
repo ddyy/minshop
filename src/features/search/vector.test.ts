@@ -53,17 +53,18 @@ describe('mergeSearchResults (hybrid semantic + FTS)', () => {
 
   it('puts semantic matches first, then appends FTS extras (deduped)', () => {
     const r = mergeSearchResults(
-      { products: [prod(1), prod(2)], correctedTo: null },
-      { products: [prod(2), prod(3)], correctedTo: null },
+      { products: [prod(1), prod(2)], total: 2, correctedTo: null },
+      { products: [prod(2), prod(3)], total: 2, correctedTo: null },
     );
     expect(r.products.map((p) => p.id)).toEqual([1, 2, 3]);
+    expect(r.total).toBe(3);
     expect(r.correctedTo).toBeNull();
   });
 
   it('surfaces the FTS typo correction only when semantic found nothing ("leathe" rescue)', () => {
     const r = mergeSearchResults(
-      { products: [], correctedTo: null },
-      { products: [prod(5)], correctedTo: 'leather' },
+      { products: [], total: 0, correctedTo: null },
+      { products: [prod(5)], total: 1, correctedTo: 'leather' },
     );
     expect(r.products.map((p) => p.id)).toEqual([5]);
     expect(r.correctedTo).toBe('leather');
@@ -71,8 +72,8 @@ describe('mergeSearchResults (hybrid semantic + FTS)', () => {
 
   it('hides the correction when semantic already matched', () => {
     const r = mergeSearchResults(
-      { products: [prod(1)], correctedTo: null },
-      { products: [prod(2)], correctedTo: 'leather' },
+      { products: [prod(1)], total: 1, correctedTo: null },
+      { products: [prod(2)], total: 1, correctedTo: 'leather' },
     );
     expect(r.products.map((p) => p.id)).toEqual([1, 2]);
     expect(r.correctedTo).toBeNull();

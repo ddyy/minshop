@@ -8,7 +8,6 @@ import {
   embedText,
   productEmbedText,
   relatedByVector,
-  mergeSearchResults,
 } from './vector';
 import type { SearchResult } from './provider';
 import { categoriesForProduct } from '../categories/db';
@@ -84,15 +83,38 @@ export async function getSearchProvider(): Promise<SearchProvider> {
     // HYBRID: semantic + keyword. Run both and merge — semantic catches meaning
     // (no shared words), FTS catches exact/prefix/typo ("leathe" → "leather"). A
     // vector failure degrades to FTS-only rather than breaking search.
-    async search(query) {
-      let vectorRes: SearchResult = { products: [], correctedTo: null };
+    async search(query, options = {}) {
+      const limit = Math.max(0, Math.trunc(options.limit ?? 50));
+      const offset = Math.max(0, Math.trunc(options.offset ?? 0));
+      let vectorRes: SearchResult = { products: [], total: 0, correctedTo: null };
       try {
-        vectorRes = await vector.search(query);
+        // Semantic results are deliberately bounded by config.topK. Load that
+        // complete, small set so pagination can put every semantic match before
+        // keyword matches without materializing the whole FTS result set.
+        vectorRes = await vector.search(query, {
+          limit: cfg.topK,
+          excludeIds: options.excludeIds,
+        });
       } catch (err) {
         console.error('Vector search failed; FTS only:', err);
       }
-      const ftsRes = await fts.search(query);
-      return mergeSearchResults(vectorRes, ftsRes);
+
+      const semantic = vectorRes.products;
+      const semanticIds = semantic.map((p) => p.id);
+      const semanticPage = semantic.slice(offset, offset + limit);
+      const remaining = Math.max(0, limit - semanticPage.length);
+      const ftsOffset = Math.max(0, offset - semantic.length);
+      const ftsRes = await fts.search(query, {
+        limit: remaining,
+        offset: ftsOffset,
+        excludeIds: [...(options.excludeIds ?? []), ...semanticIds],
+      });
+
+      return {
+        products: [...semanticPage, ...ftsRes.products],
+        total: semantic.length + ftsRes.total,
+        correctedTo: semantic.length === 0 ? ftsRes.correctedTo : null,
+      };
     },
   };
 }

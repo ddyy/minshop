@@ -2,14 +2,23 @@
 import { env } from 'cloudflare:workers';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { formatPrice, formatDate, getConfig } from '../../../config';
-import { listOrders } from '../../../features/orders/db';
+import { countOrders, listOrders } from '../../../features/orders/db';
 import { orderByClause } from '../../../features/orders/sort';
 import { orderNumber } from '../../../features/orders/number';
-import { queryHref } from '../../../pagination';
+import { paginate, queryHref } from '../../../pagination';
+import Pagination from '../../../components/Pagination.astro';
 
 const sort = Astro.url.searchParams.get('sort');
 const dir = Astro.url.searchParams.get('dir');
-const orders = await listOrders(env.DB, 50, orderByClause(sort, dir));
+const PAGE_SIZE = 50;
+const { page, offset, totalPages } = paginate(
+  Astro.url.searchParams,
+  await countOrders(env.DB),
+  PAGE_SIZE,
+);
+const orders = await listOrders(env.DB, PAGE_SIZE, orderByClause(sort, dir), offset);
+const hrefFor = (p: number) =>
+  queryHref('/admin/orders', { sort, dir, page: p > 1 ? p : undefined });
 const onCfg = getConfig().orderNumber;
 const timeZone = Astro.locals.settings?.timeZone ?? getConfig().timeZone;
 
@@ -108,4 +117,6 @@ const arrow = (col: string) => (sort === col ? (dir === 'asc' ? ' ↑' : ' ↓')
     </tbody>
     </table>
   </div>
+
+  <Pagination page={page} totalPages={totalPages} hrefFor={hrefFor} />
 </AdminLayout>

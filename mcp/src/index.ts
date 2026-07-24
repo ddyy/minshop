@@ -7,6 +7,7 @@ import { timingSafeEqual } from 'node:crypto';
 // workers-types, so they're clean to share across Workers — no duplication).
 import {
   listAllProducts,
+  countAllProducts,
   getProduct,
   createProduct,
   updateProduct,
@@ -15,6 +16,7 @@ import {
 import { slugify, uniqueSlug } from '../../src/features/products/slug';
 import {
   listOrders,
+  countOrders,
   getOrder,
   orderStats,
   dailyOrderTotals,
@@ -58,9 +60,20 @@ export class StoreMcp extends McpAgent<Env, Record<string, never>, Record<string
     // --- reads ---
     this.server.registerTool(
       'list_products',
-      { description: 'List all products (admin view: includes inactive + units sold).', inputSchema: {} },
-      // listAllProducts is paginated (limit required) — pass a high cap to return all.
-      async () => result(await listAllProducts(db, 100_000)),
+      {
+        description: 'List products (admin view: includes inactive + units sold), one page at a time.',
+        inputSchema: {
+          limit: z.number().int().min(1).max(200).default(50),
+          offset: z.number().int().nonnegative().default(0),
+        },
+      },
+      async ({ limit, offset }) =>
+        result({
+          products: await listAllProducts(db, limit, offset),
+          total: await countAllProducts(db),
+          limit,
+          offset,
+        }),
     );
 
     this.server.registerTool(
@@ -75,10 +88,19 @@ export class StoreMcp extends McpAgent<Env, Record<string, never>, Record<string
     this.server.registerTool(
       'list_orders',
       {
-        description: 'List recent orders, newest first.',
-        inputSchema: { limit: z.number().int().min(1).max(200).default(50) },
+        description: 'List orders, newest first, one page at a time.',
+        inputSchema: {
+          limit: z.number().int().min(1).max(200).default(50),
+          offset: z.number().int().nonnegative().default(0),
+        },
       },
-      async ({ limit }) => result(await listOrders(db, limit)),
+      async ({ limit, offset }) =>
+        result({
+          orders: await listOrders(db, limit, 'created_at DESC', offset),
+          total: await countOrders(db),
+          limit,
+          offset,
+        }),
     );
 
     this.server.registerTool(

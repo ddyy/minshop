@@ -1,0 +1,42 @@
+{
+  "name": "create-minshop",
+  "version": "0.1.0",
+  "description": "Scaffold a Minshop storefront for Cloudflare Workers",
+  "type": "module",
+  "bin": {
+    "create-minshop": "bin/create-minshop.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "check": "npm test && npm pack --dry-run"
+  },
+  "engines": {
+    "node": "^22.12.0 || >=24.0.0"
+  },
+  "keywords": [
+    "cloudflare",
+    "ecommerce",
+    "storefront",
+    "astro",
+    "workers"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ddyy/minshop.git",
+    "directory": "create-minshop"
+  },
+  "homepage": "https://github.com/ddyy/minshop#readme",
+  "bugs": {
+    "url": "https://github.com/ddyy/minshop/issues"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
+}

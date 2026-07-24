@@ -7,6 +7,8 @@ import type { Product } from '../products/db';
  */
 export interface SearchResult {
   products: Product[];
+  /** Total matches in this provider's bounded result set, before pagination. */
+  total: number;
   /**
    * When a search auto-corrected the query (the FTS typo path), the query
    * actually used — for a "showing results for X" banner. null otherwise
@@ -15,7 +17,14 @@ export interface SearchResult {
   correctedTo: string | null;
 }
 
+export interface SearchOptions {
+  limit?: number;
+  offset?: number;
+  /** Product ids already supplied by a higher-priority provider. */
+  excludeIds?: number[];
+}
+
 export interface SearchProvider {
   /** Search active products for `query`. */
-  search(query: string): Promise<SearchResult>;
+  search(query: string, options?: SearchOptions): Promise<SearchResult>;
 }

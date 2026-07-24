@@ -8,6 +8,21 @@ It's a small, server-rendered store for Cloudflare Workers (D1 + R2) with a full
 
 It's intentionally lightweight and cheap to start. The default deployment uses Cloudflare Workers, D1, and R2 and can fit within their free-plan allowances; payment providers and optional services have their own pricing.
 
+## Scaffold a store
+
+> **Requires Node ≥ 22.12 and Git.**
+
+```sh
+npm create minshop@latest my-store
+cd my-store
+npm run provision:local -- --seed
+npm run dev
+```
+
+The initializer creates a clean repository and installs both the storefront and
+MCP dependencies. Use `--no-install` to only scaffold the files, or
+`--ref <branch-or-tag>` to start from a specific revision.
+
 ## Features
 
 - **Storefront** — server-rendered product list + product detail, near-zero client JS
@@ -90,6 +105,8 @@ Forks the repo, provisions D1 (`minshop-db`) + R2 (`minshop-images`), applies mi
 **One shot** — provisions a fresh, fully-independent instance (its own D1, R2, Vectorize index, Worker) and sets both Worker secrets:
 
 ```sh
+npm create minshop@latest my-store
+cd my-store
 npx wrangler login
 npm run provision:cf my-store      # scripts/provision-cf.sh <slug>
 ```
@@ -333,6 +350,8 @@ In local dev the magic link is also logged to the server console, so you can tes
 **Why a separate Worker** (own `mcp/package.json`, own `node_modules`): the Astro adapter owns the storefront Worker's entry, and the Agents SDK pulls in workerd/miniflare deps that perturb Astro's build if hoisted into the root tree. Keeping it a sibling Worker isolates both.
 
 **Tools:** `list_products`, `get_product`, `list_orders`, `get_order`, `order_stats`, `daily_totals` (reads) + `create_product`, `update_product`, `fulfill_order` (writes).
+
+The two list tools accept `limit` and `offset` and return the page alongside `total`, `limit`, and `offset`, so clients can walk large catalogs and order histories without one oversized response.
 
 **Auth:** a bearer token. Set `MCP_TOKEN`; clients send `Authorization: Bearer <token>`. Unset = the server returns 503 (fail-closed). (Cloudflare's Workers OAuth Provider is the upgrade for scoped/multi-user access.)
 

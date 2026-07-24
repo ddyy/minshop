@@ -65,19 +65,27 @@ export interface VectorSearchDeps {
  */
 export function createVectorSearch(d: VectorSearchDeps): SearchProvider {
   return {
-    async search(query: string): Promise<SearchResult> {
+    async search(query, options = {}): Promise<SearchResult> {
       const trimmed = query.trim();
-      if (!trimmed) return { products: [], correctedTo: null };
+      if (!trimmed) return { products: [], total: 0, correctedTo: null };
 
       const vector = await embedText(d.ai, d.model, QUERY_INSTRUCTION + trimmed);
       const res = await d.index.query(vector, { topK: d.topK });
+      const excluded = new Set(options.excludeIds ?? []);
       const ids = res.matches
         .filter((m) => (m.score ?? 0) >= MIN_SCORE) // drop "nearest but irrelevant"
         .map((m) => Number(m.id))
-        .filter((n) => Number.isInteger(n));
-      if (ids.length === 0) return { products: [], correctedTo: null };
+        .filter((n) => Number.isInteger(n) && !excluded.has(n));
+      if (ids.length === 0) return { products: [], total: 0, correctedTo: null };
 
-      return { products: await getProductsByIds(d.db, ids), correctedTo: null };
+      const offset = Math.max(0, Math.trunc(options.offset ?? 0));
+      const limit = Math.max(0, Math.trunc(options.limit ?? d.topK));
+      const products = await getProductsByIds(d.db, ids);
+      return {
+        products: products.slice(offset, offset + limit),
+        total: products.length,
+        correctedTo: null,
+      };
     },
   };
 }
@@ -127,5 +135,5 @@ export function mergeSearchResults(vector: SearchResult, fts: SearchResult): Sea
   const seen = new Set(vector.products.map((p) => p.id));
   const products = [...vector.products, ...fts.products.filter((p) => !seen.has(p.id))];
   const correctedTo = vector.products.length === 0 ? fts.correctedTo : null;
-  return { products, correctedTo };
+  return { products, total: products.length, correctedTo };
 }

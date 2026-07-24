@@ -17,6 +17,8 @@ export interface CustomerSummary {
 export async function listCustomers(
   db: D1Database,
   orderBy = 'lifetime_cents DESC',
+  limit = 50,
+  offset = 0,
 ): Promise<CustomerSummary[]> {
   const { results } = await db
     .prepare(
@@ -27,8 +29,10 @@ export async function listCustomers(
          FROM orders
         WHERE email IS NOT NULL AND email != ''
         GROUP BY email
-        ORDER BY ${orderBy}`,
+        ORDER BY ${orderBy}
+        LIMIT ? OFFSET ?`,
     )
+    .bind(limit, offset)
     .all<CustomerSummary>();
   return results ?? [];
 }
@@ -43,11 +47,35 @@ export async function countCustomers(db: D1Database): Promise<number> {
   return row?.n ?? 0;
 }
 
-/** All orders for one customer email, newest first. */
-export async function getCustomerOrders(db: D1Database, email: string): Promise<Order[]> {
-  const { results } = await db
-    .prepare('SELECT * FROM orders WHERE email = ? ORDER BY created_at DESC')
+/** Aggregate for one customer, used by the detail header independently of its page. */
+export async function getCustomerSummary(
+  db: D1Database,
+  email: string,
+): Promise<CustomerSummary | null> {
+  return db
+    .prepare(
+      `SELECT email,
+              COUNT(*) AS orders,
+              SUM(amount_total_cents - refunded_cents) AS lifetime_cents,
+              MAX(created_at) AS last_order
+         FROM orders
+        WHERE email = ?
+        GROUP BY email`,
+    )
     .bind(email)
+    .first<CustomerSummary>();
+}
+
+/** One page of orders for a customer email, newest first. */
+export async function getCustomerOrders(
+  db: D1Database,
+  email: string,
+  limit = 50,
+  offset = 0,
+): Promise<Order[]> {
+  const { results } = await db
+    .prepare('SELECT * FROM orders WHERE email = ? ORDER BY created_at DESC LIMIT ? OFFSET ?')
+    .bind(email, limit, offset)
     .all<Order>();
   return results ?? [];
 }

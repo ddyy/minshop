@@ -14,21 +14,52 @@ export function toFtsQuery(raw: string): string | null {
   return tokens.map((t) => `${t}*`).join(' ');
 }
 
-/** Full-text search over active products, ranked by relevance (bm25). */
-export async function searchProducts(db: D1Database, raw: string): Promise<Product[]> {
+function exclusionSql(ids: number[]): string {
+  return ids.length > 0 ? ` AND p.id NOT IN (${ids.map(() => '?').join(',')})` : '';
+}
+
+/** Count active FTS matches, optionally excluding results supplied elsewhere. */
+export async function countSearchProducts(
+  db: D1Database,
+  raw: string,
+  excludeIds: number[] = [],
+): Promise<number> {
   const query = toFtsQuery(raw);
-  if (!query) return [];
+  if (!query) return 0;
+
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS n
+         FROM products_fts f
+         JOIN products p ON p.id = f.rowid
+        WHERE products_fts MATCH ? AND p.active = 1${exclusionSql(excludeIds)}`,
+    )
+    .bind(query, ...excludeIds)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+/** One page of active FTS matches, ranked by relevance (bm25). */
+export async function searchProducts(
+  db: D1Database,
+  raw: string,
+  limit = 50,
+  offset = 0,
+  excludeIds: number[] = [],
+): Promise<Product[]> {
+  const query = toFtsQuery(raw);
+  if (!query || limit <= 0) return [];
 
   const { results } = await db
     .prepare(
       `SELECT p.*
          FROM products_fts f
          JOIN products p ON p.id = f.rowid
-        WHERE products_fts MATCH ? AND p.active = 1
+        WHERE products_fts MATCH ? AND p.active = 1${exclusionSql(excludeIds)}
         ORDER BY bm25(products_fts)
-        LIMIT 50`,
+        LIMIT ? OFFSET ?`,
     )
-    .bind(query)
+    .bind(query, ...excludeIds, limit, offset)
     .all<Product>();
   return results ?? [];
 }
