@@ -77,8 +77,14 @@ const ogImage = image ? new URL(image, Astro.url.origin).href : undefined;
           <a href="/search" class="hover:text-brand sm:hidden">Search</a>
           {
             cartEnabled && (
-              <a href="/cart" data-cart-open class="hover:text-brand">
-                Cart<span data-cart-count-label></span>
+              <a href="/cart" data-cart-open class="inline-flex items-center hover:text-brand">
+                Cart
+                <span
+                  data-cart-count-label
+                  class="inline-block min-w-[4ch] tabular-nums"
+                  aria-live="polite"
+                  aria-atomic="true"
+                />
               </a>
             )
           }
@@ -134,9 +140,20 @@ const ogImage = image ? new URL(image, Astro.url.origin).href : undefined;
         const backdrop = drawer.querySelector('[data-cart-backdrop]');
         const body = drawer.querySelector('[data-cart-body]');
         const label = document.querySelector('[data-cart-count-label]');
+        const cartCountKey = 'minshop_cart_count';
 
+        const renderBadge = (n) => {
+          const count = Math.max(0, Number(n) || 0);
+          if (label) label.textContent = count > 0 ? ` (${count > 99 ? '99+' : count})` : '';
+          return count;
+        };
         const setBadge = (n) => {
-          if (label) label.textContent = n > 0 ? ` (${n})` : '';
+          const count = renderBadge(n);
+          try {
+            localStorage.setItem(cartCountKey, String(count));
+          } catch {
+            // Storage can be unavailable in restricted browsing modes.
+          }
         };
         const loadBadge = async () => {
           try {
@@ -152,7 +169,20 @@ const ogImage = image ? new URL(image, Astro.url.origin).href : undefined;
             // The cart link remains usable if the optional badge request fails.
           }
         };
-        if (label) void loadBadge();
+        if (label) {
+          try {
+            const cached = localStorage.getItem(cartCountKey);
+            if (cached !== null) renderBadge(cached);
+          } catch {
+            // Fall through to the authoritative server count.
+          }
+          void loadBadge();
+          window.addEventListener('storage', (event) => {
+            if (event.key === cartCountKey && event.newValue !== null) {
+              renderBadge(event.newValue);
+            }
+          });
+        }
         const open = () => {
           drawer.classList.remove('invisible', 'pointer-events-none');
           requestAnimationFrame(() =>
