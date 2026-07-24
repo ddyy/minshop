@@ -23,6 +23,17 @@ npx wrangler d1 execute DB --local --persist-to "$state_dir" \
   --command "INSERT INTO settings (key, value) VALUES ('setup_complete', '1');" >/dev/null
 npx wrangler d1 execute DB --local --persist-to "$state_dir" \
   --command "WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 30) INSERT INTO products (name, slug, description, price_cents, stock) SELECT 'Pagination Item ' || n, 'pagination-item-' || n, 'pagination fixture', 1000 + n, 10 FROM seq;" >/dev/null
+npx wrangler d1 execute DB --local --persist-to "$state_dir" \
+  --command "INSERT INTO categories (name, slug) VALUES ('Apparel', 'apparel'); INSERT INTO product_categories (product_id, category_id) SELECT p.id, c.id FROM products p, categories c WHERE p.slug = 'sample-tee' AND c.slug = 'apparel';" >/dev/null
+
+index_rows="$(npx wrangler d1 execute DB --local --persist-to "$state_dir" \
+  --command "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('idx_orders_created', 'idx_orders_email_created', 'idx_products_active_created') ORDER BY name;")"
+for index_name in idx_orders_created idx_orders_email_created idx_products_active_created; do
+  if [[ "$index_rows" != *"$index_name"* ]]; then
+    echo "D1 integration failed: missing query index $index_name" >&2
+    exit 1
+  fi
+done
 
 # The production build's generated Worker must resolve the same D1 binding. Boot
 # it against the isolated state and exercise the public catalog end-to-end.
@@ -71,6 +82,17 @@ node -e '
     throw new Error("search page did not return the requested window");
   }
 ' "$search_page"
+
+# Catalog list serialization should fetch categories in bulk and preserve them.
+sample_page="$(curl --fail --silent --show-error \
+  "http://127.0.0.1:$test_port/api/products?q=sample&limit=2")"
+node -e '
+  const body = JSON.parse(process.argv[1]);
+  const tee = body.products.find((p) => p.slug === "sample-tee");
+  if (!tee || !tee.categories.includes("Apparel")) {
+    throw new Error("catalog list did not include the product category");
+  }
+' "$sample_page"
 
 # Exercise a real application write through the binding: demo checkout creates a
 # pending payment, settlement atomically writes the paid order + items, and the

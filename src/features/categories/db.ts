@@ -129,6 +129,34 @@ export async function categoriesForProduct(db: D1Database, productId: number): P
   return results ?? [];
 }
 
+/** Categories for many products in one D1 query, keyed by product id. */
+export async function categoriesForProducts(
+  db: D1Database,
+  productIds: number[],
+): Promise<Map<number, Category[]>> {
+  const ids = [...new Set(productIds.filter(Number.isInteger))];
+  const byProduct = new Map<number, Category[]>(ids.map((id) => [id, []]));
+  if (ids.length === 0) return byProduct;
+
+  const placeholders = ids.map(() => '?').join(',');
+  const { results } = await db
+    .prepare(
+      `SELECT pc.product_id,
+              c.id, c.name, c.slug, c.parent_id, c.created_at
+         FROM product_categories pc
+         JOIN categories c ON c.id = pc.category_id
+        WHERE pc.product_id IN (${placeholders})
+        ORDER BY pc.product_id, c.name`,
+    )
+    .bind(...ids)
+    .all<Category & { product_id: number }>();
+
+  for (const { product_id, ...category } of results ?? []) {
+    byProduct.get(product_id)?.push(category);
+  }
+  return byProduct;
+}
+
 /** Active products sharing a category with the given product (excludes itself). */
 export async function relatedProducts(
   db: D1Database,

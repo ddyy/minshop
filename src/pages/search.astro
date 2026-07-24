@@ -6,8 +6,9 @@ import { productsInSharedCategories } from '../features/categories/db';
 import ProductCard from '../components/ProductCard.astro';
 import { paginate, queryHref } from '../pagination';
 import Pagination from '../components/Pagination.astro';
+import { normalizeSearchQuery } from '../features/search/query';
 
-const q = (Astro.url.searchParams.get('q') ?? '').trim();
+const q = normalizeSearchQuery(Astro.url.searchParams.get('q') ?? '');
 const PAGE_SIZE = 24;
 const rawPage = Number(Astro.url.searchParams.get('page'));
 const requestedPage = Number.isInteger(rawPage) && rawPage >= 1 ? rawPage : 1;

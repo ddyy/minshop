@@ -1,6 +1,7 @@
 import type { Ai, D1Database, VectorizeIndex } from '@cloudflare/workers-types';
 import type { SearchProvider, SearchResult } from './provider';
 import { getProductsByIds, type Product } from '../products/db';
+import { normalizeSearchQuery } from './query';
 
 /**
  * Embed text with a Workers AI embedding model → a vector. The bge models return
@@ -66,7 +67,7 @@ export interface VectorSearchDeps {
 export function createVectorSearch(d: VectorSearchDeps): SearchProvider {
   return {
     async search(query, options = {}): Promise<SearchResult> {
-      const trimmed = query.trim();
+      const trimmed = normalizeSearchQuery(query);
       if (!trimmed) return { products: [], total: 0, correctedTo: null };
 
       const vector = await embedText(d.ai, d.model, QUERY_INSTRUCTION + trimmed);

@@ -11,6 +11,12 @@ import {
   rateLimitBucket,
   rateLimitedResponse,
 } from './features/auth/rateLimit';
+import {
+  isPublicCatalogApi,
+  publicCacheRequest,
+  PUBLIC_CACHE_CONTROL,
+} from './features/cache/public';
+import { normalizeSearchQuery } from './features/search/query';
 
 /**
  * Admin auth gate. Protects BOTH the admin UI (`/admin/*`) and the admin API
@@ -101,11 +107,20 @@ async function gate(context: APIContext, next: MiddlewareNext): Promise<Response
     return context.redirect('/admin/setup', 302);
   }
 
-  // Throttle only anonymous, resource-spending mutations. Webhooks are excluded:
-  // providers retry them and their signatures are verified by each adapter.
-  const bucket = rateLimitBucket(context.request.method, path);
+  // Throttle anonymous, resource-spending mutations and cache-missing searches.
+  // Webhooks are excluded: providers retry them and signatures are verified.
+  const bucket = rateLimitBucket(
+    context.request.method,
+    path,
+    normalizeSearchQuery(context.url.searchParams.get('q') ?? '') !== '',
+  );
   if (bucket) {
-    const limiter = bucket === 'auth' ? env.AUTH_RATE_LIMITER : env.CHECKOUT_RATE_LIMITER;
+    const limiter =
+      bucket === 'auth'
+        ? env.AUTH_RATE_LIMITER
+        : bucket === 'checkout'
+          ? env.CHECKOUT_RATE_LIMITER
+          : env.SEARCH_RATE_LIMITER;
     try {
       if (!(await checkRateLimit(limiter, context.request, path))) {
         console.warn(JSON.stringify({ event: 'rate_limited', bucket, path }));
@@ -197,21 +212,21 @@ export const onRequest = defineMiddleware(async (context, next) => {
 
   // Edge-cache anonymous storefront GETs. A cookieless request can't be
   // personalized (cart, login, and flash each set a cookie), so the rendered
-  // HTML is identical for everyone — serve it from the colo cache and skip the
-  // Worker + D1 entirely. Private paths, APIs, assets, and any cookied request
-  // bypass this. `caches` is absent under `astro dev`, hence the typeof guard.
+  // Anonymous storefront HTML and the read-only catalog API are identical for
+  // everyone — serve them from the colo cache and skip the Worker + D1 entirely.
+  // Private paths, mutating APIs, assets, and any cookied request bypass this.
+  // `caches` is absent under `astro dev`, hence the typeof guard.
+  const publicCatalogApi = isPublicCatalogApi(path);
   const edgeCacheable =
     req.method === 'GET' &&
-    !path.startsWith('/api/') &&
     !path.startsWith('/_') &&
+    (!path.startsWith('/api/') || publicCatalogApi) &&
     !isPrivatePath(path) &&
     !req.headers.has('cookie');
-  const cache =
-    edgeCacheable && typeof caches !== 'undefined'
-      ? (caches as unknown as { default: Cache }).default
-      : null;
+  const cacheKey = edgeCacheable ? publicCacheRequest(req) : req;
+  const cache = edgeCacheable && typeof caches !== 'undefined' ? caches.default : null;
   if (cache) {
-    const hit = await cache.match(req);
+    const hit = await cache.match(cacheKey);
     if (hit) return hit;
   }
 
@@ -236,8 +251,9 @@ export const onRequest = defineMiddleware(async (context, next) => {
     }
   }
 
-  // Store anonymous storefront renders (200, no own Cache-Control, no Set-Cookie)
-  // with a short shared TTL so repeat hits within the window skip the origin.
+  // Store anonymous storefront/catalog responses with a short shared TTL so
+  // repeat hits within the window skip the origin. Cache API does not implement
+  // stale-while-revalidate, so the directive is intentionally a plain 60s TTL.
   if (
     cache &&
     response.status === 200 &&
@@ -245,15 +261,15 @@ export const onRequest = defineMiddleware(async (context, next) => {
     !response.headers.has('set-cookie')
   ) {
     const headers = new Headers(response.headers);
-    headers.set('cache-control', 'public, s-maxage=60, stale-while-revalidate=300');
+    headers.set('cache-control', PUBLIC_CACHE_CONTROL);
     const toStore = new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
       headers,
     });
     const ctx = context.locals.cfContext;
-    if (ctx) ctx.waitUntil(cache.put(req, toStore.clone()));
-    else await cache.put(req, toStore.clone());
+    if (ctx) ctx.waitUntil(cache.put(cacheKey, toStore.clone()));
+    else await cache.put(cacheKey, toStore.clone());
     return toStore;
   }
 

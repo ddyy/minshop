@@ -17,10 +17,9 @@ export const GET: APIRoute = async ({ params, request, locals }) => {
   const key = params.key;
   if (!key) return new Response('Not found', { status: 404 });
 
-  // The DOM lib (pulled in by astro/client) shadows the Cloudflare `caches` global,
-  // so cast to reach `.default`. Absent under `astro dev`, hence the typeof guard.
-  const cache =
-    typeof caches !== 'undefined' ? (caches as unknown as { default: Cache }).default : null;
+  // Absent under `astro dev`; src/env.d.ts merges Cloudflare's `.default` onto
+  // the browser CacheStorage surface used by Astro's DOM types.
+  const cache = typeof caches !== 'undefined' ? caches.default : null;
   if (cache) {
     const hit = await cache.match(request);
     if (hit) return hit;

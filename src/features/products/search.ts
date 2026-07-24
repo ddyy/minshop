@@ -1,5 +1,6 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import type { Product } from './db';
+import { normalizeSearchQuery } from '../search/query';
 
 /**
  * Turn raw user input into a safe FTS5 MATCH query. FTS5 throws a syntax error
@@ -8,7 +9,7 @@ import type { Product } from './db';
  * when there's nothing searchable.
  */
 export function toFtsQuery(raw: string): string | null {
-  const tokens = raw.toLowerCase().match(/[a-z0-9]+/g);
+  const tokens = normalizeSearchQuery(raw).toLowerCase().match(/[a-z0-9]+/g);
   if (!tokens || tokens.length === 0) return null;
   // Space-joined terms are ANDed by FTS5; trailing * makes each a prefix match.
   return tokens.map((t) => `${t}*`).join(' ');

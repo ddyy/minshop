@@ -15,8 +15,14 @@ describe('rateLimitBucket', () => {
     expect(rateLimitBucket('POST', path)).toBe('checkout');
   });
 
-  it('does not limit reads, webhooks, or authenticated admin APIs', () => {
+  it.each(['/search', '/api/products'])('limits search GET %s only when q is present', (path) => {
+    expect(rateLimitBucket('GET', path, true)).toBe('search');
+    expect(rateLimitBucket('GET', path, false)).toBeNull();
+  });
+
+  it('does not limit unrelated reads, webhooks, or authenticated admin APIs', () => {
     expect(rateLimitBucket('GET', '/admin/login')).toBeNull();
+    expect(rateLimitBucket('GET', '/api/products/mug', true)).toBeNull();
     expect(rateLimitBucket('POST', '/api/webhook/stripe')).toBeNull();
     expect(rateLimitBucket('POST', '/api/admin/products')).toBeNull();
   });
@@ -51,4 +57,8 @@ it('returns a non-cacheable 429 with retry guidance', async () => {
   expect(response.headers.get('cache-control')).toBe('no-store');
   expect(response.headers.get('access-control-allow-origin')).toBe('*');
   await expect(response.json()).resolves.toEqual({ error: 'Too many requests. Try again shortly.' });
+});
+
+it('keeps catalog search 429s readable cross-origin', () => {
+  expect(rateLimitedResponse('/api/products').headers.get('access-control-allow-origin')).toBe('*');
 });

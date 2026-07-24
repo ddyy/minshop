@@ -1,9 +1,20 @@
 import type { RateLimit } from '@cloudflare/workers-types';
 
-export type RateLimitBucket = 'auth' | 'checkout';
+export type RateLimitBucket = 'auth' | 'checkout' | 'search';
 
-/** Mutation routes that can spend scarce resources or amplify credential abuse. */
-export function rateLimitBucket(method: string, pathname: string): RateLimitBucket | null {
+/** Public routes that can spend scarce resources or amplify credential abuse. */
+export function rateLimitBucket(
+  method: string,
+  pathname: string,
+  hasSearchQuery = false,
+): RateLimitBucket | null {
+  if (
+    method === 'GET' &&
+    hasSearchQuery &&
+    (pathname === '/search' || pathname === '/api/products')
+  ) {
+    return 'search';
+  }
   if (method !== 'POST') return null;
   if (pathname === '/admin/login' || pathname === '/account/login') return 'auth';
   if (pathname === '/api/checkout' || pathname === '/checkout' || pathname.startsWith('/pay/')) {
@@ -48,7 +59,9 @@ export function rateLimitedResponse(pathname: string): Response {
         'cache-control': 'no-store',
         'content-type': api ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8',
         'retry-after': '60',
-        ...(pathname === '/api/checkout' ? { 'access-control-allow-origin': '*' } : {}),
+        ...(pathname === '/api/checkout' || pathname === '/api/products'
+          ? { 'access-control-allow-origin': '*' }
+          : {}),
       },
     },
   );

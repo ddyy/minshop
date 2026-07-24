@@ -38,6 +38,14 @@
 				"limit": 20,
 				"period": 60
 			}
+		},
+		{
+			"name": "SEARCH_RATE_LIMITER",
+			"namespace_id": "10003",
+			"simple": {
+				"limit": 60,
+				"period": 60
+			}
 		}
 	],
 	"d1_databases": [

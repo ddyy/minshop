@@ -8,6 +8,12 @@ declare module '*.sql?raw' {
   export default content;
 }
 
+// Cloudflare extends the browser CacheStorage surface with the colo-local
+// default cache. The DOM lib does not declare it, so merge only that property.
+interface CacheStorage {
+  readonly default: Cache;
+}
+
 // Astro 7 + @astrojs/cloudflare v14: bindings are accessed via
 //   import { env } from 'cloudflare:workers'
 // and `env` is typed as Cloudflare.Env. Declare the shape here.
@@ -41,6 +47,7 @@ declare namespace Cloudflare {
     // the provisioning template and active project config declare them.
     AUTH_RATE_LIMITER?: import('@cloudflare/workers-types').RateLimit;
     CHECKOUT_RATE_LIMITER?: import('@cloudflare/workers-types').RateLimit;
+    SEARCH_RATE_LIMITER?: import('@cloudflare/workers-types').RateLimit;
     // Optional: Cloudflare Images binding for upload optimization (needs
     // Transformations enabled). Absent = uploads stored as-is (imageOptimize.ts
     // guards + falls back), so the free-plan default config omits it.
