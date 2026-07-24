@@ -167,8 +167,17 @@ if (isPost) {
               if (!minted.payUrl) throw new Error('Lightning backend did not return a payment URL.');
               return Astro.redirect(minted.payUrl, 303);
             } catch (error) {
+              // The Lightning node (e.g. LNbits) can be briefly unreachable. Free
+              // the held stock and show a retryable message instead of a 500, so
+              // the shopper can try again or pick another method.
               await releaseInventoryReservation(env.DB, publicId);
-              throw error;
+              console.error(
+                JSON.stringify({
+                  event: 'lightning_invoice_failed',
+                  message: error instanceof Error ? error.message : String(error),
+                }),
+              );
+              errors.push('Lightning is temporarily unavailable. Please try again in a moment, or choose another payment method.');
             }
           }
         }

@@ -1,4 +1,5 @@
 import { defineMiddleware } from 'astro:middleware';
+import type { APIContext, MiddlewareNext } from 'astro';
 import { env } from 'cloudflare:workers';
 import { verifyAccessJwt } from './features/auth/access';
 import { accessGateDecision } from './features/auth/accessGate';
@@ -47,7 +48,33 @@ function isProtected(pathname: string): boolean {
   );
 }
 
-export const onRequest = defineMiddleware(async (context, next) => {
+/**
+ * Pages/endpoints that render per-customer or admin data. These get an explicit
+ * `private, no-store` so a browser, shared proxy, or any future edge rule can't
+ * retain a personalized response. Cloudflare doesn't edge-cache dynamic Worker
+ * responses by default, so this is defense-in-depth, not a fix for active
+ * caching. The public catalog (/, /product, /api/products) is deliberately NOT
+ * listed so it stays cache-eligible.
+ */
+function isPrivatePath(pathname: string): boolean {
+  return (
+    pathname === '/admin' ||
+    pathname.startsWith('/admin/') ||
+    pathname === '/api/admin' ||
+    pathname.startsWith('/api/admin/') ||
+    pathname === '/account' ||
+    pathname.startsWith('/account/') ||
+    pathname === '/order' ||
+    pathname.startsWith('/order/') ||
+    pathname === '/express' ||
+    pathname === '/cart' ||
+    pathname === '/checkout' ||
+    pathname === '/api/cart' ||
+    pathname === '/api/checkout'
+  );
+}
+
+async function gate(context: APIContext, next: MiddlewareNext): Promise<Response> {
   // Runtime settings overlay (store name etc.) — only for HTML page requests, so
   // the storefront/admin can reflect wizard-set values without a redeploy. APIs and
   // static assets skip it (one indexed D1 read per page, not per asset/API call).
@@ -162,4 +189,14 @@ export const onRequest = defineMiddleware(async (context, next) => {
     return new Response('Admin not set up yet — complete /admin/setup first.', { status: 401 });
   }
   return context.redirect('/admin/setup', 303);
+}
+
+export const onRequest = defineMiddleware(async (context, next) => {
+  const response = await gate(context, next);
+  // Stamp personalized responses as uncacheable, whichever branch produced them
+  // (page render, redirect, 401). Leave a route's own Cache-Control intact.
+  if (isPrivatePath(context.url.pathname) && !response.headers.has('cache-control')) {
+    response.headers.set('cache-control', 'private, no-store');
+  }
+  return response;
 });

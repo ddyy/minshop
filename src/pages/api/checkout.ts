@@ -548,8 +548,19 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
         note: 'Pay the BOLT11 `lightning.invoice` from any Lightning wallet — the total includes shipping, and the order captures your ship_to address. Settlement is confirmed by the webhook.',
       });
     } catch (error) {
+      // The Lightning node can be briefly unreachable. Release the held stock and
+      // return a retryable 503 rather than a 500, so an agent can back off + retry.
       await releaseInventoryReservation(env.DB, lnPublicId);
-      throw error;
+      console.error(
+        JSON.stringify({
+          event: 'lightning_invoice_failed',
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+      return cjson(
+        { error: 'Lightning is temporarily unavailable. Retry shortly, or use another method.', available_methods: available },
+        503,
+      );
     }
   }
 
