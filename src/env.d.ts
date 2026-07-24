@@ -21,8 +21,11 @@ interface ImagesBindingMin {
 }
 
 // Set by src/middleware.ts after verifying a Cloudflare Access JWT (Layer 2).
+// Extends the adapter Runtime so `locals.cfContext` (the ExecutionContext) is
+// typed — used for ctx.waitUntil edge-caching in src/pages/images/[...key].ts.
+type CloudflareRuntime = import('@astrojs/cloudflare').Runtime;
 declare namespace App {
-  interface Locals {
+  interface Locals extends CloudflareRuntime {
     adminEmail?: string;
     /** Runtime settings overlay (store name etc.), loaded once per request. */
     settings?: import('./features/settings/db').StoreSettings;
