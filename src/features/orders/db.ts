@@ -13,7 +13,7 @@ export interface ShippingAddress {
 export interface Order {
   id: number;
   public_id: string | null;
-  stripe_session_id: string | null;
+  provider_session_id: string | null;
   email: string | null;
   amount_total_cents: number;
   shipping_cents: number;
@@ -195,7 +195,7 @@ export async function getOrderByProviderSessionId(
   providerSessionId: string,
 ): Promise<Order | null> {
   return db
-    .prepare('SELECT * FROM orders WHERE stripe_session_id = ?')
+    .prepare('SELECT * FROM orders WHERE provider_session_id = ?')
     .bind(providerSessionId)
     .first<Order>();
 }
@@ -267,7 +267,7 @@ export async function listOrderItemsWithImages(
  * without decrementing twice. Legacy/unreserved orders retain the old settlement
  * decrement path for rolling-deploy compatibility.
  *
- * Idempotent on the provider session id (column is `stripe_session_id` for
+ * Idempotent on the provider session id (column is `provider_session_id` for
  * historical reasons; holds whichever provider's session id). A unique settlement
  * token claims the order inside the SAME D1 batch that inserts the header + items
  * and decrements stock. Parallel/re-delivered webhooks therefore cannot both apply
@@ -299,21 +299,21 @@ export async function recordPaidOrder(
   const insertOrder = o.reservationId
     ? db
         .prepare(
-          `INSERT INTO orders (stripe_session_id, public_id, email, amount_total_cents, shipping_cents, discount_cents, tax_cents, currency, ship_address, status, payment_method, settlement_token)
+          `INSERT INTO orders (provider_session_id, public_id, email, amount_total_cents, shipping_cents, discount_cents, tax_cents, currency, ship_address, status, payment_method, settlement_token)
            SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, NULL
             WHERE EXISTS (
               SELECT 1 FROM checkout_reservations
                WHERE public_id = ? AND status IN ('active', 'payment_pending')
             )
-           ON CONFLICT(stripe_session_id) DO NOTHING
+           ON CONFLICT(provider_session_id) DO NOTHING
            RETURNING id`,
         )
         .bind(...orderValues, o.reservationId)
     : db
         .prepare(
-          `INSERT INTO orders (stripe_session_id, public_id, email, amount_total_cents, shipping_cents, discount_cents, tax_cents, currency, ship_address, status, payment_method, settlement_token)
+          `INSERT INTO orders (provider_session_id, public_id, email, amount_total_cents, shipping_cents, discount_cents, tax_cents, currency, ship_address, status, payment_method, settlement_token)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, NULL)
-           ON CONFLICT(stripe_session_id) DO NOTHING
+           ON CONFLICT(provider_session_id) DO NOTHING
            RETURNING id`,
         )
         .bind(...orderValues);
@@ -324,7 +324,7 @@ export async function recordPaidOrder(
     db
       .prepare(
         `UPDATE orders SET settlement_token = ?
-          WHERE stripe_session_id = ? AND settlement_token IS NULL
+          WHERE provider_session_id = ? AND settlement_token IS NULL
           RETURNING id`,
       )
       .bind(settlementToken, o.providerSessionId),
@@ -339,7 +339,7 @@ export async function recordPaidOrder(
         .prepare(
           `INSERT INTO order_items (order_id, product_id, variant_id, name, price_cents, quantity)
            SELECT id, ?, ?, ?, ?, ? FROM orders
-            WHERE stripe_session_id = ? AND settlement_token = ?`,
+            WHERE provider_session_id = ? AND settlement_token = ?`,
         )
         .bind(
           it.productId,
@@ -360,7 +360,7 @@ export async function recordPaidOrder(
             `UPDATE product_variants SET stock = MAX(0, stock - ?)
               WHERE id = ? AND EXISTS (
                 SELECT 1 FROM orders
-                 WHERE stripe_session_id = ? AND settlement_token = ?
+                 WHERE provider_session_id = ? AND settlement_token = ?
               )`,
           )
           .bind(it.quantity, variantId, o.providerSessionId, settlementToken),
@@ -372,7 +372,7 @@ export async function recordPaidOrder(
             `UPDATE products SET stock = MAX(0, stock - ?)
               WHERE id = ? AND EXISTS (
                 SELECT 1 FROM orders
-                 WHERE stripe_session_id = ? AND settlement_token = ?
+                 WHERE provider_session_id = ? AND settlement_token = ?
               )`,
           )
           .bind(it.quantity, it.productId, o.providerSessionId, settlementToken),
@@ -387,7 +387,7 @@ export async function recordPaidOrder(
           `UPDATE checkout_reservations SET status = 'settled'
             WHERE public_id = ? AND status IN ('active', 'payment_pending') AND EXISTS (
               SELECT 1 FROM orders
-               WHERE stripe_session_id = ? AND settlement_token = ?
+               WHERE provider_session_id = ? AND settlement_token = ?
             )`,
         )
         .bind(o.reservationId, o.providerSessionId, settlementToken),

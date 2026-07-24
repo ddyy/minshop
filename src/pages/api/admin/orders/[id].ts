@@ -31,7 +31,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
 
   if (action === 'refund') {
     const order = await getOrder(env.DB, id);
-    if (order?.stripe_session_id) {
+    if (order?.provider_session_id) {
       // Route to the rail that took the payment (NULL = legacy → store default).
       const provider = await getPaymentProvider((order.payment_method ?? undefined) as PaymentMethod | undefined);
       if (!provider.refund) {
@@ -41,7 +41,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
         );
       }
       try {
-        await provider.refund(order.stripe_session_id);
+        await provider.refund(order.provider_session_id);
         // Full refund (current capability): record the whole order total.
         await recordRefund(env.DB, id, order.amount_total_cents);
       } catch (err) {

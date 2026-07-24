@@ -66,7 +66,8 @@ const ship = order.ship_address
           Refunded
         </span>
       ) : (
-        order.stripe_session_id && (
+        (order.payment_method === 'stripe' || order.payment_method == null) &&
+          order.provider_session_id && (
           <form
             method="POST"
             action={`/api/admin/orders/${order.id}`}
@@ -154,7 +155,7 @@ const ship = order.ship_address
     </div>
     <div class="col-span-2">
       <dt class="text-xs uppercase tracking-widest text-gray-400">Payment reference</dt>
-      <dd class="font-mono text-xs break-all">{order.stripe_session_id ?? '—'}</dd>
+      <dd class="font-mono text-xs break-all">{order.provider_session_id ?? '—'}</dd>
     </div>
   </dl>
 
