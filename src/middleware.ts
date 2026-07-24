@@ -13,6 +13,7 @@ import {
 } from './features/auth/rateLimit';
 import {
   isPublicCatalogApi,
+  isPublicStorefrontPath,
   publicCacheRequest,
   PUBLIC_CACHE_CONTROL,
 } from './features/cache/public';
@@ -72,6 +73,12 @@ function isPrivatePath(pathname: string): boolean {
     pathname.startsWith('/account/') ||
     pathname === '/order' ||
     pathname.startsWith('/order/') ||
+    pathname === '/pay' ||
+    pathname.startsWith('/pay/') ||
+    pathname === '/payment-setup' ||
+    pathname.startsWith('/payment-setup/') ||
+    pathname === '/partials' ||
+    pathname.startsWith('/partials/') ||
     pathname === '/express' ||
     pathname === '/cart' ||
     pathname === '/checkout' ||
@@ -85,7 +92,11 @@ async function gate(context: APIContext, next: MiddlewareNext): Promise<Response
   // the storefront/admin can reflect wizard-set values without a redeploy. APIs and
   // static assets skip it (one indexed D1 read per page, not per asset/API call).
   const path = context.url.pathname;
-  if (!path.startsWith('/api/') && !path.startsWith('/_')) {
+  const isDocument =
+    !path.startsWith('/api/') &&
+    !path.startsWith('/_') &&
+    !path.startsWith('/partials/');
+  if (isDocument) {
     try {
       context.locals.settings = await getStoreSettings(env.DB);
     } catch {
@@ -98,9 +109,8 @@ async function gate(context: APIContext, next: MiddlewareNext): Promise<Response
   // /admin (its own gate), /api, and assets to avoid loops; only fires once settings
   // loaded and setup_complete isn't set.
   if (
+    isDocument &&
     !path.startsWith('/admin') &&
-    !path.startsWith('/api/') &&
-    !path.startsWith('/_') &&
     context.locals.settings &&
     !context.locals.settings.setupComplete
   ) {
@@ -206,23 +216,22 @@ async function gate(context: APIContext, next: MiddlewareNext): Promise<Response
   return context.redirect('/admin/setup', 303);
 }
 
-export const onRequest = defineMiddleware(async (context, next) => {
+async function route(context: APIContext, next: MiddlewareNext): Promise<Response> {
   const req = context.request;
   const path = context.url.pathname;
+  const productError = path.startsWith('/product/') && context.url.searchParams.has('error');
 
-  // Edge-cache anonymous storefront GETs. A cookieless request can't be
-  // personalized (cart, login, and flash each set a cookie), so the rendered
-  // Anonymous storefront HTML and the read-only catalog API are identical for
-  // everyone — serve them from the colo cache and skip the Worker + D1 entirely.
-  // Private paths, mutating APIs, assets, and any cookied request bypass this.
-  // `caches` is absent under `astro dev`, hence the typeof guard.
+  // Edge-cache the explicitly public storefront shell and catalog API. Cart
+  // contents stay on private routes and the header badge loads as a separate
+  // fragment, so the shell is identical even when the request carries cookies.
+  // Product validation errors are request-specific and deliberately bypass the
+  // shared cache. `caches` is absent under `astro dev`, hence the typeof guard.
   const publicCatalogApi = isPublicCatalogApi(path);
+  const publicStorefront = isPublicStorefrontPath(path);
   const edgeCacheable =
     req.method === 'GET' &&
-    !path.startsWith('/_') &&
-    (!path.startsWith('/api/') || publicCatalogApi) &&
-    !isPrivatePath(path) &&
-    !req.headers.has('cookie');
+    (publicCatalogApi || publicStorefront) &&
+    !productError;
   const cacheKey = edgeCacheable ? publicCacheRequest(req) : req;
   const cache = edgeCacheable && typeof caches !== 'undefined' ? caches.default : null;
   if (cache) {
@@ -234,7 +243,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
 
   // Stamp personalized responses as uncacheable, whichever branch produced them
   // (page render, redirect, 401). Leave a route's own Cache-Control intact.
-  if (isPrivatePath(path) && !response.headers.has('cache-control')) {
+  if ((isPrivatePath(path) || productError) && !response.headers.has('cache-control')) {
     try {
       response.headers.set('cache-control', 'private, no-store');
     } catch {
@@ -274,4 +283,32 @@ export const onRequest = defineMiddleware(async (context, next) => {
   }
 
   return response;
+}
+
+// Response hardening for a store on a real domain. Applied to EVERY response.
+const SECURITY_HEADERS: Record<string, string> = {
+  'x-content-type-options': 'nosniff', // don't MIME-sniff responses
+  'x-frame-options': 'DENY', // block framing (clickjacking) — nothing here is meant to be embedded
+  'strict-transport-security': 'max-age=31536000; includeSubDomains', // force HTTPS for a year
+};
+
+/** Add the security headers, rebuilding when the response's headers are immutable
+ *  (e.g. a Response.redirect to a payment provider, or a Cache API hit). */
+function withSecurityHeaders(res: Response): Response {
+  try {
+    for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.headers.set(k, v);
+    return res;
+  } catch {
+    const rebuilt = new Response(res.body, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: new Headers(res.headers),
+    });
+    for (const [k, v] of Object.entries(SECURITY_HEADERS)) rebuilt.headers.set(k, v);
+    return rebuilt;
+  }
+}
+
+export const onRequest = defineMiddleware(async (context, next) => {
+  return withSecurityHeaders(await route(context, next));
 });
