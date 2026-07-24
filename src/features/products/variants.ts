@@ -60,9 +60,39 @@ export async function getVariant(db: D1Database, id: number): Promise<ProductVar
   return db.prepare('SELECT * FROM product_variants WHERE id = ?').bind(id).first<ProductVariant>();
 }
 
+/** Active variants for many ids in one cart-resolution read. */
+export async function getActiveVariantsByIds(
+  db: D1Database,
+  ids: number[],
+): Promise<ProductVariant[]> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return [];
+  const ph = unique.map(() => '?').join(',');
+  const { results } = await db
+    .prepare(`SELECT * FROM product_variants WHERE active = 1 AND id IN (${ph})`)
+    .bind(...unique)
+    .all<ProductVariant>();
+  return results ?? [];
+}
+
 /** One extra by id (any product), or null. */
 export async function getExtra(db: D1Database, id: number): Promise<ProductExtra | null> {
   return db.prepare('SELECT * FROM product_extras WHERE id = ?').bind(id).first<ProductExtra>();
+}
+
+/** Active extras for many ids in one cart-resolution read. */
+export async function getActiveExtrasByIds(
+  db: D1Database,
+  ids: number[],
+): Promise<ProductExtra[]> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return [];
+  const ph = unique.map(() => '?').join(',');
+  const { results } = await db
+    .prepare(`SELECT * FROM product_extras WHERE active = 1 AND id IN (${ph})`)
+    .bind(...unique)
+    .all<ProductExtra>();
+  return results ?? [];
 }
 
 /** Active extras for the given ids that belong to `productId` (drops foreign/inactive). */

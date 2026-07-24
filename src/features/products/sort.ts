@@ -38,3 +38,25 @@ export const STORE_SORTS: { sort: string; dir: 'asc' | 'desc'; label: string }[]
   { sort: 'price', dir: 'asc', label: 'Price' },
   { sort: 'name', dir: 'asc', label: 'Name' },
 ];
+
+export type StoreSort = 'newest' | 'price' | 'name';
+
+export interface StoreSortQuery {
+  sort: StoreSort;
+  dir: 'asc' | 'desc';
+}
+
+/**
+ * Canonical storefront sorting. Admin-only columns such as stock/sold stay
+ * unavailable on public pages, and equivalent invalid/default query strings
+ * collapse to one edge-cache key.
+ */
+export function parseStoreSortQuery(
+  sort: string | null,
+  dir: string | null,
+): StoreSortQuery {
+  const normalizedSort: StoreSort =
+    sort === 'price' || sort === 'name' || sort === 'newest' ? sort : 'newest';
+  const normalizedDir = dir?.toLowerCase() === 'asc' ? 'asc' : 'desc';
+  return { sort: normalizedSort, dir: normalizedDir };
+}

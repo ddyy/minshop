@@ -18,12 +18,19 @@ if (!product) {
   return new Response('Not found', { status: 404 });
 }
 
-const categories = await categoriesForProduct(env.DB, product.id);
 // Recommendations: semantic similarity (Vectorize) first, then topped up with the
 // category-based related query if there aren't enough — so the row fills (when the
 // catalog allows) instead of showing just the 1–2 nearest vectors. Deduped, capped.
 const RELATED_TARGET = 4;
-const semantic = await getRelatedByVector(product.id, RELATED_TARGET);
+// These reads are independent after the product is known. Run them together so
+// an uncached product render pays one concurrent wait instead of a serial chain.
+const [categories, semantic, variants, extras, gallery] = await Promise.all([
+  categoriesForProduct(env.DB, product.id),
+  getRelatedByVector(product.id, RELATED_TARGET),
+  listVariants(env.DB, product.id),
+  listExtras(env.DB, product.id),
+  listProductImages(env.DB, product.id),
+]);
 let related = semantic;
 if (related.length < RELATED_TARGET) {
   const seen = new Set(related.map((p) => p.id));
@@ -33,13 +40,10 @@ if (related.length < RELATED_TARGET) {
 
 // Variants (pick one, own stock/price) + extras (checkbox add-ons, price deltas).
 // Either may be empty; a product with neither behaves exactly as before.
-const variants = await listVariants(env.DB, product.id);
-const extras = await listExtras(env.DB, product.id);
 const hasVariants = variants.length > 0;
 const hasOptions = hasVariants || extras.length > 0;
 
 // Gallery in display order — the first image is the primary.
-const gallery = await listProductImages(env.DB, product.id);
 const hasGallery = gallery.length > 1;
 const state = stockState(product.stock);
 // With variants the inventory unit is the variant, so availability comes from
@@ -127,13 +131,16 @@ const jsonLdStr = JSON.stringify(jsonLd).replace(/</g, '\\u003c');
             data-hero-track
             class="no-scrollbar relative flex snap-x snap-mandatory overflow-x-auto scroll-smooth rounded-lg bg-white"
           >
-            {gallery.map((img) => (
+            {gallery.map((img, index) => (
               <img
                 id={`pi-${img.id}`}
                 src={productImageUrl(img.image_key, imgBase)}
                 alt={img.alt || product.name}
                 width="800"
                 height="800"
+                loading={index === 0 ? 'eager' : 'lazy'}
+                fetchpriority={index === 0 ? 'high' : 'auto'}
+                decoding="async"
                 class={`aspect-square w-full shrink-0 snap-center object-cover${soldOut ? ' opacity-60' : ''}`}
               />
             ))}
@@ -149,7 +156,15 @@ const jsonLdStr = JSON.stringify(jsonLd).replace(/</g, '\\u003c');
                 href={`#pi-${img.id}`}
                 class="shrink-0 overflow-hidden rounded border border-line transition hover:border-brand"
               >
-                <img src={productImageUrl(img.image_key, imgBase)} alt="" class="h-16 w-16 object-cover" />
+                <img
+                  src={productImageUrl(img.image_key, imgBase)}
+                  alt=""
+                  width="64"
+                  height="64"
+                  loading="lazy"
+                  decoding="async"
+                  class="h-16 w-16 object-cover"
+                />
               </a>
             ))}
           </div>
@@ -159,6 +174,8 @@ const jsonLdStr = JSON.stringify(jsonLd).replace(/</g, '\\u003c');
           <ProductImage
             imageKey={product.image_key}
             alt={product.name}
+            priority
+            sizes="(min-width: 768px) 528px, calc(100vw - 48px)"
             class={`aspect-square w-full object-cover${soldOut ? ' opacity-60' : ''}`}
           />
           {soldOut && (
@@ -381,6 +398,7 @@ const jsonLdStr = JSON.stringify(jsonLd).replace(/</g, '\\u003c');
                   <ProductImage
                     imageKey={r.image_key}
                     alt={r.name}
+                    sizes="(min-width: 1024px) 252px, calc(50vw - 36px)"
                     class={`aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]${0 >= r.stock ? ' opacity-60' : ''}`}
                   />
                   {0 >= r.stock && (

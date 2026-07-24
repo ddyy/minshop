@@ -4,15 +4,14 @@ import Layout from '../layouts/Layout.astro';
 import { getSearchProvider } from '../features/search';
 import { productsInSharedCategories } from '../features/categories/db';
 import ProductCard from '../components/ProductCard.astro';
-import { paginate, queryHref } from '../pagination';
+import { MAX_PUBLIC_PAGE, paginate, queryHref, requestedPage } from '../pagination';
 import Pagination from '../components/Pagination.astro';
 import { normalizeSearchQuery } from '../features/search/query';
 
 const q = normalizeSearchQuery(Astro.url.searchParams.get('q') ?? '');
 const PAGE_SIZE = 24;
-const rawPage = Number(Astro.url.searchParams.get('page'));
-const requestedPage = Number.isInteger(rawPage) && rawPage >= 1 ? rawPage : 1;
-const requestedOffset = (requestedPage - 1) * PAGE_SIZE;
+const requested = requestedPage(Astro.url.searchParams, MAX_PUBLIC_PAGE);
+const requestedOffset = (requested - 1) * PAGE_SIZE;
 
 // The active backend (FTS5 keyword by default, or semantic Vectorize when
 // configured) decides how to match — and whether it auto-corrected a typo.
@@ -20,7 +19,7 @@ const provider = await getSearchProvider();
 let result = q
   ? await provider.search(q, { limit: PAGE_SIZE, offset: requestedOffset })
   : { products: [], total: 0, correctedTo: null };
-const pageInfo = paginate(Astro.url.searchParams, result.total, PAGE_SIZE);
+const pageInfo = paginate(Astro.url.searchParams, result.total, PAGE_SIZE, MAX_PUBLIC_PAGE);
 if (q && pageInfo.offset !== requestedOffset) {
   result = await provider.search(q, { limit: PAGE_SIZE, offset: pageInfo.offset });
 }
@@ -83,7 +82,7 @@ const fillers =
     products.length > 0 && (
       <ul class="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-3">
         {products.map((p, i) => (
-          <ProductCard product={p} index={i} />
+          <ProductCard product={p} index={i} priority={i === 0} />
         ))}
       </ul>
     )

@@ -94,6 +94,60 @@ node -e '
   }
 ' "$sample_page"
 
+# A shopper's cart stays private while the catalog shell remains shared. The
+# count fragment reads only the HttpOnly cookie, and the full drawer resolves
+# all cart rows through the batched product/variant/extra path.
+sample_id="$(node -e '
+  const body = JSON.parse(process.argv[1]);
+  const tee = body.products.find((p) => p.slug === "sample-tee");
+  if (!tee?.id) process.exit(1);
+  process.stdout.write(String(tee.id));
+' "$sample_page")"
+cookie_jar="$state_dir/cart-cookies.txt"
+cart_status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+  --cookie-jar "$cookie_jar" \
+  -H 'content-type: application/x-www-form-urlencoded' \
+  -H "origin: http://127.0.0.1:$test_port" \
+  -H 'x-partial: 1' \
+  --data "_action=add&product_id=$sample_id" \
+  "http://127.0.0.1:$test_port/api/cart")"
+if [[ "$cart_status" != "204" ]]; then
+  echo "D1 integration failed: add-to-cart returned HTTP $cart_status" >&2
+  exit 1
+fi
+
+cart_count_json="$(curl --fail --silent --show-error \
+  --cookie "$cookie_jar" \
+  "http://127.0.0.1:$test_port/partials/cart-count")"
+node -e '
+  const body = JSON.parse(process.argv[1]);
+  if (body.count !== 1) throw new Error(`expected cart count 1, got ${body.count}`);
+' "$cart_count_json"
+
+cart_fragment="$(curl --fail --silent --show-error \
+  --cookie "$cookie_jar" \
+  "http://127.0.0.1:$test_port/partials/cart")"
+if [[ "$cart_fragment" != *"Sample Tee"* ]]; then
+  echo "D1 integration failed: private cart fragment did not resolve its product" >&2
+  exit 1
+fi
+
+storefront_headers="$state_dir/storefront-headers.txt"
+storefront_body="$state_dir/storefront.html"
+curl --fail --silent --show-error \
+  --cookie "$cookie_jar" \
+  --dump-header "$storefront_headers" \
+  --output "$storefront_body" \
+  "http://127.0.0.1:$test_port/?utm_source=integration"
+if ! tr -d '\r' <"$storefront_headers" | grep -qi '^cache-control: public, max-age=0, s-maxage=60$'; then
+  echo "D1 integration failed: cookied storefront shell was not cacheable" >&2
+  exit 1
+fi
+if grep -q 'Cart (1)' "$storefront_body"; then
+  echo "D1 integration failed: shared storefront leaked a personalized cart count" >&2
+  exit 1
+fi
+
 # Exercise a real application write through the binding: demo checkout creates a
 # pending payment, settlement atomically writes the paid order + items, and the
 # confirmation page reads that committed state back.

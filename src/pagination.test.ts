@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { paginate, queryHref } from './pagination';
+import { MAX_PUBLIC_PAGE, paginate, queryHref, requestedPage } from './pagination';
 
 const sp = (q: string) => new URLSearchParams(q);
 
@@ -30,6 +30,13 @@ describe('paginate', () => {
     const p = paginate(sp('page=1'), 0, 20);
     expect(p.totalPages).toBe(1);
     expect(p.offset).toBe(0);
+  });
+
+  it('can bound public page numbers before they become cache keys or offsets', () => {
+    expect(requestedPage(sp('page=999999'), MAX_PUBLIC_PAGE)).toBe(MAX_PUBLIC_PAGE);
+    const page = paginate(sp('page=999999'), 1_000_000, 20, 100);
+    expect(page.page).toBe(100);
+    expect(page.totalPages).toBe(100);
   });
 });
 

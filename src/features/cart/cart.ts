@@ -1,9 +1,9 @@
 import type { AstroCookies } from 'astro';
 import type { D1Database } from '@cloudflare/workers-types';
-import { getProduct, type Product } from '../products/db';
+import { getProductsByIds, type Product } from '../products/db';
 import {
-  getVariant,
-  getExtrasByIds,
+  getActiveExtrasByIds,
+  getActiveVariantsByIds,
   type ProductVariant,
   type ProductExtra,
 } from '../products/variants';
@@ -76,31 +76,54 @@ export async function resolveCart(
   db: D1Database,
   cart: Cart,
 ): Promise<{ lines: CartLine[]; subtotalCents: number }> {
-  const lines: CartLine[] = [];
-  for (const [key, qty] of Object.entries(cart)) {
+  const requested = Object.entries(cart).flatMap(([key, qty]) => {
     const parsed = parseCartKey(key);
-    if (!parsed) continue;
+    return parsed ? [{ key, qty, parsed }] : [];
+  });
+  if (requested.length === 0) return { lines: [], subtotalCents: 0 };
 
-    const product = await getProduct(db, parsed.productId);
-    if (!product || !product.active) continue;
+  const [products, variants, extras] = await Promise.all([
+    getProductsByIds(db, [...new Set(requested.map((line) => line.parsed.productId))]),
+    getActiveVariantsByIds(
+      db,
+      requested.flatMap((line) =>
+        line.parsed.variantId == null ? [] : [line.parsed.variantId],
+      ),
+    ),
+    getActiveExtrasByIds(
+      db,
+      requested.flatMap((line) => line.parsed.extraIds),
+    ),
+  ]);
+  const productsById = new Map(products.map((product) => [product.id, product]));
+  const variantsById = new Map(variants.map((variant) => [variant.id, variant]));
+  const extrasById = new Map(extras.map((extra) => [extra.id, extra]));
+
+  const lines: CartLine[] = [];
+  for (const { key, qty, parsed } of requested) {
+    const product = productsById.get(parsed.productId);
+    if (!product) continue;
 
     // Variant (if the key names one) must exist, be active, and belong here.
     let variant: ProductVariant | null = null;
     if (parsed.variantId) {
-      variant = await getVariant(db, parsed.variantId);
-      if (!variant || !variant.active || variant.product_id !== product.id) continue;
+      variant = variantsById.get(parsed.variantId) ?? null;
+      if (!variant || variant.product_id !== product.id) continue;
     }
     // Extras: keep only the active ones that belong to this product.
-    const extras = parsed.extraIds.length
-      ? await getExtrasByIds(db, product.id, parsed.extraIds)
-      : [];
+    const lineExtras = parsed.extraIds
+      .map((id) => extrasById.get(id))
+      .filter(
+        (extra): extra is ProductExtra =>
+          extra !== undefined && extra.product_id === product.id,
+      );
 
-    const unitPriceCents = lineUnitPriceCents(product.price_cents, variant, extras);
+    const unitPriceCents = lineUnitPriceCents(product.price_cents, variant, lineExtras);
     lines.push({
       key,
       product,
       variant,
-      extras,
+      extras: lineExtras,
       qty,
       unitPriceCents,
       lineTotalCents: unitPriceCents * qty,

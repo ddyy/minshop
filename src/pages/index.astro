@@ -4,20 +4,40 @@ import Layout from '../layouts/Layout.astro';
 import { listProducts, countProducts } from '../features/products/db';
 import ProductCard from '../components/ProductCard.astro';
 import { listCategories, childrenOf } from '../features/categories/db';
-import { orderByClause } from '../features/products/sort';
-import { paginate, queryHref } from '../pagination';
+import { orderByClause, parseStoreSortQuery } from '../features/products/sort';
+import {
+  MAX_PUBLIC_PAGE,
+  paginate,
+  queryHref,
+} from '../pagination';
 import Pagination from '../components/Pagination.astro';
 import SortLinks from '../components/SortLinks.astro';
 
-const sort = Astro.url.searchParams.get('sort');
-const dir = Astro.url.searchParams.get('dir');
+const { sort, dir } = parseStoreSortQuery(
+  Astro.url.searchParams.get('sort'),
+  Astro.url.searchParams.get('dir'),
+);
 const order = orderByClause(sort, dir);
 
 const PAGE_SIZE = 24;
-const { page, offset, totalPages } = paginate(Astro.url.searchParams, await countProducts(env.DB), PAGE_SIZE);
+const [total, categories] = await Promise.all([
+  countProducts(env.DB),
+  listCategories(env.DB),
+]);
+const { page, offset, totalPages } = paginate(
+  Astro.url.searchParams,
+  total,
+  PAGE_SIZE,
+  MAX_PUBLIC_PAGE,
+);
 const products = await listProducts(env.DB, PAGE_SIZE, offset, order);
-const topCategories = childrenOf(await listCategories(env.DB), null);
-const hrefFor = (p: number) => queryHref('/', { sort, dir, page: p > 1 ? p : undefined });
+const topCategories = childrenOf(categories, null);
+const hrefFor = (p: number) =>
+  queryHref('/', {
+    sort: sort === 'newest' ? undefined : sort,
+    dir: dir === 'desc' ? undefined : dir,
+    page: p > 1 ? p : undefined,
+  });
 ---
 
 <Layout>
@@ -46,7 +66,7 @@ const hrefFor = (p: number) => queryHref('/', { sort, dir, page: p > 1 ? p : und
   {products.length === 0 && <p class="text-gray-500">No products yet.</p>}
 
   <ul class="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-3">
-    {products.map((p, i) => <ProductCard product={p} index={i} />)}
+    {products.map((p, i) => <ProductCard product={p} index={i} priority={i === 0} />)}
   </ul>
 
   <Pagination page={page} totalPages={totalPages} hrefFor={hrefFor} />

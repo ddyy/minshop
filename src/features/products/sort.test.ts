@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { orderByClause, STORE_SORTS } from './sort';
+import { orderByClause, parseStoreSortQuery, STORE_SORTS } from './sort';
 
 describe('products orderByClause', () => {
   it('defaults to created_at DESC (with an id tiebreak) when no params', () => {
@@ -44,5 +44,12 @@ describe('products orderByClause', () => {
       const clause = orderByClause(s.sort, s.dir);
       expect(clause).toMatch(/^[a-z_]+( COLLATE NOCASE)? (ASC|DESC)(, id (ASC|DESC))?$/);
     }
+  });
+
+  it('canonicalizes public sorting and rejects admin-only columns', () => {
+    expect(parseStoreSortQuery(null, null)).toEqual({ sort: 'newest', dir: 'desc' });
+    expect(parseStoreSortQuery('price', 'ASC')).toEqual({ sort: 'price', dir: 'asc' });
+    expect(parseStoreSortQuery('sold', 'asc')).toEqual({ sort: 'newest', dir: 'asc' });
+    expect(parseStoreSortQuery('name', 'sideways')).toEqual({ sort: 'name', dir: 'desc' });
   });
 });

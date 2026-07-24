@@ -7,9 +7,11 @@ interface Props {
   product: Product;
   /** Stagger index for the page-load reveal (capped at 8 steps). */
   index?: number;
+  /** Mark only the first visible card as the likely LCP image. */
+  priority?: boolean;
 }
 
-const { product: p, index = 0 } = Astro.props;
+const { product: p, index = 0, priority = false } = Astro.props;
 ---
 
 <li class="reveal group" style={`animation-delay:${Math.min(index, 8) * 60}ms`}>
@@ -18,6 +20,8 @@ const { product: p, index = 0 } = Astro.props;
       <ProductImage
         imageKey={p.image_key}
         alt={p.name}
+        priority={priority}
+        sizes="(min-width: 1024px) 352px, calc(50vw - 36px)"
         class={`aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]${p.stock <= 0 ? ' opacity-60' : ''}`}
       />
       {

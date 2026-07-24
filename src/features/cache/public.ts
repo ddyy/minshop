@@ -2,12 +2,39 @@ import {
   DEFAULT_CATALOG_LIMIT,
   parseCatalogListQuery,
 } from '../catalog/query';
+import { parseStoreSortQuery } from '../products/sort';
 import { normalizeSearchQuery } from '../search/query';
+import { MAX_PUBLIC_PAGE, requestedPage } from '../../pagination';
 
 export const PUBLIC_CACHE_CONTROL = 'public, max-age=0, s-maxage=60';
 
 export function isPublicCatalogApi(pathname: string): boolean {
   return pathname === '/api/products' || pathname.startsWith('/api/products/');
+}
+
+/** Storefront routes whose HTML is identical for every shopper. */
+export function isPublicStorefrontPath(pathname: string): boolean {
+  return (
+    pathname === '/' ||
+    pathname === '/search' ||
+    pathname.startsWith('/product/') ||
+    pathname.startsWith('/category/') ||
+    pathname === '/robots.txt' ||
+    pathname === '/sitemap.xml' ||
+    pathname === '/llms.txt'
+  );
+}
+
+function canonicalizeStoreList(url: URL): void {
+  const { sort, dir } = parseStoreSortQuery(
+    url.searchParams.get('sort'),
+    url.searchParams.get('dir'),
+  );
+  const page = requestedPage(url.searchParams, MAX_PUBLIC_PAGE);
+  url.search = '';
+  if (sort !== 'newest') url.searchParams.set('sort', sort);
+  if (dir !== 'desc') url.searchParams.set('dir', dir);
+  if (page > 1) url.searchParams.set('page', String(page));
 }
 
 /**
@@ -30,14 +57,24 @@ export function publicCacheRequest(request: Request): Request {
     url.search = '';
   } else if (path === '/search') {
     const query = normalizeSearchQuery(url.searchParams.get('q') ?? '');
-    const rawPage = Number(url.searchParams.get('page'));
-    const page = Number.isInteger(rawPage) && rawPage > 1 ? rawPage : 1;
+    const page = requestedPage(url.searchParams, MAX_PUBLIC_PAGE);
     url.search = '';
     if (query) url.searchParams.set('q', query);
     if (page > 1) url.searchParams.set('page', String(page));
+  } else if (path === '/' || path.startsWith('/category/')) {
+    canonicalizeStoreList(url);
+  } else if (
+    path.startsWith('/product/') ||
+    path === '/robots.txt' ||
+    path === '/sitemap.xml' ||
+    path === '/llms.txt'
+  ) {
+    url.search = '';
   } else {
     url.searchParams.sort();
   }
 
-  return new Request(url, request);
+  const headers = new Headers(request.headers);
+  headers.delete('cookie');
+  return new Request(url, { method: request.method, headers });
 }

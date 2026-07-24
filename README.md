@@ -26,7 +26,7 @@ MCP dependencies. Use `--no-install` to only scaffold the files, or
 ## Features
 
 - **Storefront** — server-rendered product list + product detail, near-zero client JS
-- **Cart** — cookie-based (no client JS), with both "Add to cart" and one-click "Buy now"
+- **Cart** — HttpOnly cookie-based, with a progressively enhanced drawer plus no-JS form fallbacks
 - **Search** — FTS5 full-text (bm25, prefix match, typo-correct), no JS — or optional **semantic search** via Workers AI + Vectorize (see [Search](#search))
 - **Categories** — nested (arbitrary-depth tree), many-to-many with products; storefront category pages with breadcrumbs + sub-category drill-down (recursive descendant queries)
 - **Admin** — products, categories, orders, customers, fulfillment, CSV export, and runtime store settings
@@ -154,6 +154,8 @@ Then reload `/admin/setup` and set a new one. (Same effect as running `DELETE FR
 Local dev (`astro dev`) bypasses the gate so you're never locked out. Don't make `/admin` a "secret" path — that's security-through-obscurity; the gate is what protects it.
 
 The Worker also applies native edge rate limits to anonymous login POSTs (10/minute per store, route, and connecting client), checkout/invoice POSTs (20/minute), and cache-missing public searches (60/minute). Search input is normalized and capped at 200 characters before FTS or Workers AI sees it; repeated catalog/search GETs are cached at the edge for 60 seconds. Webhooks and authenticated admin APIs are deliberately excluded; provider signatures and the admin gate protect those paths without disrupting legitimate retries or bulk administration. The limits are declared as `AUTH_RATE_LIMITER`, `CHECKOUT_RATE_LIMITER`, and `SEARCH_RATE_LIMITER` bindings in the provisioning template; existing manually maintained Wrangler configs need the same `ratelimits` block.
+
+Public catalog HTML uses canonical cache keys: tracking/unknown parameters are discarded and page/sort/search controls are normalized, so equivalent URLs share one edge entry. The shell remains shared even when a shopper has cookies. Its only customer-specific header value, the cart count, loads from a tiny private fragment; the complete cart stays on private, `no-store` routes and is fetched only when opened.
 
 ## Payments
 

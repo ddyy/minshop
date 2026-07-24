@@ -11,8 +11,12 @@ import {
   countProductsInCategory,
 } from '../../features/categories/db';
 import ProductImage from '../../features/products/ProductImage.astro';
-import { orderByClause } from '../../features/products/sort';
-import { paginate, queryHref } from '../../pagination';
+import { orderByClause, parseStoreSortQuery } from '../../features/products/sort';
+import {
+  MAX_PUBLIC_PAGE,
+  paginate,
+  queryHref,
+} from '../../pagination';
 import Pagination from '../../components/Pagination.astro';
 import SortLinks from '../../components/SortLinks.astro';
 
@@ -23,22 +27,33 @@ if (!category) {
   return new Response('Not found', { status: 404 });
 }
 
-const trail = await ancestors(env.DB, category.id); // root → … → this category
-const subcats = childrenOf(await listCategories(env.DB), category.id);
-
-const sort = Astro.url.searchParams.get('sort');
-const dir = Astro.url.searchParams.get('dir');
+const { sort, dir } = parseStoreSortQuery(
+  Astro.url.searchParams.get('sort'),
+  Astro.url.searchParams.get('dir'),
+);
 const order = orderByClause(sort, dir);
 
 const PAGE_SIZE = 24;
+const [trail, categories, total] = await Promise.all([
+  ancestors(env.DB, category.id),
+  listCategories(env.DB),
+  countProductsInCategory(env.DB, category.id),
+]);
+const subcats = childrenOf(categories, category.id);
 const { page, offset, totalPages } = paginate(
   Astro.url.searchParams,
-  await countProductsInCategory(env.DB, category.id),
+  total,
   PAGE_SIZE,
+  MAX_PUBLIC_PAGE,
 );
 const products = await productsInCategory(env.DB, category.id, PAGE_SIZE, offset, order);
 const base = `/category/${category.slug}`;
-const hrefFor = (p: number) => queryHref(base, { sort, dir, page: p > 1 ? p : undefined });
+const hrefFor = (p: number) =>
+  queryHref(base, {
+    sort: sort === 'newest' ? undefined : sort,
+    dir: dir === 'desc' ? undefined : dir,
+    page: p > 1 ? p : undefined,
+  });
 ---
 
 <Layout title={category.name}>
@@ -86,6 +101,8 @@ const hrefFor = (p: number) => queryHref(base, { sort, dir, page: p > 1 ? p : un
               <ProductImage
                 imageKey={p.image_key}
                 alt={p.name}
+                priority={i === 0}
+                sizes="(min-width: 1024px) 352px, calc(50vw - 36px)"
                 class={`aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]${0 >= p.stock ? ' opacity-60' : ''}`}
               />
               {

@@ -1,6 +1,6 @@
 ---
 import { getConfig } from '../config';
-import { readCart, cartCount } from '../features/cart/cart';
+import { normalizeSearchQuery } from '../features/search/query';
 import '../styles/global.css';
 
 interface Props {
@@ -20,8 +20,10 @@ const cartEnabled = Astro.locals.settings?.cartEnabled ?? true;
 // Accounts nav link: the runtime toggle wins over the build-time default.
 const accountsOn = Astro.locals.settings?.accountsEnabled ?? features.accounts;
 const pageTitle = title ? `${title} — ${storeName}` : storeName;
-const count = cartCount(readCart(Astro.cookies));
-const query = Astro.url.searchParams.get('q') ?? '';
+const query =
+  Astro.url.pathname === '/search'
+    ? normalizeSearchQuery(Astro.url.searchParams.get('q') ?? '')
+    : '';
 
 const desc = (description ?? `Shop ${storeName}.`).slice(0, 160);
 const canonical = new URL(Astro.url.pathname, Astro.url.origin).href;
@@ -76,7 +78,7 @@ const ogImage = image ? new URL(image, Astro.url.origin).href : undefined;
           {
             cartEnabled && (
               <a href="/cart" data-cart-open class="hover:text-brand">
-                Cart<span data-cart-count-label>{count > 0 ? ` (${count})` : ''}</span>
+                Cart<span data-cart-count-label></span>
               </a>
             )
           }
@@ -136,6 +138,21 @@ const ogImage = image ? new URL(image, Astro.url.origin).href : undefined;
         const setBadge = (n) => {
           if (label) label.textContent = n > 0 ? ` (${n})` : '';
         };
+        const loadBadge = async () => {
+          try {
+            const response = await fetch('/partials/cart-count', {
+              cache: 'no-store',
+              credentials: 'same-origin',
+              headers: { accept: 'application/json' },
+            });
+            if (!response.ok) return;
+            const data = await response.json();
+            setBadge(Number(data.count) || 0);
+          } catch {
+            // The cart link remains usable if the optional badge request fails.
+          }
+        };
+        if (label) void loadBadge();
         const open = () => {
           drawer.classList.remove('invisible', 'pointer-events-none');
           requestAnimationFrame(() =>

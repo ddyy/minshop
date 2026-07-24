@@ -6,12 +6,21 @@ interface Props {
   imageKey: string | null;
   alt: string;
   class?: string;
+  /** Reserve eager/high-priority loading for the page's likely LCP image. */
+  priority?: boolean;
+  sizes?: string;
 }
 
 // Renders a product image, or the shared placeholder when there's none — so
 // callers never branch on image_key and every product image is requested the
 // same way. The fallback decision lives once, in productImageUrl().
-const { imageKey, alt, class: className = '' } = Astro.props;
+const {
+  imageKey,
+  alt,
+  class: className = '',
+  priority = false,
+  sizes,
+} = Astro.props;
 ---
 
 {/* width/height are a square (1:1) aspect hint to reserve space (no CLS) — the
@@ -23,6 +32,8 @@ const { imageKey, alt, class: className = '' } = Astro.props;
   class={className}
   width="600"
   height="600"
-  loading="lazy"
+  loading={priority ? 'eager' : 'lazy'}
+  fetchpriority={priority ? 'high' : 'auto'}
   decoding="async"
+  sizes={sizes}
 />
