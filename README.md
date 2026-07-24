@@ -246,6 +246,20 @@ To optimize new uploads:
 
 [Cloudflare Images transformations](https://developers.cloudflare.com/images/pricing/) are available on Free and Paid plans. The Free plan currently includes 5,000 unique transformations per month; when the binding is missing or a transformation fails, minshop stores the original upload instead. Existing R2 objects are not retroactively transformed.
 
+### Serving images off the Worker (R2 custom domain)
+
+By default product images are served through the Worker's `/images/<key>` route. That's zero-config, but every image request still invokes the Worker (the `caches.default` edge cache saves the R2 fetch, not the invocation). For higher traffic, serve images straight from R2 so they bypass the Worker entirely — Cloudflare CDN-caches them and your Worker request count drops to page + API traffic only.
+
+1. Connect a [public custom domain](https://developers.cloudflare.com/r2/buckets/public-buckets/) to the bucket: Cloudflare dashboard → **R2 → your bucket → Settings → Public access → Connect a custom domain** (e.g. `images.example.com`, on a zone in your account). Set **Minimum TLS** to 1.2. This makes the bucket's objects **publicly readable** through that domain — fine for product images, but don't point it at a bucket holding anything private.
+2. Add the var to `wrangler.jsonc` (absolute, no trailing slash) and redeploy:
+   ```jsonc
+   "vars": { "IMAGE_BASE_URL": "https://images.example.com" }
+   ```
+
+Every product image URL — storefront, product galleries, `/api/products`, order emails, and Stripe line items — then points at that domain. Unset, images keep serving through the Worker route (nothing else changes).
+
+**Caching:** uploads store a 1-year `immutable` `Cache-Control` (keys are unique per file), so the R2 domain serves them with that TTL. Objects uploaded before this change — or via `wrangler r2 object put` without `--cache-control` — keep R2's shorter default TTL until re-uploaded (e.g. `--cache-control 'public, max-age=31536000, immutable'`) or covered by a [Cache Rule](https://developers.cloudflare.com/cache/how-to/cache-rules/).
+
 ### Shipping and order email
 
 - **Shipping** — switch it on or off in **Admin → Settings**. Define destination **`zones`** in `src/store.config.ts` (provider-agnostic, see `features/shipping/calculator`). Each zone has `countries` (ISO alpha-2, or `['*']` catch-all, matched top-to-bottom), `rates` (label + amount), and `freeOverCents` (a $0 "Free shipping" option once the subtotal qualifies; `null` to disable). The same engine feeds **Stripe Checkout's** options and the **Lightning** checkout total. Stripe uses the country selected in the cart; Lightning prices the entered `ship_to.country`.
