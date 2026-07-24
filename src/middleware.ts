@@ -196,7 +196,20 @@ export const onRequest = defineMiddleware(async (context, next) => {
   // Stamp personalized responses as uncacheable, whichever branch produced them
   // (page render, redirect, 401). Leave a route's own Cache-Control intact.
   if (isPrivatePath(context.url.pathname) && !response.headers.has('cache-control')) {
-    response.headers.set('cache-control', 'private, no-store');
+    try {
+      response.headers.set('cache-control', 'private, no-store');
+    } catch {
+      // Some responses (e.g. Response.redirect to a payment provider) have
+      // immutable headers — rebuild with a mutable copy so the directive still
+      // applies and the request never throws.
+      const rebuilt = new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: new Headers(response.headers),
+      });
+      rebuilt.headers.set('cache-control', 'private, no-store');
+      return rebuilt;
+    }
   }
   return response;
 });
