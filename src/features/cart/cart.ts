@@ -10,6 +10,8 @@ import {
 import { parseCartKey, lineUnitPriceCents } from './key';
 
 const COOKIE = 'cart';
+/** Script-readable item count (see writeCart). Mirrors COOKIE's lifetime. */
+export const COUNT_COOKIE = 'cart_n';
 const MAX_QTY = 99;
 
 /** Cart is a cartKey → quantity map (key encodes product[:variant][#extras]). */
@@ -58,10 +60,22 @@ export function writeCart(cookies: AstroCookies, cart: Cart, secure: boolean): v
     secure,
     maxAge: 60 * 60 * 24 * 30,
   });
+  // Companion cookie holding ONLY the item count, readable by script so the
+  // header badge renders with no request (the cart itself stays httpOnly, so a
+  // reader learns "3 items" and nothing else). Written and cleared with the cart,
+  // so the two share a lifetime and can't drift the way localStorage would.
+  cookies.set(COUNT_COOKIE, String(cartCount(cart)), {
+    path: '/',
+    httpOnly: false,
+    sameSite: 'lax',
+    secure,
+    maxAge: 60 * 60 * 24 * 30,
+  });
 }
 
 export function clearCart(cookies: AstroCookies): void {
   cookies.delete(COOKIE, { path: '/' });
+  cookies.delete(COUNT_COOKIE, { path: '/' });
 }
 
 export function cartCount(cart: Cart): number {

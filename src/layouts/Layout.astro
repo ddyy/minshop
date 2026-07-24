@@ -147,41 +147,31 @@ const ogImage = image ? new URL(image, Astro.url.origin).href : undefined;
           if (label) label.textContent = count > 0 ? ` (${count > 99 ? '99+' : count})` : '';
           return count;
         };
+        // The count lives in a script-readable cookie written beside the (httpOnly)
+        // cart, so the badge needs no request on page load and can't drift from the
+        // real cart the way a separate localStorage copy would.
+        const countFromCookie = () => {
+          const m = document.cookie.match(/(?:^|;\s*)cart_n=(\d+)/);
+          return m ? Number(m[1]) : 0;
+        };
         const setBadge = (n) => {
           const count = renderBadge(n);
+          // localStorage is not the source of truth here — writing it only fires the
+          // `storage` event, which is how OTHER open tabs learn to re-read the cookie.
           try {
             localStorage.setItem(cartCountKey, String(count));
           } catch {
             // Storage can be unavailable in restricted browsing modes.
           }
         };
-        const loadBadge = async () => {
-          try {
-            const response = await fetch('/partials/cart-count', {
-              cache: 'no-store',
-              credentials: 'same-origin',
-              headers: { accept: 'application/json' },
-            });
-            if (!response.ok) return;
-            const data = await response.json();
-            setBadge(Number(data.count) || 0);
-          } catch {
-            // The cart link remains usable if the optional badge request fails.
-          }
-        };
         if (label) {
-          try {
-            const cached = localStorage.getItem(cartCountKey);
-            if (cached !== null) renderBadge(cached);
-          } catch {
-            // Fall through to the authoritative server count.
-          }
-          void loadBadge();
+          renderBadge(countFromCookie());
           window.addEventListener('storage', (event) => {
-            if (event.key === cartCountKey && event.newValue !== null) {
-              renderBadge(event.newValue);
-            }
+            // Another tab changed the cart; the cookie is already shared, so re-read it.
+            if (event.key === cartCountKey) renderBadge(countFromCookie());
           });
+          // Returning via bfcache (back button) can restore stale markup — re-read.
+          window.addEventListener('pageshow', () => renderBadge(countFromCookie()));
         }
         const open = () => {
           drawer.classList.remove('invisible', 'pointer-events-none');

@@ -4,13 +4,16 @@ import Layout from '../../layouts/Layout.astro';
 import { formatPrice, getConfig } from '../../config';
 import { getOrderByPublicId, listOrderItems } from '../../features/orders/db';
 import { orderNumber } from '../../features/orders/number';
+import { clearCart } from '../../features/cart/cart';
 
 const { token } = Astro.params;
 const order = token ? await getOrderByPublicId(env.DB, token) : null;
 
 // The webhook creates the order asynchronously, so the customer can land here
 // before it exists. If found, it's confirmed — clear the cart and show it.
-if (order) Astro.cookies.delete('cart', { path: '/' });
+// clearCart (not a raw delete) so the script-readable count cookie goes with it
+// and the header badge can't survive the purchase.
+if (order) clearCart(Astro.cookies);
 const items = order ? await listOrderItems(env.DB, order.id) : [];
 
 // Human label for the rail the order was paid on (NULL = legacy, hidden).
