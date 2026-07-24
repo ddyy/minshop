@@ -20,7 +20,8 @@ export async function getEmailProvider(): Promise<EmailProvider | null> {
   if (!s.emailEnabled) return null;
 
   const cfg = getConfig().email;
-  const from = { email: s.emailFrom ?? cfg.from, name: s.emailFromName ?? cfg.fromName };
+  // Sender display name: explicit from-name → runtime store name → build-time default.
+  const from = { email: s.emailFrom ?? cfg.from, name: s.emailFromName ?? s.storeName ?? cfg.fromName };
 
   if (s.emailProvider === 'resend') {
     const apiKey = await getSecret(env.DB, 'resend_api_key');

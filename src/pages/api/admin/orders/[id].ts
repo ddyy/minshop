@@ -10,6 +10,8 @@ import { getEmailProvider } from '../../../../features/email';
 import { orderShippedEmail } from '../../../../features/email/orderConfirmation';
 import { shouldSendCustomerOrderEmail } from '../../../../features/email/orderPolicy';
 import { getPaymentProvider, type PaymentMethod } from '../../../../features/payments';
+import { getConfig } from '../../../../config';
+import { getSetting } from '../../../../features/settings/db';
 
 export const prerender = false;
 
@@ -66,7 +68,8 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     const emailer = await getEmailProvider();
     if (emailer) {
       try {
-        await emailer.send(orderShippedEmail(order, new URL(request.url).origin));
+        const storeName = (await getSetting(env.DB, 'store_name')) || getConfig().storeName;
+        await emailer.send(orderShippedEmail(order, new URL(request.url).origin, storeName));
       } catch (err) {
         console.error('Shipping email failed:', err);
       }

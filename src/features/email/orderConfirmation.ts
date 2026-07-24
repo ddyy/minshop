@@ -47,6 +47,7 @@ export function orderConfirmationEmail(
   order: Order,
   items: OrderItemWithImage[],
   baseUrl: string,
+  storeName: string,
 ): EmailMessage {
   const cfg = getConfig();
   const num = orderNumber(order.id, cfg.orderNumber);
@@ -60,7 +61,7 @@ export function orderConfirmationEmail(
   const text = [
     `Thanks for your order!`,
     ``,
-    `Order #${num}, ${cfg.storeName}`,
+    `Order #${num}, ${storeName}`,
     ``,
     ...rows,
     ...(order.shipping_cents > 0 ? [`Shipping: ${money(order.shipping_cents)}`] : []),
@@ -81,7 +82,7 @@ export function orderConfirmationEmail(
 
   const html = `
     <h2>Thanks for your order!</h2>
-    <p>Order <strong>#${num}</strong>, ${escapeHtml(cfg.storeName)}</p>
+    <p>Order <strong>#${num}</strong>, ${escapeHtml(storeName)}</p>
     <table cellpadding="6" style="border-collapse:collapse">
       ${htmlRows}
       ${order.shipping_cents > 0 ? `<tr><td colspan="2">Shipping</td><td style="text-align:right">${money(order.shipping_cents)}</td></tr>` : ''}
@@ -93,7 +94,7 @@ export function orderConfirmationEmail(
 
   return {
     to: order.email!,
-    subject: `Your ${cfg.storeName} order #${num}`,
+    subject: `Your ${storeName} order #${num}`,
     html,
     text,
   };
@@ -108,6 +109,7 @@ export function orderNotificationEmail(
   items: OrderItemWithImage[],
   to: string,
   baseUrl: string,
+  storeName: string,
 ): EmailMessage {
   const cfg = getConfig();
   const num = orderNumber(order.id, cfg.orderNumber);
@@ -160,14 +162,14 @@ export function orderNotificationEmail(
 
   return {
     to,
-    subject: `New ${cfg.storeName} order #${num}`,
+    subject: `New ${storeName} order #${num}`,
     html,
     text,
   };
 }
 
 /** Build the "your order has shipped" email. `order.email` must be set. */
-export function orderShippedEmail(order: Order, baseUrl: string): EmailMessage {
+export function orderShippedEmail(order: Order, baseUrl: string, storeName: string): EmailMessage {
   const cfg = getConfig();
   const num = orderNumber(order.id, cfg.orderNumber);
   const url = trackingUrl(order.tracking_carrier, order.tracking_number);
@@ -196,13 +198,13 @@ export function orderShippedEmail(order: Order, baseUrl: string): EmailMessage {
 
   const html = `
     <h2>Your order has shipped!</h2>
-    <p>Order <strong>#${num}</strong>, ${escapeHtml(cfg.storeName)}</p>
+    <p>Order <strong>#${num}</strong>, ${escapeHtml(storeName)}</p>
     ${trackingHtml}
     ${orderUrl ? `<p><a href="${orderUrl}">View your order</a></p>` : ''}`;
 
   return {
     to: order.email!,
-    subject: `Your ${cfg.storeName} order #${num} has shipped`,
+    subject: `Your ${storeName} order #${num} has shipped`,
     html,
     text,
   };

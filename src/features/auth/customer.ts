@@ -54,7 +54,8 @@ export async function requestLogin(email: string, origin: string): Promise<void>
   const emailer = await getEmailProvider();
   if (emailer) {
     try {
-      await emailer.send(loginLinkEmail(addr, link, getConfig().storeName));
+      const storeName = (await getSetting(env.DB, 'store_name')) || getConfig().storeName;
+      await emailer.send(loginLinkEmail(addr, link, storeName));
     } catch (err) {
       console.error('Login email failed:', err);
     }
