@@ -192,10 +192,34 @@ async function gate(context: APIContext, next: MiddlewareNext): Promise<Response
 }
 
 export const onRequest = defineMiddleware(async (context, next) => {
+  const req = context.request;
+  const path = context.url.pathname;
+
+  // Edge-cache anonymous storefront GETs. A cookieless request can't be
+  // personalized (cart, login, and flash each set a cookie), so the rendered
+  // HTML is identical for everyone — serve it from the colo cache and skip the
+  // Worker + D1 entirely. Private paths, APIs, assets, and any cookied request
+  // bypass this. `caches` is absent under `astro dev`, hence the typeof guard.
+  const edgeCacheable =
+    req.method === 'GET' &&
+    !path.startsWith('/api/') &&
+    !path.startsWith('/_') &&
+    !isPrivatePath(path) &&
+    !req.headers.has('cookie');
+  const cache =
+    edgeCacheable && typeof caches !== 'undefined'
+      ? (caches as unknown as { default: Cache }).default
+      : null;
+  if (cache) {
+    const hit = await cache.match(req);
+    if (hit) return hit;
+  }
+
   const response = await gate(context, next);
+
   // Stamp personalized responses as uncacheable, whichever branch produced them
   // (page render, redirect, 401). Leave a route's own Cache-Control intact.
-  if (isPrivatePath(context.url.pathname) && !response.headers.has('cache-control')) {
+  if (isPrivatePath(path) && !response.headers.has('cache-control')) {
     try {
       response.headers.set('cache-control', 'private, no-store');
     } catch {
@@ -211,5 +235,27 @@ export const onRequest = defineMiddleware(async (context, next) => {
       return rebuilt;
     }
   }
+
+  // Store anonymous storefront renders (200, no own Cache-Control, no Set-Cookie)
+  // with a short shared TTL so repeat hits within the window skip the origin.
+  if (
+    cache &&
+    response.status === 200 &&
+    !response.headers.has('cache-control') &&
+    !response.headers.has('set-cookie')
+  ) {
+    const headers = new Headers(response.headers);
+    headers.set('cache-control', 'public, s-maxage=60, stale-while-revalidate=300');
+    const toStore = new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+    const ctx = context.locals.cfContext;
+    if (ctx) ctx.waitUntil(cache.put(req, toStore.clone()));
+    else await cache.put(req, toStore.clone());
+    return toStore;
+  }
+
   return response;
 });
