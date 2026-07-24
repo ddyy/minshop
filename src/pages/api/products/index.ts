@@ -5,6 +5,7 @@ import { categoriesForProduct } from '../../../features/categories/db';
 import { getSearchProvider } from '../../../features/search';
 import { toCatalogProduct } from '../../../features/catalog/serialize';
 import { catalogJson, catalogPreflight } from '../../../features/catalog/http';
+import { getConfig } from '../../../config';
 
 export const prerender = false;
 
@@ -44,10 +45,11 @@ export const GET: APIRoute = async ({ url }) => {
     total = await countProducts(env.DB);
   }
 
+  const imageBaseUrl = getConfig().images.baseUrl;
   const products = await Promise.all(
     page.map(async (p) => {
       const cats = await categoriesForProduct(env.DB, p.id);
-      return toCatalogProduct(p, cats.map((c) => c.name), origin);
+      return toCatalogProduct(p, cats.map((c) => c.name), origin, { imageBaseUrl });
     }),
   );
 

@@ -62,7 +62,7 @@ export function toCatalogProduct(
   p: Product,
   categoryNames: string[],
   origin: string,
-  options?: { variants?: ProductVariant[]; extras?: ProductExtra[] },
+  options?: { variants?: ProductVariant[]; extras?: ProductExtra[]; imageBaseUrl?: string },
 ): CatalogProduct {
   const variants = options?.variants;
   const extras = options?.extras;
@@ -79,7 +79,7 @@ export function toCatalogProduct(
     stock: hasVariants ? variants!.reduce((n, v) => n + v.stock, 0) : p.stock,
     variant_label: p.variant_label,
     categories: categoryNames,
-    image: new URL(productImageUrl(p.image_key), origin).href,
+    image: new URL(productImageUrl(p.image_key, options?.imageBaseUrl ?? ''), origin).href,
     url: new URL(`/product/${p.slug}`, origin).href,
   };
 

@@ -5,9 +5,13 @@ import { productImageUrl } from '../products/image';
 import { carrierName, trackingUrl } from '../orders/tracking';
 import type { EmailMessage } from './provider';
 
-/** A 48px product thumbnail cell (absolute URL so email clients can fetch it). */
-const thumbCell = (imageKey: string | null, baseUrl: string): string =>
-  `<td style="width:60px"><img src="${baseUrl}${productImageUrl(imageKey)}" width="48" height="48" alt="" style="display:block;border-radius:4px;object-fit:cover" /></td>`;
+/** A 48px product thumbnail cell (absolute URL so email clients can fetch it).
+ *  `new URL` resolves both an absolute image base (R2 domain) and the relative
+ *  /images route against the site origin. */
+const thumbCell = (imageKey: string | null, baseUrl: string): string => {
+  const src = new URL(productImageUrl(imageKey, getConfig().images.baseUrl), baseUrl).href;
+  return `<td style="width:60px"><img src="${src}" width="48" height="48" alt="" style="display:block;border-radius:4px;object-fit:cover" /></td>`;
+};
 
 /** One-line-per-field shipping address, blank lines dropped. */
 function formatShipAddress(order: Order): string {

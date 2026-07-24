@@ -290,7 +290,7 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
         quantity: l.qty,
         // Same image/placeholder resolution as the storefront, made absolute so
         // Stripe can fetch it (won't render from localhost).
-        imageUrl: `${origin}${productImageUrl(l.product.image_key)}`,
+        imageUrl: new URL(productImageUrl(l.product.image_key, cfg.images.baseUrl), origin).href,
       })),
       successUrl: `${origin}/order/${publicId}`,
       // Returning from a hosted checkout does not make that session unpayable,
@@ -580,7 +580,7 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
         amountCents: l.unitPriceCents,
         currency: storeCurrency,
         quantity: l.qty,
-        imageUrl: `${origin}${productImageUrl(l.product.image_key)}`,
+        imageUrl: new URL(productImageUrl(l.product.image_key, cfg.images.baseUrl), origin).href,
       })),
       successUrl: `${origin}/order/${publicId}`,
       cancelUrl: `${origin}/`,

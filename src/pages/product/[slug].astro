@@ -9,7 +9,7 @@ import { enabledMethods } from '../../features/payments';
 import ProductImage from '../../features/products/ProductImage.astro';
 import { productImageUrl } from '../../features/products/image';
 import { stockState } from '../../features/products/stock';
-import { formatPrice, toMajorUnits, currencyDecimals } from '../../config';
+import { formatPrice, toMajorUnits, currencyDecimals, getConfig } from '../../config';
 
 const { slug } = Astro.params;
 const product = slug ? await getProductBySlug(env.DB, slug) : null;
@@ -75,7 +75,7 @@ const showBuyNow = buyNowEnabled && canCheckout;
 const error = Astro.url.searchParams.get('error');
 
 // SEO: absolute image URL for OpenGraph + JSON-LD.
-const imagePath = productImageUrl(product.image_key);
+const imagePath = productImageUrl(product.image_key, getConfig().images.baseUrl);
 const imageAbs = new URL(imagePath, Astro.url.origin).href;
 const jsonLd = {
   '@context': 'https://schema.org',

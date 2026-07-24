@@ -1,5 +1,6 @@
 ---
 import { productImageUrl } from './image';
+import { getConfig } from '../../config';
 
 interface Props {
   imageKey: string | null;
@@ -17,7 +18,7 @@ const { imageKey, alt, class: className = '' } = Astro.props;
     actual display size comes from `class`. All product images + the placeholder
     are square; object-cover crops anything that isn't. */}
 <img
-  src={productImageUrl(imageKey)}
+  src={productImageUrl(imageKey, getConfig().images.baseUrl)}
   alt={alt}
   class={className}
   width="600"

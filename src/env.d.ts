@@ -55,6 +55,9 @@ declare namespace Cloudflare {
     STORE_NAME: string;
     // Fallback IANA time zone; setup/admin settings store the runtime override.
     TIME_ZONE?: string;
+    // Absolute base URL for product images (e.g. an R2 custom domain) so they
+    // bypass the Worker's /images route. Absent = serve via /images.
+    IMAGE_BASE_URL?: string;
     // Admin auth (src/middleware.ts): the password is set in the first-run setup
     // wizard and stored as a PBKDF2 hash in D1 — there is no ADMIN_PASSWORD env var.
     // Until one is set the wizard is reachable to create it (bootstrap); Cloudflare

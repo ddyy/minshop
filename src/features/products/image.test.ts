@@ -9,6 +9,12 @@ describe('productImageUrl', () => {
   it('falls back to the placeholder when there is no image', () => {
     expect(productImageUrl(null)).toBe('/placeholder.png');
   });
+
+  it('serves from an absolute base (R2 domain) when configured', () => {
+    expect(productImageUrl('products/abc.png', 'https://images.example.com')).toBe(
+      'https://images.example.com/products/abc.png',
+    );
+  });
 });
 
 function file(type: string, bytes: number): File {

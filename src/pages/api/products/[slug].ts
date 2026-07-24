@@ -5,6 +5,7 @@ import { listVariants, listExtras } from '../../../features/products/variants';
 import { categoriesForProduct } from '../../../features/categories/db';
 import { toCatalogProduct } from '../../../features/catalog/serialize';
 import { catalogJson, catalogPreflight } from '../../../features/catalog/http';
+import { getConfig } from '../../../config';
 
 export const prerender = false;
 
@@ -23,6 +24,10 @@ export const GET: APIRoute = async ({ params, url }) => {
     listExtras(env.DB, product.id),
   ]);
   return catalogJson(
-    toCatalogProduct(product, cats.map((c) => c.name), url.origin, { variants, extras }),
+    toCatalogProduct(product, cats.map((c) => c.name), url.origin, {
+      variants,
+      extras,
+      imageBaseUrl: getConfig().images.baseUrl,
+    }),
   );
 };

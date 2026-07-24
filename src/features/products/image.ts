@@ -12,11 +12,16 @@ const ALLOWED = new Map([
  * Public URL for a product's image — the R2-served object, or the shared
  * placeholder when the product has none. Single source of truth for the
  * image/placeholder fallback, used by both the storefront and the Stripe line
- * items. Returns a root-relative path; prefix with the origin for an absolute
- * URL (e.g. Stripe, which must fetch it).
+ * items.
+ *
+ * With `baseUrl` set (config.images.baseUrl, from IMAGE_BASE_URL — e.g. an R2
+ * custom domain) it returns an absolute URL that bypasses the Worker's /images
+ * route; otherwise a root-relative `/images/...` path (prefix with the origin
+ * for an absolute URL where one is required, e.g. Stripe/email).
  */
-export function productImageUrl(imageKey: string | null): string {
-  return imageKey ? `/images/${imageKey}` : '/placeholder.png';
+export function productImageUrl(imageKey: string | null, baseUrl = ''): string {
+  if (!imageKey) return '/placeholder.png';
+  return baseUrl ? `${baseUrl}/${imageKey}` : `/images/${imageKey}`;
 }
 
 /** Returns a user-facing error string if the upload is invalid, else null. */

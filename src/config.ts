@@ -45,6 +45,10 @@ export interface SiteConfig {
   images: {
     optimizeOnUpload: boolean;
     maxWidth: number;
+    /** Absolute base to serve product images from (e.g. an R2 custom domain like
+     *  https://images.example.com) so they bypass the Worker's /images route, or
+     *  '' to serve via that route. Set with the IMAGE_BASE_URL var. No trailing slash. */
+    baseUrl: string;
   };
   /**
    * Customer-facing order number, derived from the internal id (the id stays the
@@ -196,6 +200,7 @@ function defaultConfig(): SiteConfig {
     images: {
       optimizeOnUpload: false, // set true after enabling Transformations (free ≤5k/mo)
       maxWidth: 1000,
+      baseUrl: (env.IMAGE_BASE_URL ?? '').replace(/\/+$/, ''),
     },
     orderNumber: {
       offset: 1000, // first order shows as #1000
