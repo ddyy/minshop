@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { getConfig } from '../../config';
 import type { Product } from '../products/db';
+import { getProductsByIds, setRelatedIds, parseRelatedIds } from '../products/db';
 import type { SearchProvider } from './provider';
 import { createFtsSearch } from './fts';
 import {
@@ -67,6 +68,41 @@ export async function getRelatedByVector(productId: number, limit = 4): Promise<
   }
 }
 
+/**
+ * Compute a product's semantic neighbours and persist them on the product row.
+ * Called at catalog-write time (create/update/reindex) and lazily in the
+ * background on a cache miss, so the request path never pays for Vectorize.
+ * Silent no-op when semantic search is off or the lookup fails — a missing list
+ * just means the page uses category-based related instead.
+ */
+export async function storeRelatedIds(productId: number, limit = 4): Promise<void> {
+  if (!(await vectorReady())) return;
+  try {
+    const related = await relatedByVector(env.VECTORIZE!, env.DB, productId, limit);
+    await setRelatedIds(env.DB, productId, related.map((p) => p.id));
+  } catch {
+    // Leave the column as-is; the page still renders with the category fallback.
+  }
+}
+
+/**
+ * Read a product's stored neighbours. `related_ids` may reference products that
+ * have since been deleted or deactivated — getProductsByIds filters on active,
+ * so stale entries drop out silently rather than 404ing a row.
+ */
+export async function getRelatedStored(
+  product: Pick<Product, 'id' | 'related_ids'>,
+  limit = 4,
+): Promise<Product[] | null> {
+  const ids = parseRelatedIds(product.related_ids);
+  if (ids === null) return null; // never computed → caller decides to backfill
+  if (ids.length === 0) return [];
+  const found = await getProductsByIds(env.DB, ids.slice(0, limit));
+  // Preserve similarity order; getProductsByIds returns rows in id order.
+  const byId = new Map(found.map((p) => [p.id, p]));
+  return ids.map((id) => byId.get(id)).filter((p): p is Product => p !== undefined);
+}
+
 export async function getSearchProvider(): Promise<SearchProvider> {
   const cfg = getConfig().search;
   if (!(await vectorReady())) return createFtsSearch(env.DB);
@@ -130,6 +166,10 @@ export async function indexProduct(p: Product): Promise<void> {
   const text = productEmbedText(p, cats.map((c) => c.name));
   const values = await embedText(env.AI!, getConfig().search.embeddingModel, text);
   await env.VECTORIZE!.upsert([{ id: String(p.id), values }]);
+  // Refresh this product's neighbours now that its vector changed. Neighbours of
+  // OTHER products drift until the next reindex; "you may also like" tolerates
+  // that, and the page tops up from category-based related when short.
+  await storeRelatedIds(p.id);
 }
 
 /** Remove a product's embedding. No-op unless semantic search is on. */
@@ -150,5 +190,8 @@ export async function indexProducts(products: Product[]): Promise<number> {
     }),
   );
   await env.VECTORIZE!.upsert(vectors);
+  // Second pass: neighbours can only be computed once every vector is in the
+  // index, so this runs after the upsert rather than inside the map above.
+  for (const p of products) await storeRelatedIds(p.id);
   return vectors.length;
 }

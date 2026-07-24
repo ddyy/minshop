@@ -1,0 +1,11 @@
+-- Precomputed "you may also like" neighbours, as a JSON array of product ids.
+--
+-- Recommendations are derived from the catalog, not the shopper, so every visitor
+-- to a product page gets the same list. Deriving it per request cost two sequential
+-- Vectorize round-trips (getByIds + query) on every cache miss, whose latency was
+-- highly variable (observed 0.35s to 7s+ on an otherwise 8ms render). Storing it
+-- here moves that work to catalog-write time and off the request path entirely.
+--
+-- NULL = not computed yet; the product page falls back to category-based related
+-- and backfills in the background, so no migration-time backfill is required.
+ALTER TABLE products ADD COLUMN related_ids TEXT;

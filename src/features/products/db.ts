@@ -11,6 +11,9 @@ export interface Product {
   stock: number;
   active: number;
   variant_label: string | null; // variant group display name (e.g. "Size"); null = no variants
+  /** Precomputed semantic neighbours as a JSON id array; null = not computed yet
+   *  (see migration 0024 / features/search relatedIds). */
+  related_ids: string | null;
   created_at: string;
 }
 
@@ -98,6 +101,34 @@ export async function countAllProducts(db: D1Database): Promise<number> {
  * Active products for a list of ids, returned IN THE ORDER of `ids` (so a ranked
  * search — e.g. vector similarity — keeps its ordering). Missing/inactive dropped.
  */
+/**
+ * Parse the stored `related_ids` JSON. Returns null when it was never computed
+ * (so the caller can backfill), or [] when computed and genuinely empty. Never
+ * throws — a malformed value is treated as "not computed".
+ */
+export function parseRelatedIds(raw: string | null): number[] | null {
+  if (raw == null) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    return parsed.filter((n): n is number => Number.isInteger(n) && n > 0);
+  } catch {
+    return null;
+  }
+}
+
+/** Persist a product's precomputed semantic neighbours (see migration 0024). */
+export async function setRelatedIds(
+  db: D1Database,
+  productId: number,
+  ids: number[],
+): Promise<void> {
+  await db
+    .prepare('UPDATE products SET related_ids = ? WHERE id = ?')
+    .bind(JSON.stringify(ids), productId)
+    .run();
+}
+
 export async function getProductsByIds(db: D1Database, ids: number[]): Promise<Product[]> {
   if (ids.length === 0) return [];
   const placeholders = ids.map(() => '?').join(',');

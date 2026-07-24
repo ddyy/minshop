@@ -4,7 +4,7 @@ import Layout from '../../layouts/Layout.astro';
 import { getProductBySlug, listProductImages } from '../../features/products/db';
 import { listVariants, listExtras } from '../../features/products/variants';
 import { categoriesForProduct, relatedProducts } from '../../features/categories/db';
-import { getRelatedByVector } from '../../features/search';
+import { getRelatedStored, storeRelatedIds } from '../../features/search';
 import { enabledMethods } from '../../features/payments';
 import ProductImage from '../../features/products/ProductImage.astro';
 import { productImageUrl } from '../../features/products/image';
@@ -22,15 +22,24 @@ if (!product) {
 // category-based related query if there aren't enough — so the row fills (when the
 // catalog allows) instead of showing just the 1–2 nearest vectors. Deduped, capped.
 const RELATED_TARGET = 4;
+// Neighbours come from the precomputed related_ids column (a local D1 read), NOT
+// from Vectorize: querying it here cost two sequential round-trips whose latency
+// swung from 0.35s to 7s+ on an 8ms render. null = never computed, so fall back to
+// category-based related and populate in the background for next time.
 // These reads are independent after the product is known. Run them together so
 // an uncached product render pays one concurrent wait instead of a serial chain.
-const [categories, semantic, variants, extras, gallery] = await Promise.all([
+const [categories, storedRelated, variants, extras, gallery] = await Promise.all([
   categoriesForProduct(env.DB, product.id),
-  getRelatedByVector(product.id, RELATED_TARGET),
+  getRelatedStored(product, RELATED_TARGET),
   listVariants(env.DB, product.id),
   listExtras(env.DB, product.id),
   listProductImages(env.DB, product.id),
 ]);
+if (storedRelated === null) {
+  // Backfill after the response is sent, so the shopper never waits on Vectorize.
+  Astro.locals.cfContext?.waitUntil(storeRelatedIds(product.id, RELATED_TARGET));
+}
+const semantic = storedRelated ?? [];
 let related = semantic;
 if (related.length < RELATED_TARGET) {
   const seen = new Set(related.map((p) => p.id));

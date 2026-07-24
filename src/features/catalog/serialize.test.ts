@@ -13,6 +13,7 @@ const base: Product = {
   stock: 120,
   active: 1,
   variant_label: null,
+  related_ids: null,
   created_at: '2026-06-18 00:00:00',
 };
 const ORIGIN = 'https://shop.example.com';
