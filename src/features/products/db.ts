@@ -96,6 +96,23 @@ export async function countAllProducts(db: D1Database): Promise<number> {
   return row?.n ?? 0;
 }
 
+/**
+ * Stable keyset page for catalog-wide background/admin jobs. Unlike the admin
+ * table query this does not calculate sales totals, and unlike OFFSET pagination
+ * it keeps making progress if rows are removed while a job is running.
+ */
+export async function listProductsAfterId(
+  db: D1Database,
+  afterId: number,
+  limit: number,
+): Promise<Product[]> {
+  const { results } = await db
+    .prepare('SELECT * FROM products WHERE id > ? ORDER BY id ASC LIMIT ?')
+    .bind(afterId, limit)
+    .all<Product>();
+  return results ?? [];
+}
+
 /** Single product by id, or null if missing. */
 /**
  * Active products for a list of ids, returned IN THE ORDER of `ids` (so a ranked

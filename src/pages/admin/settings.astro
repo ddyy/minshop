@@ -249,6 +249,14 @@ const timeZones = allTimeZones();
 // disabled and search stays on keyword (FTS5).
 const searchProvider = settings.searchProvider ?? cfg.search.provider;
 const vectorBindingsReady = semanticSearchAvailable(capabilities);
+const reindexCursorValue = Number(Astro.url.searchParams.get('reindex_cursor'));
+const reindexProcessedValue = Number(Astro.url.searchParams.get('reindex_processed'));
+const reindexCursor =
+  Number.isInteger(reindexCursorValue) && reindexCursorValue > 0 ? reindexCursorValue : 0;
+const reindexProcessed =
+  Number.isInteger(reindexProcessedValue) && reindexProcessedValue > 0
+    ? reindexProcessedValue
+    : 0;
 
 // Storefront feature switches (runtime, default on).
 const baseFeatureRows: { key: string; label: string; desc: string; on: boolean }[] = [
@@ -901,16 +909,22 @@ const sections = [
       {
         searchProvider === 'vector' && vectorBindingsReady && (
           <div class="flex flex-wrap items-center gap-3 border-t border-gray-100 px-4 py-4">
-            <form method="POST" action="/api/admin/search/reindex">
+            <form method="POST" action="/api/admin/search/reindex" data-reindex-form>
+              <input type="hidden" name="cursor" value={String(reindexCursor)} />
+              <input type="hidden" name="processed" value={String(reindexProcessed)} />
               <button
                 type="submit"
                 class="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-hover"
               >
-                Reindex all products
+                <span data-reindex-label>
+                  {reindexCursor > 0 ? 'Continue reindex' : 'Reindex all products'}
+                </span>
               </button>
             </form>
-            <span class="text-xs text-gray-400">
-              Embeds every product into Vectorize. Run once after turning this on, or to backfill.
+            <span class="text-xs text-gray-400" data-reindex-status aria-live="polite">
+              {reindexCursor > 0
+                ? `${reindexProcessed} products complete. Continue with the next batch.`
+                : 'Embeds every product into Vectorize in small batches. Run once after turning this on, or to backfill.'}
             </span>
           </div>
         )
@@ -965,6 +979,70 @@ const sections = [
         }, 3500);
       if (location.search.indexOf('msg=') !== -1)
         history.replaceState(null, '', location.pathname + location.hash);
+    })();
+  </script>
+
+  <script is:inline>
+    // Reindex in bounded Worker requests. The server also carries the cursor
+    // through redirects, so without JS the same form becomes a Continue button.
+    (function () {
+      if (!window.fetch) return;
+      var form = document.querySelector('[data-reindex-form]');
+      if (!form) return;
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var button = form.querySelector('button[type="submit"]');
+        var label = form.querySelector('[data-reindex-label]');
+        var status = document.querySelector('[data-reindex-status]');
+        var cursor = form.querySelector('input[name="cursor"]');
+        var processed = form.querySelector('input[name="processed"]');
+        if (button) button.disabled = true;
+        if (label) label.textContent = 'Reindexing…';
+        if (status) status.textContent = 'Starting…';
+
+        function nextBatch() {
+          return fetch(form.action, {
+            method: 'POST',
+            body: new FormData(form),
+            headers: {
+              Accept: 'application/json',
+              'X-Requested-With': 'fetch',
+            },
+          })
+            .then(function (response) {
+              return response.json().then(function (data) {
+                if (!response.ok) throw new Error(data.error || 'Reindex failed');
+                return data;
+              });
+            })
+            .then(function (data) {
+              if (status) status.textContent = data.processed + ' / ' + data.total + ' products';
+              if (data.done) {
+                if (cursor) cursor.value = '0';
+                if (processed) processed.value = '0';
+                if (button) button.disabled = false;
+                if (label) label.textContent = 'Reindex all products';
+                if (status) {
+                  status.textContent = 'Reindexed ' + data.processed + ' products ✓';
+                  status.className = 'text-xs font-medium text-green-600';
+                }
+                return;
+              }
+              if (cursor) cursor.value = String(data.nextCursor || 0);
+              if (processed) processed.value = String(data.processed || 0);
+              return nextBatch();
+            });
+        }
+
+        nextBatch().catch(function (error) {
+          if (button) button.disabled = false;
+          if (label) label.textContent = 'Continue reindex';
+          if (status) {
+            status.textContent = error && error.message ? error.message : 'Reindex failed';
+            status.className = 'text-xs font-medium text-red-600';
+          }
+        });
+      });
     })();
   </script>
 

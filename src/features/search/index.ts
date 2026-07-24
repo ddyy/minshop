@@ -75,14 +75,18 @@ export async function getRelatedByVector(productId: number, limit = 4): Promise<
  * Silent no-op when semantic search is off or the lookup fails — a missing list
  * just means the page uses category-based related instead.
  */
-export async function storeRelatedIds(productId: number, limit = 4): Promise<void> {
-  if (!(await vectorReady())) return;
+async function storeRelatedIdsReady(productId: number, limit: number): Promise<void> {
   try {
     const related = await relatedByVector(env.VECTORIZE!, env.DB, productId, limit);
     await setRelatedIds(env.DB, productId, related.map((p) => p.id));
   } catch {
     // Leave the column as-is; the page still renders with the category fallback.
   }
+}
+
+export async function storeRelatedIds(productId: number, limit = 4): Promise<void> {
+  if (!(await vectorReady())) return;
+  await storeRelatedIdsReady(productId, limit);
 }
 
 /**
@@ -169,7 +173,7 @@ export async function indexProduct(p: Product): Promise<void> {
   // Refresh this product's neighbours now that its vector changed. Neighbours of
   // OTHER products drift until the next reindex; "you may also like" tolerates
   // that, and the page tops up from category-based related when short.
-  await storeRelatedIds(p.id);
+  await storeRelatedIdsReady(p.id, 4);
 }
 
 /** Remove a product's embedding. No-op unless semantic search is on. */
@@ -191,7 +195,16 @@ export async function indexProducts(products: Product[]): Promise<number> {
   );
   await env.VECTORIZE!.upsert(vectors);
   // Second pass: neighbours can only be computed once every vector is in the
-  // index, so this runs after the upsert rather than inside the map above.
-  for (const p of products) await storeRelatedIds(p.id);
+  // index, so this runs after the upsert rather than inside the map above. Keep
+  // concurrency deliberately small: Vectorize latency is variable, while an
+  // unbounded Promise.all would create a binding burst for a large batch.
+  const RELATED_CONCURRENCY = 3;
+  for (let i = 0; i < products.length; i += RELATED_CONCURRENCY) {
+    await Promise.all(
+      products
+        .slice(i, i + RELATED_CONCURRENCY)
+        .map((product) => storeRelatedIdsReady(product.id, 4)),
+    );
+  }
   return vectors.length;
 }
