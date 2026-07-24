@@ -25,11 +25,11 @@ describe('toCatalogProduct', () => {
       slug: 'canvas-tote-bag',
       name: 'Canvas Tote Bag',
       in_stock: true,
-      stock: 120,
       categories: ['Apparel'],
       image: 'https://shop.example.com/images/products/canvas-tote-bag.webp',
       url: 'https://shop.example.com/product/canvas-tote-bag',
     });
+    expect(c).not.toHaveProperty('stock');
   });
 
   it('reports price in both major and minor units, currency upper-cased', () => {
@@ -63,7 +63,7 @@ describe('toCatalogProduct', () => {
     expect(c.extras).toBeUndefined();
   });
 
-  it('embeds variants + extras and derives stock from variants', () => {
+  it('embeds variants + extras and derives availability from variants', () => {
     const p = { ...base, stock: 0, variant_label: 'Size' }; // product row stock is irrelevant
     const variants = [
       { id: 1, product_id: 4, label: 'S', price_cents: 2400, stock: 0, sku: 'T-S', position: 0, active: 1, image_id: null },
@@ -75,10 +75,10 @@ describe('toCatalogProduct', () => {
     const c = toCatalogProduct(p, [], ORIGIN, { variants, extras });
     expect(c.variant_label).toBe('Size');
     expect(c.in_stock).toBe(true); // L is in stock
-    expect(c.stock).toBe(5); // sum of variant stock
+    expect(c).not.toHaveProperty('stock');
     expect(c.variants).toEqual([
-      { id: 1, label: 'S', price: { amount: 24, cents: 2400, currency: 'USD' }, in_stock: false, stock: 0, sku: 'T-S' },
-      { id: 2, label: 'L', price: { amount: 26, cents: 2600, currency: 'USD' }, in_stock: true, stock: 5, sku: null },
+      { id: 1, label: 'S', price: { amount: 24, cents: 2400, currency: 'USD' }, in_stock: false, sku: 'T-S' },
+      { id: 2, label: 'L', price: { amount: 26, cents: 2600, currency: 'USD' }, in_stock: true, sku: null },
     ]);
     expect(c.extras).toEqual([
       { id: 9, label: 'Gift wrap', price_delta: { amount: 5, cents: 500, currency: 'USD' } },

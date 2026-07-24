@@ -13,6 +13,10 @@ const DEFAULT_LIMIT = 24;
 const MAX_LIMIT = 100;
 
 const clampInt = (raw: string | null, def: number, min: number, max: number): number => {
+  // Missing/blank param → the default. (Guard this explicitly: Number(null) and
+  // Number('') are 0, which is finite, so without this the default is skipped and
+  // the value clamps to `min` — e.g. limit would default to 1, not DEFAULT_LIMIT.)
+  if (raw == null || raw.trim() === '') return def;
   const n = Number(raw);
   if (!Number.isFinite(n)) return def;
   return Math.min(Math.max(Math.trunc(n), min), max);
@@ -36,10 +40,9 @@ export const GET: APIRoute = async ({ url }) => {
   let page;
   let total;
   if (q) {
-    // Search isn't paginated at the source — fetch matches, then window them.
-    const matches = (await (await getSearchProvider()).search(q)).products;
-    total = matches.length;
-    page = matches.slice(offset, offset + limit);
+    const result = await (await getSearchProvider()).search(q, { limit, offset });
+    total = result.total;
+    page = result.products;
   } else {
     page = await listProducts(env.DB, limit, offset);
     total = await countProducts(env.DB);

@@ -9,7 +9,6 @@ export interface CatalogVariant {
   label: string;
   price: { amount: number; cents: number; currency: string };
   in_stock: boolean;
-  stock: number;
   sku: string | null;
 }
 
@@ -29,6 +28,11 @@ export interface CatalogExtra {
  * `variant_label` flags products that have a variant group (so a list consumer
  * knows to fetch the detail). `variants`/`extras` are populated only on the
  * detail route — the list stays lightweight.
+ *
+ * Availability is exposed as `in_stock` only — NOT an exact count. A public,
+ * pollable browse endpoint that returned exact quantities would leak sales
+ * velocity (poll over time, watch it drop). Agents get the precise remaining
+ * amount transactionally, in the checkout stock-shortfall error, not here.
  */
 export interface CatalogProduct {
   id: number;
@@ -37,7 +41,6 @@ export interface CatalogProduct {
   description: string | null;
   price: { amount: number; cents: number; currency: string };
   in_stock: boolean;
-  stock: number;
   variant_label: string | null;
   categories: string[];
   image: string;
@@ -55,7 +58,7 @@ const money = (cents: number, currency: string) => ({
 /**
  * Serialize a product (+ its category names) into the catalog shape. Pass
  * `options.variants`/`options.extras` (detail route) to embed them; when variants
- * are present they are the inventory unit, so top-level stock/in_stock derive from
+ * are present they are the inventory unit, so top-level `in_stock` derives from
  * them rather than the product row.
  */
 export function toCatalogProduct(
@@ -76,7 +79,6 @@ export function toCatalogProduct(
     price: money(p.price_cents, p.currency),
     // With variants, availability comes from them (the variant is the SKU).
     in_stock: hasVariants ? variants!.some((v) => v.stock > 0) : p.stock > 0,
-    stock: hasVariants ? variants!.reduce((n, v) => n + v.stock, 0) : p.stock,
     variant_label: p.variant_label,
     categories: categoryNames,
     image: new URL(productImageUrl(p.image_key, options?.imageBaseUrl ?? ''), origin).href,
@@ -89,7 +91,6 @@ export function toCatalogProduct(
       label: v.label,
       price: money(v.price_cents, p.currency),
       in_stock: v.stock > 0,
-      stock: v.stock,
       sku: v.sku,
     }));
   }
