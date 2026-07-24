@@ -5,6 +5,19 @@
    structural CSS owned by the template. */
 @import "./theme.css";
 
+/* Tailwind v4 dropped the default pointer cursor on <button>. Restore it for
+   interactive controls (buttons, ARIA buttons, clickable labels, disclosures)
+   so anything clickable reads as clickable — links already get it natively.
+   Disabled controls opt out. */
+@layer base {
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  label[for],
+  summary {
+    cursor: pointer;
+  }
+}
+
 /* One orchestrated page-load reveal (staggered via inline animation-delay).
    Ends in the visible state and is disabled for reduced-motion / no-animation,
    so content is never permanently hidden — safe with no JS. */

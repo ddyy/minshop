@@ -65,7 +65,7 @@ const count = cartCount(cart);
                       Update
                     </button>
                   </form>
-                  <form method="POST" action="/api/cart">
+                  <form method="POST" action="/api/cart" class="flex items-center">
                     <input type="hidden" name="_action" value="remove" />
                     <input type="hidden" name="key" value={l.key} />
                     <button

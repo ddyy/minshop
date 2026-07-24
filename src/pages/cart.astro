@@ -123,7 +123,7 @@ const showCountry = shipCountries.length > 1;
                   </button>
                 </form>
                 <span class="w-20 text-right tabular-nums">{formatPrice(l.lineTotalCents)}</span>
-                <form method="POST" action="/api/cart">
+                <form method="POST" action="/api/cart" class="flex items-center">
                   <input type="hidden" name="_action" value="remove" />
                   <input type="hidden" name="key" value={l.key} />
                   <button
