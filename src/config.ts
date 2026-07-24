@@ -264,8 +264,13 @@ function defaultConfig(): SiteConfig {
  * Effective config: upstream defaults with your `store.config.ts` overrides
  * merged on top. Read everywhere via getConfig() — the single source of truth.
  */
+// The merged config is fixed for the life of a Worker instance (it's build-time
+// data + env vars — runtime overrides live in D1/locals, not here), so build it
+// once and reuse it. getConfig() is called all over (per product card, per
+// formatPrice), and deepMerge isn't free.
+let configCache: SiteConfig | undefined;
 export function getConfig(): SiteConfig {
-  return deepMerge<SiteConfig>(defaultConfig(), storeOverrides);
+  return (configCache ??= deepMerge<SiteConfig>(defaultConfig(), storeOverrides));
 }
 
 // Currency scaling lives in the dependency-free ./money module (so unit-tested
@@ -279,11 +284,17 @@ import { toMajorUnits } from './money';
  * currency; pass an explicit currency for historical records (e.g. an order
  * charged in a different currency). Single source of truth for money display.
  */
+// `new Intl.NumberFormat` is expensive to construct, so cache one formatter per
+// currency and reuse it (a product listing calls this once per item).
+const priceFormatters = new Map<string, Intl.NumberFormat>();
 export function formatPrice(cents: number, currency: string = getConfig().currency): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: currency.toUpperCase(),
-  }).format(toMajorUnits(cents, currency));
+  const cur = currency.toUpperCase();
+  let fmt = priceFormatters.get(cur);
+  if (!fmt) {
+    fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: cur });
+    priceFormatters.set(cur, fmt);
+  }
+  return fmt.format(toMajorUnits(cents, currency));
 }
 
 /**
