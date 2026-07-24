@@ -5,10 +5,12 @@ import type { PendingPayment } from '../lightning/pending';
 
 // Lightning QR view. Rendered by /pay/[publicId] for lnbits/phoenixd payments;
 // that route polls the node on load and redirects to the order page once settled.
+// When `expired`, it shows a terminal state with no reload loop.
 interface Props {
   pending: PendingPayment;
+  expired?: boolean;
 }
-const { pending } = Astro.props;
+const { pending, expired = false } = Astro.props;
 
 const bolt11 = pending.bolt11 ?? '';
 const lightningUri = `lightning:${bolt11}`;
@@ -17,68 +19,100 @@ const qrSvg = bolt11 ? renderSVG(bolt11, { border: 2 }) : null;
 const fiat = formatPrice(pending.amount_total_cents, pending.currency);
 const sats = (pending.amount_sat ?? 0).toLocaleString('en-US');
 const refreshSeconds = 4;
+// Epoch ms the invoice lapses, so the reload loop can stop instead of polling
+// the node forever on an abandoned tab.
+const expiresAtMs = pending.expires_at ? Date.parse(pending.expires_at) : null;
 ---
 
-<div class="mx-auto max-w-md text-center">
-  <h1 class="mb-1 text-2xl font-bold">Pay with Lightning</h1>
-  <p class="mb-1 text-3xl font-bold tabular-nums">{sats} sats</p>
-  <p class="mb-6 text-sm text-gray-500">{fiat} · scan or tap to pay</p>
-
-  <a
-    href={lightningUri}
-    class="block rounded-xl border border-gray-200 bg-white p-4"
-    aria-label="Open in Lightning wallet"
-  >
-    <div
-      class="mx-auto aspect-square w-full max-w-[18rem] rounded-lg bg-white p-2 [&>svg]:h-full [&>svg]:w-full"
-      set:html={qrSvg}
-    />
-  </a>
-
-  <div class="mt-4 text-left">
-    <label class="mb-1 block text-xs font-medium text-gray-500" for="invoice">
-      Lightning invoice
-    </label>
-    <div class="flex gap-2">
-      <input
-        id="invoice"
-        value={bolt11}
-        readonly
-        class="min-w-0 flex-1 truncate rounded-md border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-xs"
-      />
-      <button
-        type="button"
-        data-copy
-        data-invoice={bolt11}
-        class="shrink-0 rounded-md bg-brand px-3 py-2 text-sm font-medium text-white hover:bg-brand-hover"
+{
+  expired ? (
+    <div class="mx-auto max-w-md text-center">
+      <h1 class="mb-2 text-2xl font-bold">Invoice expired</h1>
+      <p class="mb-6 text-sm text-gray-500">
+        This Lightning invoice is no longer payable and you weren't charged. Start a new
+        checkout to try again.
+      </p>
+      <a
+        href="/cart"
+        class="inline-block rounded-md bg-brand px-5 py-2.5 text-sm font-medium text-white hover:bg-brand-hover"
       >
-        Copy
-      </button>
+        Back to cart
+      </a>
     </div>
-  </div>
+  ) : (
+    <Fragment>
+      <div class="mx-auto max-w-md text-center">
+        <h1 class="mb-1 text-2xl font-bold">Pay with Lightning</h1>
+        <p class="mb-1 text-3xl font-bold tabular-nums">{sats} sats</p>
+        <p class="mb-6 text-sm text-gray-500">{fiat} · scan or tap to pay</p>
 
-  <a href={lightningUri} class="mt-4 inline-block text-sm font-medium text-accent">
-    Open in wallet →
-  </a>
+        <a
+          href={lightningUri}
+          class="block rounded-xl border border-gray-200 bg-white p-4"
+          aria-label="Open in Lightning wallet"
+        >
+          <div
+            class="mx-auto aspect-square w-full max-w-[18rem] rounded-lg bg-white p-2 [&>svg]:h-full [&>svg]:w-full"
+            set:html={qrSvg}
+          />
+        </a>
 
-  <p class="mt-6 text-xs text-gray-400" data-status>
-    Waiting for payment… this page updates automatically.
-  </p>
-</div>
+        <div class="mt-4 text-left">
+          <label class="mb-1 block text-xs font-medium text-gray-500" for="invoice">
+            Lightning invoice
+          </label>
+          <div class="flex gap-2">
+            <input
+              id="invoice"
+              value={bolt11}
+              readonly
+              class="min-w-0 flex-1 truncate rounded-md border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-xs"
+            />
+            <button
+              type="button"
+              data-copy
+              data-invoice={bolt11}
+              class="shrink-0 rounded-md bg-brand px-3 py-2 text-sm font-medium text-white hover:bg-brand-hover"
+            >
+              Copy
+            </button>
+          </div>
+        </div>
 
-<script is:inline define:vars={{ refreshSeconds }}>
-  // Near-zero-JS: poll by reloading; the server settles + redirects on payment.
-  setTimeout(() => location.reload(), refreshSeconds * 1000);
+        <a href={lightningUri} class="mt-4 inline-block text-sm font-medium text-accent">
+          Open in wallet →
+        </a>
 
-  document.querySelector('[data-copy]')?.addEventListener('click', async (e) => {
-    const btn = e.currentTarget;
-    try {
-      await navigator.clipboard.writeText(btn.dataset.invoice || '');
-      const prev = btn.textContent;
-      btn.textContent = 'Copied';
-      setTimeout(() => (btn.textContent = prev), 1500);
-    } catch {
-      /* clipboard unavailable — the invoice is still selectable */
-    }
-  });
-</script>
+        <p class="mt-6 text-xs text-gray-400" data-status>
+          Waiting for payment… this page updates automatically.
+        </p>
+      </div>
+
+      <script is:inline define:vars={{ refreshSeconds, expiresAtMs }}>
+        // Near-zero-JS: poll by reloading while the invoice is still payable. The
+        // server settles + redirects on payment, or renders the expired view once
+        // it lapses. Stop scheduling reloads at expiry so an abandoned tab doesn't
+        // poll the node forever.
+        const now = Date.now();
+        if (!expiresAtMs || now < expiresAtMs) {
+          const delay = expiresAtMs
+            ? Math.min(refreshSeconds * 1000, expiresAtMs - now + 500)
+            : refreshSeconds * 1000;
+          setTimeout(() => location.reload(), Math.max(delay, 500));
+        }
+
+        document.querySelector('[data-copy]')?.addEventListener('click', async (e) => {
+          const btn = e.currentTarget;
+          try {
+            await navigator.clipboard.writeText(btn.dataset.invoice || '');
+            const prev = btn.textContent;
+            btn.textContent = 'Copied';
+            setTimeout(() => (btn.textContent = prev), 1500);
+          } catch {
+            /* clipboard unavailable — the invoice is still selectable */
+          }
+        });
+      </script>
+    </Fragment>
+  )
+}

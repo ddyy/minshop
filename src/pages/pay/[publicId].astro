@@ -36,6 +36,14 @@ if (isLightning && (await settleLightningOnLoad(pending))) {
   return Astro.redirect(`/order/${pending.public_id}`, 303);
 }
 
+// Past its 15-min window (config.payments.lightning.invoiceExpiryMinutes) the
+// BOLT11 can no longer be paid, so render a terminal "expired" state instead of
+// the auto-reloading QR — otherwise an abandoned tab would poll the node forever.
+const lightningExpired =
+  isLightning &&
+  (pending.status === 'expired' ||
+    (pending.expires_at != null && Date.parse(pending.expires_at) <= Date.now()));
+
 const { storeName } = getConfig();
 const title = isDemo ? 'Demo checkout' : 'Pay with Lightning';
 const description = isDemo
@@ -45,5 +53,5 @@ const description = isDemo
 
 <Layout title={title} description={description}>
   {isDemo && <DemoCheckout pending={pending} declined={declined} />}
-  {isLightning && <LightningPay pending={pending} />}
+  {isLightning && <LightningPay pending={pending} expired={lightningExpired} />}
 </Layout>
