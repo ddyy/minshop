@@ -12,6 +12,15 @@ const order = token ? await getOrderByPublicId(env.DB, token) : null;
 // before it exists. If found, it's confirmed — clear the cart and show it.
 if (order) Astro.cookies.delete('cart', { path: '/' });
 const items = order ? await listOrderItems(env.DB, order.id) : [];
+
+// Human label for the rail the order was paid on (NULL = legacy, hidden).
+const PAYMENT_LABELS: Record<string, string> = {
+  stripe: 'Card',
+  lightning: 'Lightning',
+  opennode: 'Bitcoin',
+  demo: 'Demo (no charge)',
+};
+const paymentLabel = order?.payment_method ? PAYMENT_LABELS[order.payment_method] ?? null : null;
 ---
 
 <Layout title={order ? 'Order confirmed' : 'Confirming your order'}>
@@ -50,6 +59,9 @@ const items = order ? await listOrderItems(env.DB, order.id) : [];
         <p class="mt-4 text-lg font-semibold">
           Total: {formatPrice(order.amount_total_cents, order.currency)}
         </p>
+        {paymentLabel && (
+          <p class="mt-1 text-sm text-gray-500">Paid with {paymentLabel}</p>
+        )}
         <a href="/" class="mt-6 inline-block text-accent hover:underline">
           &larr; Continue shopping
         </a>
