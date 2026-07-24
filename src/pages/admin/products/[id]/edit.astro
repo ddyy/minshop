@@ -10,7 +10,8 @@ import {
   flattenTree,
   categoriesForProduct,
 } from '../../../../features/categories/db';
-import { toMajorUnits, minorUnitsPerMajor } from '../../../../config';
+import { toMajorUnits, minorUnitsPerMajor, getConfig } from '../../../../config';
+import { productImageUrl } from '../../../../features/products/image';
 
 const id = Number(Astro.params.id);
 const product = Number.isFinite(id) ? await getProduct(env.DB, id) : null;
@@ -31,7 +32,8 @@ const extras = await listExtras(env.DB, product.id, true);
 const imageById = new Map(images.map((i) => [i.id, i]));
 // The product's main photo — a variant with no specific image falls back to this
 // (so new variants default to showing it rather than an empty box).
-const mainPhoto = product.image_key ? `/images/${product.image_key}` : null;
+const imgBase = getConfig().images.baseUrl;
+const mainPhoto = product.image_key ? productImageUrl(product.image_key, imgBase) : null;
 // Price inputs are major units; step to the currency's smallest unit (0.01 USD, 1 JPY).
 const priceStep = 1 / minorUnitsPerMajor(product.currency);
 const major = (cents: number) => toMajorUnits(cents, product.currency);
@@ -129,7 +131,7 @@ const major = (cents: number) => toMajorUnits(cents, product.currency);
                   the alt fields out of horizontal alignment. */}
               <div class="relative shrink-0">
                 <img
-                  src={`/images/${img.image_key}`}
+                  src={productImageUrl(img.image_key, imgBase)}
                   alt={img.alt ?? ''}
                   class="h-14 w-14 rounded object-cover"
                 />
@@ -239,7 +241,7 @@ const major = (cents: number) => toMajorUnits(cents, product.currency);
                   >
                     <img
                       data-photo-preview
-                      src={sel ? `/images/${sel.image_key}` : (mainPhoto ?? undefined)}
+                      src={sel ? productImageUrl(sel.image_key, imgBase) : (mainPhoto ?? undefined)}
                       alt=""
                       class:list={['h-full w-full object-cover', !sel && !mainPhoto && 'hidden']}
                     />
@@ -279,7 +281,7 @@ const major = (cents: number) => toMajorUnits(cents, product.currency);
                         <button
                           type="button"
                           data-thumb={img.id}
-                          data-src={`/images/${img.image_key}`}
+                          data-src={productImageUrl(img.image_key, imgBase)}
                           aria-pressed={!!v && img.id === v.image_id ? 'true' : 'false'}
                           title={img.alt?.trim() || `Image ${idx + 1}`}
                           class:list={[
@@ -287,7 +289,7 @@ const major = (cents: number) => toMajorUnits(cents, product.currency);
                             !!v && img.id === v.image_id && 'ring-2 ring-brand',
                           ]}
                         >
-                          <img src={`/images/${img.image_key}`} alt="" class="h-full w-full object-cover" />
+                          <img src={productImageUrl(img.image_key, imgBase)} alt="" class="h-full w-full object-cover" />
                         </button>
                       ))}
                       {images.length === 0 && (

@@ -74,8 +74,11 @@ const buyNowEnabled = Astro.locals.settings?.buyNowEnabled ?? true;
 const showBuyNow = buyNowEnabled && canCheckout;
 const error = Astro.url.searchParams.get('error');
 
+// Serve every product image (main, gallery, thumbnails) from the configured
+// base (R2 custom domain) when set, else the /images Worker route.
+const imgBase = getConfig().images.baseUrl;
 // SEO: absolute image URL for OpenGraph + JSON-LD.
-const imagePath = productImageUrl(product.image_key, getConfig().images.baseUrl);
+const imagePath = productImageUrl(product.image_key, imgBase);
 const imageAbs = new URL(imagePath, Astro.url.origin).href;
 const jsonLd = {
   '@context': 'https://schema.org',
@@ -127,7 +130,7 @@ const jsonLdStr = JSON.stringify(jsonLd).replace(/</g, '\\u003c');
             {gallery.map((img) => (
               <img
                 id={`pi-${img.id}`}
-                src={`/images/${img.image_key}`}
+                src={productImageUrl(img.image_key, imgBase)}
                 alt={img.alt || product.name}
                 width="800"
                 height="800"
@@ -146,7 +149,7 @@ const jsonLdStr = JSON.stringify(jsonLd).replace(/</g, '\\u003c');
                 href={`#pi-${img.id}`}
                 class="shrink-0 overflow-hidden rounded border border-line transition hover:border-brand"
               >
-                <img src={`/images/${img.image_key}`} alt="" class="h-16 w-16 object-cover" />
+                <img src={productImageUrl(img.image_key, imgBase)} alt="" class="h-16 w-16 object-cover" />
               </a>
             ))}
           </div>

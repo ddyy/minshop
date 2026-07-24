@@ -63,7 +63,12 @@
 	//   "ai": { "binding": "AI" },
 	//   "vectorize": [{ "binding": "VECTORIZE", "index_name": "minshop-products" }],
 	//   "send_email": [{ "name": "EMAIL" }],
-	// No build-time vars. Store name, time zone, and the search backend are all set
+	//
+	// Serve product images from an R2 custom domain (bypasses the Worker /images
+	// route) — connect a public custom domain to the bucket, then set (README → Settings):
+	//   "vars": { "IMAGE_BASE_URL": "https://images.example.com" },
+	//
+	// Store name, time zone, and the search backend are all set
 	// at RUNTIME in the first-run setup wizard / Admin → Settings (stored in D1), so
 	// the one-click deploy doesn't prompt for them — free-form deploy fields would
 	// only invite a typo that a wizard field validates. Code defaults apply until the
