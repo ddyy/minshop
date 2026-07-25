@@ -28,7 +28,7 @@ describe('toCatalogProduct', () => {
       in_stock: true,
       categories: ['Apparel'],
       image: 'https://shop.example.com/images/products/canvas-tote-bag.webp',
-      url: 'https://shop.example.com/product/canvas-tote-bag',
+      url: 'https://shop.example.com/products/canvas-tote-bag',
     });
     expect(c).not.toHaveProperty('stock');
   });

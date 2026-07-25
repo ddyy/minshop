@@ -15,7 +15,7 @@ const { product: p, index = 0, priority = false } = Astro.props;
 ---
 
 <li class="reveal group" style={`animation-delay:${Math.min(index, 8) * 60}ms`}>
-  <a href={`/product/${p.slug}`} class="block">
+  <a href={`/products/${p.slug}`} class="block">
     <div class="relative overflow-hidden rounded-md bg-gray-100">
       <ProductImage
         imageKey={p.image_key}

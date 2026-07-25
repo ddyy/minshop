@@ -219,7 +219,7 @@ async function gate(context: APIContext, next: MiddlewareNext): Promise<Response
 async function route(context: APIContext, next: MiddlewareNext): Promise<Response> {
   const req = context.request;
   const path = context.url.pathname;
-  const productError = path.startsWith('/product/') && context.url.searchParams.has('error');
+  const productError = path.startsWith('/products/') && context.url.searchParams.has('error');
 
   // Edge-cache the explicitly public storefront shell and catalog API. Cart
   // contents stay on private routes and the header badge loads as a separate

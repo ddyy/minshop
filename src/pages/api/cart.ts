@@ -53,7 +53,7 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
       if (partial) return new Response(null, { status: 204 });
       const label = product.variant_label || 'option';
       return redirect(
-        `/product/${product.slug}?error=${encodeURIComponent(`Please choose a ${label}.`)}`,
+        `/products/${product.slug}?error=${encodeURIComponent(`Please choose a ${label}.`)}`,
         303,
       );
     }

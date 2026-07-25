@@ -148,7 +148,7 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
       if (!variant) {
         const label = product.variant_label || 'option';
         return redirect(
-          `/product/${product.slug}?error=${encodeURIComponent(`Please choose a ${label}.`)}`,
+          `/products/${product.slug}?error=${encodeURIComponent(`Please choose a ${label}.`)}`,
           303,
         );
       }
@@ -171,8 +171,8 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
         variantId: variant?.id ?? null,
       },
     ];
-    cancelUrl = `${origin}/product/${product.slug}?canceled=1`;
-    errorPath = `/product/${product.slug}`;
+    cancelUrl = `${origin}/products/${product.slug}?canceled=1`;
+    errorPath = `/products/${product.slug}`;
   } else {
     const { lines: cartLines } = await resolveCart(env.DB, readCart(cookies));
     lines = cartLines.map((l) => ({

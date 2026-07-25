@@ -15,8 +15,8 @@ export const GET: APIRoute = async ({ url }) => {
 
   const locs = [
     `${origin}/`,
-    ...categories.map((c) => `${origin}/category/${c.slug}`),
-    ...products.map((p) => `${origin}/product/${p.slug}`),
+    ...categories.map((c) => `${origin}/categories/${c.slug}`),
+    ...products.map((p) => `${origin}/products/${p.slug}`),
   ];
 
   const body = `<?xml version="1.0" encoding="UTF-8"?>

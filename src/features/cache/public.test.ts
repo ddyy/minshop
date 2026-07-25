@@ -38,14 +38,14 @@ describe('publicCacheRequest', () => {
   it('drops ignored parameters from category and product keys', () => {
     expect(
       publicCacheRequest(
-        new Request('https://shop.example/category/home?sort=price&dir=desc&utm_medium=social'),
+        new Request('https://shop.example/categories/home?sort=price&dir=desc&utm_medium=social'),
       ).url,
-    ).toBe('https://shop.example/category/home?sort=price');
+    ).toBe('https://shop.example/categories/home?sort=price');
     expect(
       publicCacheRequest(
-        new Request('https://shop.example/product/mug?utm_source=test&ref=sidebar'),
+        new Request('https://shop.example/products/mug?utm_source=test&ref=sidebar'),
       ).url,
-    ).toBe('https://shop.example/product/mug');
+    ).toBe('https://shop.example/products/mug');
   });
 });
 
@@ -60,8 +60,8 @@ describe('isPublicCatalogApi', () => {
 describe('isPublicStorefrontPath', () => {
   it('allows catalog documents but excludes personalized fragments and payments', () => {
     expect(isPublicStorefrontPath('/')).toBe(true);
-    expect(isPublicStorefrontPath('/product/mug')).toBe(true);
-    expect(isPublicStorefrontPath('/category/home')).toBe(true);
+    expect(isPublicStorefrontPath('/products/mug')).toBe(true);
+    expect(isPublicStorefrontPath('/categories/home')).toBe(true);
     expect(isPublicStorefrontPath('/partials/cart')).toBe(false);
     expect(isPublicStorefrontPath('/pay/order-id')).toBe(false);
   });

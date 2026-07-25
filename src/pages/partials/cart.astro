@@ -31,7 +31,7 @@ const count = cartCount(cart);
         <ul class="divide-y divide-line">
           {lines.map((l) => (
             <li class="flex gap-4 py-4">
-              <a href={`/product/${l.product.slug}`} class="shrink-0">
+              <a href={`/products/${l.product.slug}`} class="shrink-0">
                 <ProductImage
                   imageKey={l.product.image_key}
                   alt=""
@@ -43,7 +43,7 @@ const count = cartCount(cart);
                 />
               </a>
               <div class="flex flex-1 flex-col">
-                <a href={`/product/${l.product.slug}`} class="text-sm leading-snug hover:text-brand">
+                <a href={`/products/${l.product.slug}`} class="text-sm leading-snug hover:text-brand">
                   {l.product.name}
                 </a>
                 {(l.variant || l.extras.length > 0) && (

@@ -204,8 +204,10 @@ src/
     storage/    provider port + R2 adapter
   pages/
     index.astro               storefront
-    product/[slug].astro
-    category/[slug].astro
+    products/[slug].astro
+    categories/[slug].astro
+    product/[slug].astro      301 → /products/[slug] (retired URL)
+    category/[slug].astro     301 → /categories/[slug] (retired URL)
     admin/                    products, categories, orders, customers, settings
     images/[...key].ts        serves private R2 objects
     api/                      catalog, checkout, webhooks, admin mutations
@@ -414,7 +416,7 @@ Each product is self-describing, price in both major + minor units:
   "price": { "amount": 32, "cents": 3200, "currency": "USD" },
   "in_stock": true, "categories": ["Apparel"],
   "image": "https://…/images/products/merino-wool-beanie.webp",
-  "url": "https://…/product/merino-wool-beanie" }
+  "url": "https://…/products/merino-wool-beanie" }
 ```
 
 `POST /api/checkout` recalculates price and stock from D1. Set `method` to one of the values returned by `GET /api/checkout`; omitting it uses the default. Stripe and OpenNode return `flow: "redirect"` with a hosted `checkout_url`. Lightning returns `flow: "invoice"`, a browser/QR fallback in `checkout_url`, and a directly payable BOLT11 invoice:

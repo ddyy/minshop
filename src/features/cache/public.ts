@@ -17,8 +17,8 @@ export function isPublicStorefrontPath(pathname: string): boolean {
   return (
     pathname === '/' ||
     pathname === '/search' ||
-    pathname.startsWith('/product/') ||
-    pathname.startsWith('/category/') ||
+    pathname.startsWith('/products/') ||
+    pathname.startsWith('/categories/') ||
     pathname === '/robots.txt' ||
     pathname === '/sitemap.xml' ||
     pathname === '/llms.txt'
@@ -61,10 +61,10 @@ export function publicCacheRequest(request: Request): Request {
     url.search = '';
     if (query) url.searchParams.set('q', query);
     if (page > 1) url.searchParams.set('page', String(page));
-  } else if (path === '/' || path.startsWith('/category/')) {
+  } else if (path === '/' || path.startsWith('/categories/')) {
     canonicalizeStoreList(url);
   } else if (
-    path.startsWith('/product/') ||
+    path.startsWith('/products/') ||
     path === '/robots.txt' ||
     path === '/sitemap.xml' ||
     path === '/llms.txt'

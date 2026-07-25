@@ -94,6 +94,29 @@ node -e '
   }
 ' "$sample_page"
 
+# The public catalog routes are plural, and the retired singular URLs keep
+# permanently redirecting so previously indexed links and sitemaps survive.
+for pair in "product/sample-tee:/products/sample-tee" "category/apparel:/categories/apparel"; do
+  old_path="${pair%%:*}"
+  expected="${pair##*:}"
+  redirect="$(curl --silent --output /dev/null \
+    --write-out '%{http_code} %{redirect_url}' \
+    "http://127.0.0.1:$test_port/$old_path?sort=price")"
+  if [[ "$redirect" != "301 http://127.0.0.1:$test_port$expected?sort=price" ]]; then
+    echo "D1 integration failed: /$old_path did not redirect to $expected (got $redirect)" >&2
+    exit 1
+  fi
+done
+
+for path in /products/sample-tee /categories/apparel; do
+  status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+    "http://127.0.0.1:$test_port$path")"
+  if [[ "$status" != "200" ]]; then
+    echo "D1 integration failed: $path returned $status" >&2
+    exit 1
+  fi
+done
+
 # A shopper's cart stays private while the catalog shell remains shared. The
 # count fragment reads only the HttpOnly cookie, and the full drawer resolves
 # all cart rows through the batched product/variant/extra path.

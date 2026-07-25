@@ -29,11 +29,11 @@ export const GET: APIRoute = async ({ url }) => {
   const productLines = products.map((p) => {
     const desc = oneLine(p.description);
     const stock = p.stock <= 0 ? ' (out of stock)' : '';
-    return `- [${linkText(p.name)}](${origin}/product/${p.slug}): ${formatPrice(p.price_cents, currency)}${stock}${desc ? ` — ${desc}` : ''}`;
+    return `- [${linkText(p.name)}](${origin}/products/${p.slug}): ${formatPrice(p.price_cents, currency)}${stock}${desc ? ` — ${desc}` : ''}`;
   });
 
   const categoryLines = categories.map(
-    (c) => `- [${linkText(c.name)}](${origin}/category/${c.slug})`,
+    (c) => `- [${linkText(c.name)}](${origin}/categories/${c.slug})`,
   );
 
   const body = `# ${storeName}

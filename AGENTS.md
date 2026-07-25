@@ -75,7 +75,8 @@ src/
     catalog/   serialize · http  (public API shapes for /api/products)
     cart/ categories/ customers/
   pages/
-    index, product/[slug], category/, search, cart, checkout (Lightning own-checkout)
+    index, products/[slug], categories/[slug], search, cart, checkout (Lightning own-checkout)
+    product/[slug], category/[slug] — 301s to the plural URLs; keep indefinitely
     pay/[publicId] (Lightning invoice page), order/[token] (confirmation)
     admin/ (CRUD UI, login, logout)
     api/ (cart, webhook, admin/*; checkout — form OR JSON {items} → checkout_url;
@@ -126,6 +127,12 @@ To swap/add a provider, write one adapter file + wire the factory:
 8. **Tests stay pure.** A `*.test.ts` must NOT import `cloudflare:workers` (vitest
    can't load it). Keep DB/env logic out of unit-tested modules — pass `db` and
    secrets as params (see `lightning/rate.ts`, `auth/session.ts`).
+9. **Public routes are plural for browsable collections** — `/products/<slug>`,
+   `/categories/<slug>` — matching the admin (`/admin/products`), the JSON API
+   (`/api/products/<slug>`), and the feature directories. Token-addressed single
+   resources stay singular: `/order/<token>`, `/pay/<publicId>`. Retiring a
+   public URL means leaving a 301 stub behind permanently; these paths appear in
+   sitemaps, `llms.txt`, and search indexes on stores you don't control.
 
 ## Recipes — how to add X
 

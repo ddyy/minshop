@@ -82,7 +82,7 @@ export function toCatalogProduct(
     variant_label: p.variant_label,
     categories: categoryNames,
     image: new URL(productImageUrl(p.image_key, options?.imageBaseUrl ?? ''), origin).href,
-    url: new URL(`/product/${p.slug}`, origin).href,
+    url: new URL(`/products/${p.slug}`, origin).href,
   };
 
   if (variants) {

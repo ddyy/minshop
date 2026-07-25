@@ -36,7 +36,7 @@ let backHref = '/';
 if (isBuyNow) {
   const product = await getProduct(env.DB, productId);
   if (!product || !product.active) return Astro.redirect('/', 303);
-  backHref = `/product/${product.slug}`;
+  backHref = `/products/${product.slug}`;
 
   const variantId = Number(fld('variant_id')) || 0;
   const extraIds = (isPost ? form!.getAll('extra') : Astro.url.searchParams.getAll('extra'))
@@ -47,13 +47,13 @@ if (isBuyNow) {
   const variant = variants.length > 0 ? (variants.find((v) => v.id === variantId) ?? null) : null;
   if (variants.length > 0 && !variant) {
     return Astro.redirect(
-      `/product/${product.slug}?error=${encodeURIComponent(`Please choose a ${product.variant_label || 'option'}.`)}`,
+      `/products/${product.slug}?error=${encodeURIComponent(`Please choose a ${product.variant_label || 'option'}.`)}`,
       303,
     );
   }
   const extras = extraIds.length ? await getExtrasByIds(env.DB, productId, extraIds) : [];
   if ((variant ? variant.stock : product.stock) <= 0) {
-    return Astro.redirect(`/product/${product.slug}?error=Sold+out`, 303);
+    return Astro.redirect(`/products/${product.slug}?error=Sold+out`, 303);
   }
   lines = [
     {
