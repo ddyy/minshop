@@ -5,7 +5,7 @@ import MediaPicker from '../../features/media/MediaPicker.astro';
 import { setLogoFromMedia } from '../../features/media/db';
 import { homeTargetIsValid } from '../../features/settings/home';
 import { listPublishedPageOptions } from '../../features/pages/db';
-import { listProducts, getProduct } from '../../features/products/db';
+import { listProducts, getProductsByIds } from '../../features/products/db';
 import { mediaUrl } from '../../features/media/url';
 import { getConfig, formatPrice } from '../../config';
 import {
@@ -315,9 +315,21 @@ const homeChoice = settings.homePage ?? '';
 // silently clear a perfectly valid setting. Pull the chosen one in explicitly.
 const chosenProductId = homeChoice.startsWith('product:') ? Number(homeChoice.slice(8)) : null;
 if (chosenProductId && !homeProducts.some((p) => p.id === chosenProductId)) {
-  const chosen = await getProduct(env.DB, chosenProductId);
+  // getProductsByIds filters on active = 1. getProduct does not, and pulling an
+  // INACTIVE product back in would show it as the selected home page while the
+  // storefront had already fallen back — and saving it would fail validation,
+  // leaving a form that cannot be submitted without changing the answer.
+  const [chosen] = await getProductsByIds(env.DB, [chosenProductId]);
   if (chosen) homeProducts.unshift(chosen);
 }
+// A stored choice with no matching option — deactivated product, unpublished or
+// deleted page. The select falls back to showing "Product list (default)", which
+// is what the storefront renders too, so say why rather than letting the setting
+// look like it vanished on its own.
+const homeChoiceMissing =
+  homeChoice !== '' &&
+  !homePages.some((page) => `page:${page.id}` === homeChoice) &&
+  !homeProducts.some((product) => `product:${product.id}` === homeChoice);
 const timeZone = settings.timeZone ?? cfg.timeZone;
 const announcement = settings.announcement ?? '';
 const announcementHref = settings.announcementHref ?? '';
@@ -619,6 +631,14 @@ const sections = [
           Save
         </button>
       </div>
+      {
+        homeChoiceMissing && (
+          <p class="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            The page or product this was set to is no longer published or active, so the home
+            page is showing the product list. Pick a new one to update the setting.
+          </p>
+        )
+      }
       <p class="mt-3 text-xs text-gray-400">
         Only published pages and active products are listed. If the one you pick is later
         unpublished or deleted, the home page falls back to the product list rather than
