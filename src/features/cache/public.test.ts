@@ -93,3 +93,23 @@ describe('content pages', () => {
     expect(a.url).toBe(b.url);
   });
 });
+
+describe('catalog list route', () => {
+  it('treats /products as public storefront HTML', () => {
+    // The catalog needs its own URL when / has been pointed at a page.
+    expect(isPublicStorefrontPath('/products')).toBe(true);
+  });
+
+  it('canonicalizes /products like the other sortable lists', () => {
+    // Same treatment as / and /categories/: defaults dropped, real controls kept,
+    // so equivalent URLs share one cache entry.
+    expect(
+      publicCacheRequest(
+        new Request('https://shop.example/products?sort=newest&dir=desc&page=1&utm_source=x'),
+      ).url,
+    ).toBe('https://shop.example/products');
+    expect(
+      publicCacheRequest(new Request('https://shop.example/products?sort=price&page=2')).url,
+    ).toBe('https://shop.example/products?sort=price&page=2');
+  });
+});

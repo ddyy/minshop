@@ -208,6 +208,7 @@ src/
     storage/    provider port + R2 adapter
   pages/
     index.astro               storefront
+    products/index.astro       catalog list (also rendered at /)
     products/[slug].astro
     categories/[slug].astro
     pages/[slug].astro        merchant-authored Markdown pages
@@ -353,6 +354,8 @@ Nothing to enable: an empty table means the feature is simply unused, and no pag
 **Drafts and publishing.** A page is a draft until published. Drafts 404 on the storefront. Published pages appear in the footer (up to 50, ordered by title), the sitemap, and `llms.txt`.
 
 **Missing images.** Your text always saves. What is blocked is a *draft going live* with images that would render broken — the save is kept and publishing is refused with a warning naming the count. An already-published page is never silently unpublished over a missing image; it stays live and the warning tells you to fix it.
+
+**As the home page.** `/` shows the product list by default; **Admin → Settings → Home page** can point it at a published page or an active product instead. The catalog keeps its own URL at `/products`, and the header gains a **Shop** link to it whenever `/` has been taken over — otherwise the product list would be reachable only through search or a category. The chosen target is stored by id, so renaming it does not break the setting, and anything unresolvable — unpublished, deactivated, deleted — falls back to the product list rather than serving a 404 homepage. The content keeps one canonical URL (`/pages/<slug>` or `/products/<slug>`), so serving it at `/` does not create a second indexable copy.
 
 **Caching.** Storefront HTML is cached at the edge for 60 seconds, so a published edit — like any settings or catalog change — can take up to a minute to appear. Draft and missing pages send `no-store`, so publishing is visible immediately even to someone who hit the URL beforehand.
 

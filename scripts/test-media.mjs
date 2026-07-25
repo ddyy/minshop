@@ -15,6 +15,7 @@ import {
 import { mediaUsage, mediaUsageForIds, isUnused } from '../src/features/media/usage.ts';
 import { uploadMedia } from '../src/features/media/upload.ts';
 import { savePageBody } from '../src/features/pages/save.ts';
+import { resolveHomePath, homeTargetIsValid } from '../src/features/settings/home.ts';
 
 // Media lifecycle against a real D1. The properties under test are the ones a
 // mocked database cannot show: that the guarded DELETE and the guarded
@@ -82,6 +83,8 @@ try {
     `CREATE TABLE products (
        id INTEGER PRIMARY KEY AUTOINCREMENT,
        name TEXT NOT NULL,
+       slug TEXT,
+       active INTEGER NOT NULL DEFAULT 1,
        image_key TEXT)`,
     `CREATE TABLE product_images (
        id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -468,6 +471,58 @@ try {
     }
     const found = await findMediaByKeys(db, keys);
     assert.equal(found.length, 130, `expected 130 rows, got ${found.length}`);
+  });
+
+  console.log('\nhome page target');
+
+  await check('resolves a published page and an active product', async () => {
+    await db
+      .prepare("INSERT INTO pages (id, title, slug, published) VALUES (40, 'Landing', 'landing', 1)")
+      .run();
+    await db
+      .prepare("INSERT INTO products (id, name, slug, active) VALUES (940, 'Hero', 'hero', 1)")
+      .run();
+    assert.equal(await resolveHomePath(db, 'page:40'), '/pages/landing');
+    assert.equal(await resolveHomePath(db, 'product:940'), '/products/hero');
+  });
+
+  // Every one of these must fall back to the catalog. A homepage that 404s
+  // would be served — and edge-cached — for every visitor.
+  await check('falls back to the catalog when the target is a draft', async () => {
+    await db
+      .prepare("INSERT INTO pages (id, title, slug, published) VALUES (41, 'Draft', 'draft-home', 0)")
+      .run();
+    assert.equal(await resolveHomePath(db, 'page:41'), null);
+  });
+
+  await check('falls back when the target product is inactive', async () => {
+    await db
+      .prepare("INSERT INTO products (id, name, slug, active) VALUES (941, 'Hidden', 'hidden', 0)")
+      .run();
+    assert.equal(await resolveHomePath(db, 'product:941'), null);
+  });
+
+  await check('falls back when the target was deleted', async () => {
+    assert.equal(await resolveHomePath(db, 'page:99999'), null);
+    assert.equal(await resolveHomePath(db, 'product:99999'), null);
+  });
+
+  await check('falls back for an unset or malformed setting', async () => {
+    for (const value of [null, '', 'page:', 'nonsense', 'category:1']) {
+      assert.equal(await resolveHomePath(db, value), null, `value ${JSON.stringify(value)}`);
+    }
+  });
+
+  await check('a renamed page keeps resolving, because the id is stored', async () => {
+    await db.prepare("UPDATE pages SET slug = 'landing-renamed' WHERE id = 40").run();
+    assert.equal(await resolveHomePath(db, 'page:40'), '/pages/landing-renamed');
+  });
+
+  await check('validation refuses what the storefront would not resolve', async () => {
+    assert.equal(await homeTargetIsValid(db, ''), true, 'the default must be allowed');
+    assert.equal(await homeTargetIsValid(db, 'page:40'), true);
+    assert.equal(await homeTargetIsValid(db, 'page:41'), false, 'a draft was accepted');
+    assert.equal(await homeTargetIsValid(db, 'product:941'), false, 'an inactive product was accepted');
   });
 
   console.log('\nbulk usage');

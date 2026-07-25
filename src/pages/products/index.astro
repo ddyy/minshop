@@ -1,0 +1,22 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import ProductList from '../../features/products/ProductList.astro';
+
+/**
+ * The catalog's own URL.
+ *
+ * `/` shows the catalog by default, but a store can point the home page at a
+ * page or a single product — and then the product list had no address at all,
+ * reachable only through search or a category. This is that address, and the
+ * header links to it whenever the home page has been taken over.
+ *
+ * When `/` IS the catalog the two render the same thing, so this one canonicals
+ * to `/` rather than competing with it for the same content.
+ */
+const homeIsOverridden = !!Astro.locals.settings?.homePage;
+const canonical = homeIsOverridden ? undefined : new URL('/', Astro.url.origin).href;
+---
+
+<Layout title="All products" canonical={canonical}>
+  <ProductList />
+</Layout>

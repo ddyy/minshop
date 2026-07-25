@@ -1,73 +1,19 @@
 ---
 import { env } from 'cloudflare:workers';
 import Layout from '../layouts/Layout.astro';
-import { listProducts, countProducts } from '../features/products/db';
-import ProductCard from '../components/ProductCard.astro';
-import { listCategories, childrenOf } from '../features/categories/db';
-import { orderByClause, parseStoreSortQuery } from '../features/products/sort';
-import {
-  MAX_PUBLIC_PAGE,
-  paginate,
-  queryHref,
-} from '../pagination';
-import Pagination from '../components/Pagination.astro';
-import SortLinks from '../components/SortLinks.astro';
+import ProductList from '../features/products/ProductList.astro';
+import { resolveHomePath } from '../features/settings/home';
 
-const { sort, dir } = parseStoreSortQuery(
-  Astro.url.searchParams.get('sort'),
-  Astro.url.searchParams.get('dir'),
-);
-const order = orderByClause(sort, dir);
-
-const PAGE_SIZE = 24;
-const [total, categories] = await Promise.all([
-  countProducts(env.DB),
-  listCategories(env.DB),
-]);
-const { page, offset, totalPages } = paginate(
-  Astro.url.searchParams,
-  total,
-  PAGE_SIZE,
-  MAX_PUBLIC_PAGE,
-);
-const products = await listProducts(env.DB, PAGE_SIZE, offset, order);
-const topCategories = childrenOf(categories, null);
-const hrefFor = (p: number) =>
-  queryHref('/', {
-    sort: sort === 'newest' ? undefined : sort,
-    dir: dir === 'desc' ? undefined : dir,
-    page: p > 1 ? p : undefined,
-  });
+// A store can point `/` at a page or a single product instead of the catalog.
+// Rewriting rather than duplicating those templates keeps one implementation of
+// each, and it makes the canonical URL resolve to the real page — so the same
+// content served at `/` and at `/pages/<slug>` is not two indexable copies.
+// Anything unresolvable (never set, unpublished, deleted, deactivated) falls
+// through to the catalog: a 404 homepage would be edge-cached for everyone.
+const homePath = await resolveHomePath(env.DB, Astro.locals.settings?.homePage);
+if (homePath) return Astro.rewrite(homePath);
 ---
 
 <Layout>
-  <div class="mb-10">
-    <p class="text-xs uppercase tracking-[0.25em] text-gray-500">Shop</p>
-    <h1 class="mt-2 font-serif text-4xl tracking-tight sm:text-5xl">All products</h1>
-  </div>
-
-  {
-    topCategories.length > 0 && (
-      <div class="mb-12 flex flex-wrap gap-x-6 gap-y-2 text-xs uppercase tracking-widest text-gray-500">
-        {topCategories.map((c) => (
-          <a
-            href={`/categories/${c.slug}`}
-            class="border-b border-transparent pb-0.5 hover:border-brand hover:text-brand"
-          >
-            {c.name}
-          </a>
-        ))}
-      </div>
-    )
-  }
-
-  <SortLinks base="/" sort={sort} dir={dir} />
-
-  {products.length === 0 && <p class="text-gray-500">No products yet.</p>}
-
-  <ul class="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-3">
-    {products.map((p, i) => <ProductCard product={p} index={i} priority={i === 0} />)}
-  </ul>
-
-  <Pagination page={page} totalPages={totalPages} hrefFor={hrefFor} />
+  <ProductList />
 </Layout>

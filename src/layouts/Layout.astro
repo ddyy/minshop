@@ -9,9 +9,12 @@ interface Props {
   description?: string;
   /** Root-relative or absolute image for social cards (made absolute below). */
   image?: string;
+  /** Override the canonical URL. Used where two routes render the same content
+   *  — the catalog is at both / and /products — so only one is indexable. */
+  canonical?: string;
 }
 
-const { title, description, image } = Astro.props;
+const { title, description, image, canonical: canonicalOverride } = Astro.props;
 const config = getConfig();
 const { features } = config;
 // Runtime override (set by the setup wizard) wins over the build-time default.
@@ -23,6 +26,8 @@ const logoUrl = logoImageKey ? mediaUrl(logoImageKey, config.images.baseUrl) : n
 // Loaded by middleware alongside settings (one batched D1 read), so the footer
 // costs no extra round trip on uncached routes like /cart and /checkout.
 const pageLinks = Astro.locals.pageLinks ?? [];
+// When / renders a page or a product, the product list needs its own nav link.
+const homeIsOverridden = !!Astro.locals.settings?.homePage;
 // Cart can be switched off at runtime → browse-only catalog (hide the cart link).
 const cartEnabled = Astro.locals.settings?.cartEnabled ?? true;
 // Accounts nav link: the runtime toggle wins over the build-time default.
@@ -38,7 +43,7 @@ const query =
     : '';
 
 const desc = (description ?? `Shop ${storeName}.`).slice(0, 160);
-const canonical = new URL(Astro.url.pathname, Astro.url.origin).href;
+const canonical = canonicalOverride ?? new URL(Astro.url.pathname, Astro.url.origin).href;
 const ogImage = image ? new URL(image, Astro.url.origin).href : undefined;
 ---
 
@@ -133,6 +138,9 @@ const ogImage = image ? new URL(image, Astro.url.origin).href : undefined;
           />
         </form>
         <nav class="ml-auto flex items-center gap-4 text-xs uppercase tracking-widest text-gray-500 sm:gap-6">
+          {/* The catalog lost its place in the nav when / was pointed at a page
+              or a product, so surface it explicitly in exactly that case. */}
+          {homeIsOverridden && <a href="/products" class="hover:text-brand">Shop</a>}
           {features.blog && <a href="/blog" class="hover:text-brand">Blog</a>}
           {/* Search input is desktop-only; give mobile a link to the search page. */}
           <a href="/search" class="hover:text-brand sm:hidden">Search</a>

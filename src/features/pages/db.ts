@@ -65,6 +65,19 @@ export async function listPublishedPages(db: D1Database): Promise<PageLink[]> {
   return results ?? [];
 }
 
+/**
+ * Published pages as {id, title} for admin pickers. Ids rather than slugs
+ * because a setting that points at a page must survive it being renamed.
+ */
+export async function listPublishedPageOptions(
+  db: D1Database,
+): Promise<Array<{ id: number; title: string }>> {
+  const { results } = await db
+    .prepare('SELECT id, title FROM pages WHERE published = 1 ORDER BY title COLLATE NOCASE, id')
+    .all<{ id: number; title: string }>();
+  return results ?? [];
+}
+
 /** New pages start unpublished: media can only be attached once an id exists. */
 export async function createDraft(
   db: D1Database,
