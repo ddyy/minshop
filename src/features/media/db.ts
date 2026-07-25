@@ -180,19 +180,29 @@ export function pageMediaClaimStatements(
   pageId: number,
   mediaIds: number[],
 ): D1PreparedStatement[] {
-  return [
-    db.prepare('DELETE FROM page_media WHERE page_id = ?').bind(pageId),
-    // INSERT ... SELECT FROM media so a concurrently deleted row is skipped
-    // rather than written as a dangling association.
-    ...mediaIds.map((mediaId) =>
+  const statements = [db.prepare('DELETE FROM page_media WHERE page_id = ?').bind(pageId)];
+
+  // One statement per CHUNK, not per image. D1 allows only 50 queries per
+  // Worker invocation on the Free plan, and a save already spends several on
+  // auth, settings, the page load, the slug check, the media lookup, and the
+  // readback — so a statement per image would break saving an image-heavy page
+  // on exactly the plan this project targets.
+  for (let i = 0; i < mediaIds.length; i += MAX_BOUND_PARAMS - 1) {
+    const chunk = mediaIds.slice(i, i + MAX_BOUND_PARAMS - 1); // -1 for pageId
+    const placeholders = chunk.map(() => '?').join(', ');
+    statements.push(
+      // INSERT ... SELECT FROM media so a concurrently deleted row is skipped
+      // rather than written as a dangling association.
       db
         .prepare(
           `INSERT OR IGNORE INTO page_media (page_id, media_id)
-           SELECT ?1, m.id FROM media m WHERE m.id = ?2`,
+           SELECT ?1, m.id FROM media m WHERE m.id IN (${placeholders})`,
         )
-        .bind(pageId, mediaId),
-    ),
-  ];
+        .bind(pageId, ...chunk),
+    );
+  }
+
+  return statements;
 }
 
 /** Replace a page's media associations with exactly `mediaIds`. */

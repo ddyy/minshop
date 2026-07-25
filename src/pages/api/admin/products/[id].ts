@@ -72,7 +72,9 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
   const slugBase = String(form.get('slug') ?? '').trim() || existing?.slug || parsed.data.name;
   const slug = await uniqueSlug(env.DB, slugBase, id);
 
-  await updateProduct(env.DB, id, { ...parsed.data, image_key, slug });
+  // Claim the image BEFORE committing anything else. A failed claim then aborts
+  // with nothing written; doing it afterwards reported an image error while the
+  // name, price, and stock edits had already been saved.
   if (uploadedMediaId !== null) {
     // Repoint the gallery row at the new media, guarded on that row still
     // existing. The replaced object is NOT deleted: it stays in the library,
@@ -86,8 +88,11 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
       const attached = await attachMediaToProduct(env.DB, id, uploadedMediaId);
       if (!attached.ok) return fail(attached.error);
     }
-    await syncPrimaryImage(env.DB, id); // products.image_key follows the gallery
   }
+
+  await updateProduct(env.DB, id, { ...parsed.data, image_key, slug });
+  // products.image_key follows the gallery, so this runs after both.
+  if (uploadedMediaId !== null) await syncPrimaryImage(env.DB, id);
 
   // Replace category links (empty set clears them).
   const categoryIds = form

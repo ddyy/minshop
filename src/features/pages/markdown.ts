@@ -1,4 +1,5 @@
 import MarkdownIt from 'markdown-it';
+import type Token from 'markdown-it/lib/token.mjs';
 import { mediaUrl } from '../media/url.ts';
 
 /**
@@ -36,6 +37,26 @@ function localKeyFromSrc(src: string, baseUrl: string): string | null {
   return null;
 }
 
+/**
+ * Plain text of inline tokens, for an image's alt attribute.
+ *
+ * markdown-it's own renderInlineAsText skips `text_special`, which is what an
+ * escaped character becomes — so `![Photo of \[blue shirt]` rendered
+ * alt="Photo of blue shirt", quietly losing the bracket. The editor has to
+ * escape brackets (a bare `[` turns the image into a link), so dropping them
+ * here would mean alt text can never contain one.
+ */
+function inlineTextOf(tokens: Token[]): string {
+  return tokens
+    .map((token) => {
+      if (token.type === 'text' || token.type === 'text_special') return token.content;
+      if (token.type === 'code_inline') return token.content;
+      if (token.children?.length) return inlineTextOf(token.children);
+      return '';
+    })
+    .join('');
+}
+
 export interface RenderOptions {
   /** config.images.baseUrl — lets page images use a custom image origin. */
   baseUrl?: string;
@@ -54,7 +75,7 @@ export interface RenderOptions {
  * of stored content.
  */
 function installImageRule(instance: MarkdownIt, baseUrl: string): void {
-  instance.renderer.rules.image = (tokens, idx, options, env, self) => {
+  instance.renderer.rules.image = (tokens, idx, options, _env, self) => {
     const token = tokens[idx];
     const src = token.attrGet('src') ?? '';
     const key = localKeyFromSrc(src, baseUrl);
@@ -62,7 +83,7 @@ function installImageRule(instance: MarkdownIt, baseUrl: string): void {
     // markdown-it's DEFAULT image rule fills `alt` from the token's inline
     // children; overriding the rule means doing it here too. Without this every
     // image renders alt="" — the alt text an author typed is silently dropped.
-    token.attrSet('alt', self.renderInlineAsText(token.children ?? [], options, env));
+    token.attrSet('alt', inlineTextOf(token.children ?? []));
     // Body images are below the fold by definition — the header logo is the
     // only image on the page that must not be lazy.
     token.attrSet('loading', 'lazy');

@@ -10,6 +10,7 @@ import {
   findMediaByKeys,
   setLogoFromMedia,
   replaceProductImageFromMedia,
+  pageMediaClaimStatements,
 } from '../src/features/media/db.ts';
 import { mediaUsage, mediaUsageForIds, isUnused } from '../src/features/media/usage.ts';
 import { uploadMedia } from '../src/features/media/upload.ts';
@@ -421,6 +422,41 @@ try {
     const page = await seedPage(23, 'atomic-unpublish', 1);
     const result = await savePageBody(db, page, fieldsFor(page, 'no images', 0));
     assert.equal(result.published, 0, 'unpublish was ignored');
+  });
+
+  await check('an image-heavy save stays inside D1’s free-plan query budget', async () => {
+    // D1 Free allows 50 queries per Worker invocation. One INSERT per image
+    // would blow that on a gallery-style page, so claims are chunked into bulk
+    // statements. Counting the statements the batch actually contains is the
+    // only way to catch a regression back to per-image inserts.
+    const ids = [];
+    for (let i = 0; i < 48; i++) ids.push((await newMedia(`media/budget-${i}.png`)).id);
+    const statements = pageMediaClaimStatements(db, 30, ids);
+    assert.ok(
+      statements.length <= 3,
+      `48 images produced ${statements.length} statements; a save also spends
+       queries on auth, settings, the page load, the slug check, the lookup and
+       the readback, so this must stay small`,
+    );
+
+    // And they must still claim every one of them.
+    await db
+      .prepare("INSERT INTO pages (id, title, slug, published) VALUES (30, 'Heavy', 'heavy', 0)")
+      .run();
+    await db.batch(statements);
+    const claimed = await db.prepare('SELECT COUNT(*) c FROM page_media WHERE page_id = 30').first();
+    assert.equal(claimed.c, 48, `expected 48 associations, got ${claimed.c}`);
+  });
+
+  await check('claims beyond one chunk are still all written', async () => {
+    const ids = [];
+    for (let i = 0; i < 200; i++) ids.push((await newMedia(`media/chunked-${i}.png`)).id);
+    await db
+      .prepare("INSERT INTO pages (id, title, slug, published) VALUES (31, 'Many', 'many', 0)")
+      .run();
+    await db.batch(pageMediaClaimStatements(db, 31, ids));
+    const claimed = await db.prepare('SELECT COUNT(*) c FROM page_media WHERE page_id = 31').first();
+    assert.equal(claimed.c, 200, `expected 200 associations, got ${claimed.c}`);
   });
 
   await check('media lookup chunks past D1’s 100-parameter limit', async () => {

@@ -102,6 +102,36 @@ describe('renderMarkdown — images', () => {
   });
 });
 
+describe('renderMarkdown — escaped alt text', () => {
+  // The editor escapes \ [ and ] when inserting an image. These assert what
+  // that escaping has to survive: the result must stay ONE image with the
+  // literal characters in its alt, never a link or a broken span.
+  it('keeps an escaped opening bracket inside the alt', () => {
+    const html = renderMarkdown('![Photo of \\[blue shirt](/images/media/a.png)');
+    expect(html).toContain('alt="Photo of [blue shirt"');
+    expect(html).not.toContain('<a');
+  });
+
+  it('keeps an escaped closing bracket inside the alt', () => {
+    const html = renderMarkdown('![Photo of blue\\] shirt](/images/media/a.png)');
+    expect(html).toContain('alt="Photo of blue] shirt"');
+    expect(html).toContain('<img');
+  });
+
+  it('keeps an escaped backslash inside the alt', () => {
+    const html = renderMarkdown('![Back\\\\slash](/images/media/a.png)');
+    expect(html).toContain('alt="Back\\slash"');
+  });
+
+  it('shows what goes wrong UNESCAPED: a bare [ makes a link, not an image', () => {
+    // This is the bug the escaping prevents — kept as the counter-example so the
+    // reason for escaping stays visible.
+    const html = renderMarkdown('![Photo of [blue shirt](/images/media/a.png)');
+    expect(html).toContain('<a href="/images/media/a.png"');
+    expect(html).not.toContain('<img');
+  });
+});
+
 describe('renderMarkdown — source map', () => {
   it('is off by default, so storefront HTML carries no editor plumbing', () => {
     expect(renderMarkdown('# Title\n\nBody.')).not.toContain('data-source-line');

@@ -1,6 +1,11 @@
 import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
-import { createProduct, getProduct, syncPrimaryImage } from '../../../features/products/db';
+import {
+  createProduct,
+  deleteProduct,
+  getProduct,
+  syncPrimaryImage,
+} from '../../../features/products/db';
 import { setProductCategories } from '../../../features/categories/db';
 import { indexProduct } from '../../../features/search';
 import { parseProductForm } from '../../../features/products/form';
@@ -42,7 +47,13 @@ export const POST: APIRoute = async ({ request, redirect }) => {
   const productId = await createProduct(env.DB, { ...parsed.data, image_key: null, slug });
   if (mediaId !== null) {
     const attached = await attachMediaToProduct(env.DB, productId, mediaId);
-    if (!attached.ok) return redirect(fail(attached.error), 303);
+    if (!attached.ok) {
+      // The claim needs a product id, so the row has to exist first. Undo it
+      // rather than reporting a failure while leaving a half-made product
+      // behind for the merchant to trip over on the next attempt.
+      await deleteProduct(env.DB, productId);
+      return redirect(fail(attached.error), 303);
+    }
     await syncPrimaryImage(env.DB, productId); // promotes it to products.image_key
   }
 

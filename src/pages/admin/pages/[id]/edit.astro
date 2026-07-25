@@ -317,8 +317,10 @@ const tools = [
     document.addEventListener('media:selected', (event) => {
       const detail = (event as CustomEvent).detail as { imageKey: string; url: string };
       const raw = window.prompt('Describe this image for screen readers:', '') ?? '';
-      // ] and \ would terminate or escape the alt span and corrupt the link.
-      const alt = raw.replace(/([\\\]])/g, '\\$1');
+      // Escape \ [ and ]. A lone ] closes the alt span early; a lone [ opens a
+      // link, so "Photo of [blue shirt" turns the rest into a link instead of
+      // an image. The backslash has to be escaped too or it eats the next char.
+      const alt = raw.replace(/([\\[\]])/g, '\\$1');
       // Root-relative, never detail.url: with IMAGE_BASE_URL set that is an
       // absolute CDN address, which would be baked into the stored body. The
       // renderer applies the origin at render time and extractMediaKeys matches
