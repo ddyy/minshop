@@ -135,6 +135,68 @@ for path in /products/sample-tee /categories/apparel; do
   fi
 done
 
+# Merchant-authored pages: published ones are public and discoverable, drafts are
+# neither. Seeded directly because the integration harness has no admin session.
+npx wrangler d1 execute DB --local --persist-to "$state_dir" \
+  --command "INSERT INTO pages (title, slug, body_markdown, published) VALUES ('Shipping Info', 'shipping', '## Shipping\n\nWe ship worldwide.', 1), ('Secret Draft', 'secret-draft', 'Not ready.', 0);" >/dev/null
+
+page_status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+  "http://127.0.0.1:$test_port/pages/shipping")"
+if [[ "$page_status" != "200" ]]; then
+  echo "D1 integration failed: published page returned $page_status" >&2
+  exit 1
+fi
+
+page_body="$(curl --fail --silent --show-error "http://127.0.0.1:$test_port/pages/shipping")"
+if [[ "$page_body" != *"We ship worldwide."* ]]; then
+  echo "D1 integration failed: published page did not render its Markdown" >&2
+  exit 1
+fi
+
+# A draft must 404, and must say no-store so a browser or proxy cannot keep
+# serving that 404 after the page is published.
+draft_headers="$(curl --silent --include --output /dev/null --write-out '%{http_code}' \
+  --dump-header - "http://127.0.0.1:$test_port/pages/secret-draft")"
+if [[ "$draft_headers" != *"404"* ]]; then
+  echo "D1 integration failed: draft page did not 404" >&2
+  exit 1
+fi
+if [[ "$draft_headers" != *"no-store"* ]]; then
+  echo "D1 integration failed: draft 404 is missing cache-control: no-store" >&2
+  exit 1
+fi
+
+missing_status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+  "http://127.0.0.1:$test_port/pages/no-such-page")"
+if [[ "$missing_status" != "404" ]]; then
+  echo "D1 integration failed: unknown page returned $missing_status" >&2
+  exit 1
+fi
+
+# The footer links published pages only, on every storefront document.
+home="$(curl --fail --silent --show-error "http://127.0.0.1:$test_port/")"
+if [[ "$home" != *"/pages/shipping"* ]]; then
+  echo "D1 integration failed: published page missing from the footer" >&2
+  exit 1
+fi
+if [[ "$home" == *"/pages/secret-draft"* ]]; then
+  echo "D1 integration failed: draft page leaked into the footer" >&2
+  exit 1
+fi
+
+# Discovery surfaces published pages and hides drafts.
+for surface in sitemap.xml llms.txt; do
+  body="$(curl --fail --silent --show-error "http://127.0.0.1:$test_port/$surface")"
+  if [[ "$body" != *"/pages/shipping"* ]]; then
+    echo "D1 integration failed: published page missing from $surface" >&2
+    exit 1
+  fi
+  if [[ "$body" == *"secret-draft"* ]]; then
+    echo "D1 integration failed: draft page leaked into $surface" >&2
+    exit 1
+  fi
+done
+
 # A shopper's cart stays private while the catalog shell remains shared. The
 # count fragment reads only the HttpOnly cookie, and the full drawer resolves
 # all cart rows through the batched product/variant/extra path.

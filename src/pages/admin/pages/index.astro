@@ -1,0 +1,95 @@
+---
+import { env } from 'cloudflare:workers';
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { listPages } from '../../../features/pages/db';
+
+const pages = await listPages(env.DB);
+const dateFmt = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' });
+const formatDate = (iso: string) => dateFmt.format(new Date(`${iso.replace(' ', 'T')}Z`));
+---
+
+<AdminLayout title="Pages" active="pages">
+  <div class="mb-8 flex items-center justify-between">
+    <h1 class="font-serif text-3xl tracking-tight">Pages</h1>
+    <a
+      href="/admin/pages/new"
+      class="rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover"
+    >
+      New page
+    </a>
+  </div>
+
+  {
+    pages.length === 0 ? (
+      <p class="py-12 text-center text-sm text-gray-500">
+        No pages yet. Create one for About, Shipping, Returns, or Privacy — published pages
+        appear in the storefront footer.
+      </p>
+    ) : (
+      <div class="sm:overflow-x-auto">
+        <table class="admin-table w-full text-left text-sm sm:min-w-[40rem]">
+          <thead>
+            <tr class="border-b border-line text-xs uppercase tracking-widest text-gray-400">
+              <th class="py-3 pr-4 font-normal">Title</th>
+              <th class="py-3 pr-4 font-normal">URL</th>
+              <th class="py-3 pr-4 font-normal">Status</th>
+              <th class="py-3 pr-4 font-normal">Updated</th>
+              <th class="py-3 text-right font-normal">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pages.map((page) => (
+              <tr class="border-b border-line">
+                <td class="py-3 pr-4">
+                  <a href={`/admin/pages/${page.id}/edit`} class="font-medium hover:text-brand">
+                    {page.title}
+                  </a>
+                </td>
+                <td data-label="URL" class="py-3 pr-4 text-gray-500">/pages/{page.slug}</td>
+                <td data-label="Status" class="py-3 pr-4">
+                  {page.published ? (
+                    <span class="text-gray-600">Published</span>
+                  ) : (
+                    <span class="text-gray-400">Draft</span>
+                  )}
+                </td>
+                <td data-label="Updated" class="py-3 pr-4 text-gray-500">
+                  {formatDate(page.updated_at)}
+                </td>
+                <td class="py-3 text-right">
+                  <span class="inline-flex items-center gap-3">
+                    {page.published !== 0 && (
+                      <a
+                        href={`/pages/${page.slug}`}
+                        target="_blank"
+                        rel="noopener"
+                        class="text-xs uppercase tracking-widest text-gray-500 hover:text-brand"
+                      >
+                        View
+                      </a>
+                    )}
+                    <a
+                      href={`/admin/pages/${page.id}/edit`}
+                      class="text-xs uppercase tracking-widest text-gray-500 hover:text-brand"
+                    >
+                      Edit
+                    </a>
+                    <form method="POST" action={`/api/admin/pages/${page.id}`}>
+                      <input type="hidden" name="_action" value="delete" />
+                      <button
+                        type="submit"
+                        class="text-xs uppercase tracking-widest text-red-600 hover:text-red-700"
+                      >
+                        Delete
+                      </button>
+                    </form>
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+</AdminLayout>

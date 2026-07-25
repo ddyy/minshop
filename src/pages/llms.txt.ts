@@ -3,6 +3,7 @@ import { env } from 'cloudflare:workers';
 import { getConfig, formatPrice } from '../config';
 import { listProducts, countProducts } from '../features/products/db';
 import { listCategories } from '../features/categories/db';
+import { listPublishedPages } from '../features/pages/db';
 
 export const prerender = false;
 
@@ -25,6 +26,7 @@ export const GET: APIRoute = async ({ url }) => {
   const total = await countProducts(env.DB);
   const products = total > 0 ? await listProducts(env.DB, total, 0) : [];
   const categories = await listCategories(env.DB);
+  const pages = await listPublishedPages(env.DB);
 
   const productLines = products.map((p) => {
     const desc = oneLine(p.description);
@@ -36,6 +38,10 @@ export const GET: APIRoute = async ({ url }) => {
     (c) => `- [${linkText(c.name)}](${origin}/categories/${c.slug})`,
   );
 
+  // Merchant-authored informational pages (shipping, returns, policies) — the
+  // context an agent needs that the catalog itself doesn't carry.
+  const pageLines = pages.map((p) => `- [${linkText(p.title)}](${origin}/pages/${p.slug})`);
+
   const body = `# ${storeName}
 
 > ${storeName} is an online store you can browse and purchase from programmatically. All prices are in ${currency.toUpperCase()}. This file follows the llms.txt convention (https://llmstxt.org). Catalog and category links are live; an agent can complete a purchase via the JSON checkout endpoint under "For agents".
@@ -45,12 +51,12 @@ ${productLines.length > 0 ? productLines.join('\n') : '- (no products listed)'}
 
 ## Categories
 ${categoryLines.length > 0 ? categoryLines.join('\n') : '- (no categories)'}
-
+${pageLines.length > 0 ? `\n## Pages\n${pageLines.join('\n')}\n` : ''}
 ## For agents
 - [List payment methods](${origin}/api/checkout): \`GET\` → \`{ available_methods, default }\`.
 - [Create a checkout](${origin}/api/checkout): \`POST\` with \`Content-Type: application/json\`, body \`{ "items": [{ "slug": string, "quantity": number, "variant_id"?: number, "extras"?: number[] }], "method"?: string }\` → \`{ "checkout_url": string }\`. Pricing and stock are resolved server-side from \`slug\`; CORS is open for browser-based agents.
 - [Search the catalog](${origin}/search?q=): append a query, e.g. \`/search?q=leather\`. Keyword + semantic matching.
-- [Sitemap](${origin}/sitemap.xml): every product and category URL.
+- [Sitemap](${origin}/sitemap.xml): every product, category, and page URL.
 `;
 
   return new Response(body, {

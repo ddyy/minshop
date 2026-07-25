@@ -10,6 +10,7 @@ type Section =
   | 'customers'
   | 'categories'
   | 'media'
+  | 'pages'
   | 'settings';
 
 interface Props {
@@ -34,6 +35,7 @@ const nav: { key: Section; label: string; href: string }[] = [
   { key: 'orders', label: 'Orders', href: '/admin/orders' },
   { key: 'customers', label: 'Customers', href: '/admin/customers' },
   { key: 'categories', label: 'Categories', href: '/admin/categories' },
+  { key: 'pages', label: 'Pages', href: '/admin/pages' },
   { key: 'media', label: 'Media', href: '/admin/media' },
   { key: 'settings', label: 'Settings', href: '/admin/settings' },
 ];

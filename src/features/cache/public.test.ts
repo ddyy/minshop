@@ -61,8 +61,35 @@ describe('isPublicStorefrontPath', () => {
   it('allows catalog documents but excludes personalized fragments and payments', () => {
     expect(isPublicStorefrontPath('/')).toBe(true);
     expect(isPublicStorefrontPath('/products/mug')).toBe(true);
+    expect(isPublicStorefrontPath('/pages/about')).toBe(true);
     expect(isPublicStorefrontPath('/categories/home')).toBe(true);
     expect(isPublicStorefrontPath('/partials/cart')).toBe(false);
     expect(isPublicStorefrontPath('/pay/order-id')).toBe(false);
+  });
+});
+
+describe('content pages', () => {
+  it('classifies /pages/<slug> as public storefront HTML', () => {
+    expect(isPublicStorefrontPath('/pages/about')).toBe(true);
+    expect(isPublicStorefrontPath('/pages/shipping-returns')).toBe(true);
+  });
+
+  it('does not classify the admin pages screen as public', () => {
+    expect(isPublicStorefrontPath('/admin/pages')).toBe(false);
+    expect(isPublicStorefrontPath('/api/admin/pages')).toBe(false);
+  });
+
+  it('strips tracking parameters from a page cache key', () => {
+    expect(
+      publicCacheRequest(
+        new Request('https://shop.example/pages/about?utm_source=x&ref=y'),
+      ).url,
+    ).toBe('https://shop.example/pages/about');
+  });
+
+  it('gives equivalent page requests one cache entry', () => {
+    const a = publicCacheRequest(new Request('https://shop.example/pages/faq?utm_campaign=a'));
+    const b = publicCacheRequest(new Request('https://shop.example/pages/faq?fbclid=b'));
+    expect(a.url).toBe(b.url);
   });
 });

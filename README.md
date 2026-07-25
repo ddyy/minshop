@@ -197,6 +197,8 @@ src/
   layouts/Layout.astro
   features/
     auth/       admin, customer sessions, Access, Turnstile
+    media/      the shared file library — the only feature that deletes objects
+    pages/      Markdown pages: rendering, slugs, save/media sync
     products/   catalog data, forms, inventory, image handling
     orders/     order data, reservations, tracking
     payments/   provider port + Stripe, Lightning, OpenNode, demo adapters
@@ -206,9 +208,10 @@ src/
     index.astro               storefront
     products/[slug].astro
     categories/[slug].astro
+    pages/[slug].astro        merchant-authored Markdown pages
     product/[slug].astro      301 → /products/[slug] (retired URL)
     category/[slug].astro     301 → /categories/[slug] (retired URL)
-    admin/                    products, categories, orders, customers, settings
+    admin/                    products, categories, pages, media, orders, customers, settings
     images/[...key].ts        serves private R2 objects
     api/                      catalog, checkout, webhooks, admin mutations
 ```

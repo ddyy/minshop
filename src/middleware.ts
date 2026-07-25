@@ -5,7 +5,12 @@ import { verifyAccessJwt } from './features/auth/access';
 import { accessGateDecision } from './features/auth/accessGate';
 import { verifySession } from './features/auth/session';
 import { adminCredential } from './features/auth/admin';
-import { getStoreSettings } from './features/settings/db';
+import {
+  getStoreSettings,
+  parseStoreSettings,
+  STORE_SETTINGS_SQL,
+} from './features/settings/db';
+import { PUBLISHED_PAGE_LINKS_SQL, type PageLink } from './features/pages/db';
 import {
   checkRateLimit,
   rateLimitBucket,
@@ -97,10 +102,33 @@ async function gate(context: APIContext, next: MiddlewareNext): Promise<Response
     !path.startsWith('/_') &&
     !path.startsWith('/partials/');
   if (isDocument) {
+    // Storefront documents also need the footer's published-page links. Both
+    // reads go in ONE batch so /cart, /checkout, /account, /order, and /pay —
+    // which are never edge-cached — don't pay a second D1 round trip.
+    const wantsPageLinks = !path.startsWith('/admin');
     try {
-      context.locals.settings = await getStoreSettings(env.DB);
+      if (wantsPageLinks) {
+        const [settings, links] = await env.DB.batch<Record<string, string>>([
+          env.DB.prepare(STORE_SETTINGS_SQL),
+          env.DB.prepare(PUBLISHED_PAGE_LINKS_SQL),
+        ]);
+        context.locals.settings = parseStoreSettings(
+          (settings.results ?? []) as Array<{ key: string; value: string }>,
+        );
+        context.locals.pageLinks = (links.results ?? []) as unknown as PageLink[];
+      } else {
+        context.locals.settings = await getStoreSettings(env.DB);
+      }
     } catch {
-      // Settings table missing (pre-migration) → just use build-time defaults.
+      // A batch is all-or-nothing, so a missing `pages` table (pre-migration)
+      // would take settings down with it — and losing settings silently
+      // disables the first-run setup funnel below. Retry settings alone.
+      try {
+        context.locals.settings = await getStoreSettings(env.DB);
+        context.locals.pageLinks = [];
+      } catch {
+        // Settings table missing too → fall back to build-time defaults.
+      }
     }
   }
 

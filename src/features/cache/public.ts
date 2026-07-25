@@ -19,6 +19,7 @@ export function isPublicStorefrontPath(pathname: string): boolean {
     pathname === '/search' ||
     pathname.startsWith('/products/') ||
     pathname.startsWith('/categories/') ||
+    pathname.startsWith('/pages/') ||
     pathname === '/robots.txt' ||
     pathname === '/sitemap.xml' ||
     pathname === '/llms.txt'
@@ -65,6 +66,7 @@ export function publicCacheRequest(request: Request): Request {
     canonicalizeStoreList(url);
   } else if (
     path.startsWith('/products/') ||
+    path.startsWith('/pages/') ||
     path === '/robots.txt' ||
     path === '/sitemap.xml' ||
     path === '/llms.txt'

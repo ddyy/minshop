@@ -20,6 +20,9 @@ const storeName = Astro.locals.settings?.storeName ?? config.storeName;
 // the header can never end up empty.
 const logoImageKey = Astro.locals.settings?.logoImageKey ?? null;
 const logoUrl = logoImageKey ? mediaUrl(logoImageKey, config.images.baseUrl) : null;
+// Loaded by middleware alongside settings (one batched D1 read), so the footer
+// costs no extra round trip on uncached routes like /cart and /checkout.
+const pageLinks = Astro.locals.pageLinks ?? [];
 // Cart can be switched off at runtime → browse-only catalog (hide the cart link).
 const cartEnabled = Astro.locals.settings?.cartEnabled ?? true;
 // Accounts nav link: the runtime toggle wins over the build-time default.
@@ -156,8 +159,17 @@ const ogImage = image ? new URL(image, Astro.url.origin).href : undefined;
     </main>
 
     <footer class="border-t border-line">
-      <div class="mx-auto max-w-6xl px-6 py-10 text-xs uppercase tracking-widest text-gray-500">
-        &copy; {storeName}
+      <div
+        class="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-6 py-10 text-xs uppercase tracking-widest text-gray-500"
+      >
+        <span>&copy; {storeName}</span>
+        {
+          pageLinks.map((page) => (
+            <a href={`/pages/${page.slug}`} class="hover:text-brand">
+              {page.title}
+            </a>
+          ))
+        }
       </div>
     </footer>
 

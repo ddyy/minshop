@@ -1,0 +1,32 @@
+---
+import { env } from 'cloudflare:workers';
+import Layout from '../../layouts/Layout.astro';
+import { getConfig } from '../../config';
+import { getPublishedPageBySlug } from '../../features/pages/db';
+import { renderMarkdown, markdownExcerpt } from '../../features/pages/markdown';
+
+const { slug } = Astro.params;
+const page = slug ? await getPublishedPageBySlug(env.DB, slug) : null;
+
+// Drafts are indistinguishable from missing pages here — the query filters on
+// published, so an unpublished slug is a 404 rather than a private preview.
+if (!page) {
+  // Middleware only stores 200s in the shared cache, so no-store is about caches
+  // we do NOT control: 404 is heuristically cacheable, and a browser or proxy
+  // holding one would keep serving it after the page goes live.
+  return new Response('Not found', {
+    status: 404,
+    headers: { 'cache-control': 'no-store' },
+  });
+}
+
+const html = renderMarkdown(page.body_markdown, { baseUrl: getConfig().images.baseUrl });
+const description = markdownExcerpt(page.body_markdown);
+---
+
+<Layout title={page.title} description={description}>
+  <article class="markdown-content">
+    <h1>{page.title}</h1>
+    <Fragment set:html={html} />
+  </article>
+</Layout>

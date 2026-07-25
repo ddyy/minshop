@@ -1,0 +1,242 @@
+---
+import { env } from 'cloudflare:workers';
+import AdminLayout from '../../../../layouts/AdminLayout.astro';
+import MediaPicker from '../../../../features/media/MediaPicker.astro';
+import { getPage } from '../../../../features/pages/db';
+
+const id = Number(Astro.params.id);
+const page = Number.isFinite(id) ? await getPage(env.DB, id) : null;
+if (!page) return new Response('Not found', { status: 404 });
+
+const error = Astro.url.searchParams.get('error');
+const warning = Astro.url.searchParams.get('warning');
+const saved = Astro.url.searchParams.has('saved');
+
+// Toolbar buttons are declarative: each carries the syntax to wrap or insert,
+// so the script stays one generic selection handler rather than nine.
+const tools = [
+  { action: 'prefix', value: '## ', label: 'H2', title: 'Heading' },
+  { action: 'wrap', value: '**', label: 'B', title: 'Bold' },
+  { action: 'wrap', value: '_', label: 'I', title: 'Italic' },
+  { action: 'link', value: '', label: 'Link', title: 'Link' },
+  { action: 'prefix', value: '- ', label: 'List', title: 'Bulleted list' },
+  { action: 'prefix', value: '1. ', label: '1.', title: 'Numbered list' },
+  { action: 'prefix', value: '> ', label: 'Quote', title: 'Blockquote' },
+  { action: 'wrap', value: '`', label: 'Code', title: 'Inline code' },
+];
+---
+
+<AdminLayout title={`Edit ${page.title}`} active="pages">
+  <a href="/admin/pages" class="text-sm text-gray-500 hover:text-brand">&larr; Back to pages</a>
+  <div class="mt-4 mb-6 flex flex-wrap items-center justify-between gap-4">
+    <h1 class="font-serif text-3xl tracking-tight">Edit page</h1>
+    {
+      page.published !== 0 && (
+        <a
+          href={`/pages/${page.slug}`}
+          target="_blank"
+          rel="noopener"
+          class="text-sm text-accent hover:underline"
+        >
+          View on store ↗
+        </a>
+      )
+    }
+  </div>
+
+  {
+    error && (
+      <p class="mb-6 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        {error}
+      </p>
+    )
+  }
+  {
+    warning && (
+      <p class="mb-6 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        {warning}
+      </p>
+    )
+  }
+  {
+    saved && !warning && (
+      <p class="mb-6 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+        Saved.
+      </p>
+    )
+  }
+
+  <form method="POST" action={`/api/admin/pages/${page.id}`} data-page-form>
+    <div class="flex flex-wrap gap-4">
+      <label class="block flex-1 text-xs uppercase tracking-widest text-gray-400">
+        Title
+        <input
+          type="text"
+          name="title"
+          value={page.title}
+          required
+          maxlength="120"
+          class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none"
+        />
+      </label>
+      <label class="block flex-1 text-xs uppercase tracking-widest text-gray-400">
+        Slug
+        <input
+          type="text"
+          name="slug"
+          value={page.slug}
+          class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none"
+        />
+      </label>
+    </div>
+
+    <div class="mt-6 rounded-md border border-line">
+      {/* Write / Preview. Preview posts to the server renderer, so what shows
+          here is byte-for-byte what the storefront will render. */}
+      <div class="flex items-center gap-1 border-b border-line px-2 py-2">
+        <button
+          type="button"
+          data-tab="write"
+          class="rounded px-3 py-1.5 text-xs uppercase tracking-widest text-gray-700"
+          aria-pressed="true"
+        >
+          Write
+        </button>
+        <button
+          type="button"
+          data-tab="preview"
+          class="rounded px-3 py-1.5 text-xs uppercase tracking-widest text-gray-500"
+          aria-pressed="false"
+        >
+          Preview
+        </button>
+      </div>
+
+      <div data-toolbar class="flex flex-wrap items-center gap-1 border-b border-line px-2 py-2">
+        {
+          tools.map((tool) => (
+            <button
+              type="button"
+              data-tool={tool.action}
+              data-value={tool.value}
+              title={tool.title}
+              class="rounded px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 hover:text-brand"
+            >
+              {tool.label}
+            </button>
+          ))
+        }
+        <span class="ml-1"><MediaPicker id="page-body" label="Insert image" /></span>
+      </div>
+
+      <textarea
+        name="body_markdown"
+        data-editor
+        rows="20"
+        spellcheck="true"
+        class="block w-full resize-y border-0 px-4 py-3 font-mono text-sm leading-relaxed focus:outline-none"
+        >{page.body_markdown}</textarea
+      >
+
+      {/* Populated by the preview endpoint; same class the storefront uses. */}
+      <div data-preview class="markdown-content hidden px-4 py-3"></div>
+    </div>
+
+    <div class="mt-6 flex flex-wrap items-center gap-4">
+      <label class="flex items-center gap-2 text-sm text-gray-700">
+        <input type="checkbox" name="published" checked={page.published !== 0} class="rounded" />
+        Published
+      </label>
+      <button
+        type="submit"
+        class="rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover"
+      >
+        Save
+      </button>
+      <span class="text-xs text-gray-400">
+        Published pages appear in the footer and sitemap. Storefront caching means a change
+        can take up to a minute to appear.
+      </span>
+    </div>
+  </form>
+</AdminLayout>
+
+<script>
+  const form = document.querySelector<HTMLFormElement>('[data-page-form]');
+  const editor = form?.querySelector<HTMLTextAreaElement>('[data-editor]');
+  const preview = form?.querySelector<HTMLElement>('[data-preview]');
+  if (form && editor && preview) {
+    /** Replace the selection, then restore a sensible cursor/selection. */
+    const replaceSelection = (text: string, selectFrom: number, selectTo: number) => {
+      const { selectionStart: start, selectionEnd: end } = editor;
+      editor.setRangeText(text, start, end, 'preserve');
+      editor.focus();
+      editor.setSelectionRange(start + selectFrom, start + selectTo);
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+
+    const selected = () => editor.value.slice(editor.selectionStart, editor.selectionEnd);
+
+    form.querySelector('[data-toolbar]')?.addEventListener('click', (event) => {
+      const button = (event.target as HTMLElement).closest<HTMLElement>('[data-tool]');
+      if (!button) return;
+      const kind = button.dataset.tool;
+      const value = button.dataset.value ?? '';
+      const text = selected();
+
+      if (kind === 'wrap') {
+        // Wrapping keeps the selection so the same click can be undone by
+        // pressing the button again mentally — and typing replaces the text.
+        replaceSelection(`${value}${text}${value}`, value.length, value.length + text.length);
+      } else if (kind === 'prefix') {
+        // Line-oriented: apply to every selected line, not just the first.
+        const body = (text || '').split('\n').map((line) => `${value}${line}`).join('\n');
+        replaceSelection(body, 0, body.length);
+      } else if (kind === 'link') {
+        const label = text || 'link text';
+        const md = `[${label}](https://)`;
+        // Put the caret in the URL, which is the part that still needs typing.
+        replaceSelection(md, md.length - 1, md.length - 1);
+      }
+    });
+
+    // Media picker → insert an image at the cursor. Alt text is prompted for
+    // rather than left empty: an unlabelled image is an accessibility failure,
+    // and the filename is rarely a good description.
+    document.addEventListener('media:selected', (event) => {
+      const detail = (event as CustomEvent).detail as { url: string; originalName: string };
+      const alt = window.prompt('Describe this image for screen readers:', '') ?? '';
+      const md = `![${alt}](${detail.url})`;
+      replaceSelection(md, 2, 2 + alt.length);
+    });
+
+    const tabs = form.querySelectorAll<HTMLButtonElement>('[data-tab]');
+    const setTab = async (name: string) => {
+      const isPreview = name === 'preview';
+      tabs.forEach((tab) => {
+        const active = tab.dataset.tab === name;
+        tab.setAttribute('aria-pressed', String(active));
+        tab.classList.toggle('bg-gray-100', active);
+        tab.classList.toggle('text-gray-700', active);
+        tab.classList.toggle('text-gray-500', !active);
+      });
+      editor.classList.toggle('hidden', isPreview);
+      preview.classList.toggle('hidden', !isPreview);
+      if (!isPreview) return;
+
+      preview.textContent = 'Rendering…';
+      const body = new FormData();
+      body.append('body_markdown', editor.value);
+      try {
+        const res = await fetch('/api/admin/pages/preview', { method: 'POST', body });
+        if (!res.ok) throw new Error(`Preview failed (${res.status})`);
+        // Server-rendered by the same renderer the storefront uses, with raw
+        // HTML disabled, so this is the storefront's own escaped output.
+        preview.innerHTML = await res.text();
+      } catch (err) {
+        preview.textContent = err instanceof Error ? err.message : 'Preview failed.';
+      }
+    };
+    tabs.forEach((tab) => tab.addEventListener('click', () => setTab(tab.dataset.tab!)));
+  }
+</script>

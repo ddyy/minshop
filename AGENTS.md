@@ -73,9 +73,9 @@ src/
     email/     provider (port) · resend · cloudflare · index (factory) · orderConfirmation
     auth/      access (CF Access JWT) · session (admin login cookie) · turnstile · Turnstile.astro
     catalog/   serialize · http  (public API shapes for /api/products)
-    cart/ categories/ customers/
+    cart/ categories/ customers/ media/ pages/
   pages/
-    index, products/[slug], categories/[slug], search, cart, checkout (Lightning own-checkout)
+    index, products/[slug], categories/[slug], pages/[slug], search, cart, checkout
     product/[slug], category/[slug] — 301s to the plural URLs; keep indefinitely
     pay/[publicId] (Lightning invoice page), order/[token] (confirmation)
     admin/ (CRUD UI, login, logout)
@@ -134,11 +134,25 @@ To swap/add a provider, write one adapter file + wire the factory:
    public URL means leaving a 301 stub behind permanently; these paths appear in
    sitemaps, `llms.txt`, and search indexes on stores you don't control.
 
+10. **Media is the only owner of stored files.** Products, pages, and the logo
+    record USAGE by `image_key`; removing an image from any of them deletes the
+    association only. Only `/api/admin/media/:id` deletes an R2 object, and it
+    refuses while anything still references the row. Deletion and every
+    association write are guarded in a single SQL statement so the two cannot
+    race; never re-introduce a check-then-write.
+11. **Page bodies are Markdown with `html: false`.** Raw HTML is escaped, not
+    parsed, so a page body can never inject script — including from a
+    compromised admin session. The storefront and the admin preview call the
+    SAME server-side `renderMarkdown()`; do not add a client-side parser.
+
 ## Recipes — how to add X
 
 - **A product field:** new migration (`ALTER TABLE products ADD COLUMN …`) →
   update `Product`/`AdminProduct` + queries in `features/products/db.ts` → add to
   `ProductForm.astro` + `parseProductForm` in `features/products/form.ts`.
+- **A content page:** nothing to add — merchants create them at `/admin/pages`.
+  Published pages appear at `/pages/<slug>`, in the footer, sitemap, and
+  `llms.txt` automatically.
 - **A config setting:** build-time → add to the `SiteConfig` interface AND
   `defaultConfig()` in `config.ts`; read via `getConfig()`; document the override
   in `store.config.example.ts` (per-env overrides can read an env var, see

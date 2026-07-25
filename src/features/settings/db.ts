@@ -137,12 +137,23 @@ export async function setSetting(
     .run();
 }
 
+/** The single settings read. Exported so middleware can put it in a batch
+ *  alongside the footer's page links without duplicating the SQL. */
+export const STORE_SETTINGS_SQL = 'SELECT key, value FROM settings';
+
 /** All overlay settings in one read (used by middleware to populate locals). */
 export async function getStoreSettings(db: D1Database): Promise<StoreSettings> {
-  const { results } = await db.prepare('SELECT key, value FROM settings').all<{
+  const { results } = await db.prepare(STORE_SETTINGS_SQL).all<{
     key: string;
     value: string;
   }>();
+  return parseStoreSettings(results ?? []);
+}
+
+/** Rows → settings. Split from the query so a batched read parses identically. */
+export function parseStoreSettings(
+  results: Array<{ key: string; value: string }>,
+): StoreSettings {
   const map = new Map((results ?? []).map((r) => [r.key, r.value]));
   return {
     setupComplete: map.get('setup_complete') === '1',

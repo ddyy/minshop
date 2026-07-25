@@ -2,21 +2,25 @@ import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 import { listProducts, countProducts } from '../features/products/db';
 import { listCategories } from '../features/categories/db';
+import { listPublishedPages } from '../features/pages/db';
 
 export const prerender = false;
 
-// Dynamic sitemap: storefront + every active product + category. Slugs are
+// Dynamic sitemap: storefront + every active product, category, and published page. Slugs are
 // URL-safe (a-z0-9-), so no XML escaping is needed.
 export const GET: APIRoute = async ({ url }) => {
   const origin = url.origin;
   const total = await countProducts(env.DB);
   const products = total > 0 ? await listProducts(env.DB, total, 0) : [];
   const categories = await listCategories(env.DB);
+  const pages = await listPublishedPages(env.DB);
 
   const locs = [
     `${origin}/`,
     ...categories.map((c) => `${origin}/categories/${c.slug}`),
     ...products.map((p) => `${origin}/products/${p.slug}`),
+    // Published pages only — drafts must not be discoverable.
+    ...pages.map((p) => `${origin}/pages/${p.slug}`),
   ];
 
   const body = `<?xml version="1.0" encoding="UTF-8"?>

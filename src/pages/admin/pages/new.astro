@@ -1,0 +1,54 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+
+const error = Astro.url.searchParams.get('error');
+---
+
+<AdminLayout title="New page" active="pages">
+  <a href="/admin/pages" class="text-sm text-gray-500 hover:text-brand">&larr; Back to pages</a>
+  <h1 class="mt-4 mb-6 font-serif text-3xl tracking-tight">New page</h1>
+
+  {
+    error && (
+      <p class="mb-6 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        {error}
+      </p>
+    )
+  }
+
+  {/* Step one of two: this creates an unpublished draft and redirects to the
+      editor. Media can only be attached to a page that already has an id. */}
+  <form method="POST" action="/api/admin/pages" class="max-w-xl">
+    <label class="block text-xs uppercase tracking-widest text-gray-400">
+      Title
+      <input
+        type="text"
+        name="title"
+        required
+        maxlength="120"
+        autofocus
+        class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none"
+      />
+    </label>
+
+    <label class="mt-4 block text-xs uppercase tracking-widest text-gray-400">
+      URL slug <span class="normal-case tracking-normal text-gray-400">(optional)</span>
+      <input
+        type="text"
+        name="slug"
+        placeholder="about"
+        class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none"
+      />
+      <span class="mt-1 block normal-case tracking-normal text-gray-400">
+        Leave blank to build it from the title. The page will live at /pages/&lt;slug&gt;.
+      </span>
+    </label>
+
+    <button
+      type="submit"
+      class="mt-6 rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover"
+    >
+      Create draft
+    </button>
+  </form>
+</AdminLayout>
