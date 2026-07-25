@@ -17,15 +17,19 @@
     cursor: pointer;
   }
 
-  /* Placeholders, set once so every field matches (browser defaults differ
-     noticeably between Chrome, Safari and Firefox). gray-500 is the lightest
-     value that still clears WCAG AA for text: 4.83:1 on white, where gray-400
-     would be 2.54:1 and fail. Placeholders here are supplementary examples —
-     every field has a real <label> — but they're still text, so they hold the
-     line. To read as "not a real value", prefix the text with "e.g." rather
-     than lightening the colour further. */
+  /* Placeholders, set once so every field matches (Tailwind's default is
+     currentColor at 50%, which tracks the input's text colour and reads as a
+     filled-in value).
+
+     gray-400 is a deliberate accessibility trade: 2.54:1 on white, below the
+     4.5:1 WCAG AA needs for text. It's acceptable HERE because every field has
+     a real <label> and these placeholders only carry examples, so nothing is
+     lost to a low-vision user — unlike the placeholder-as-label pattern, which
+     would also fail 3.3.2. Keep that true: never put required instructions in
+     a placeholder alone. Examples lead with "e.g." so they read as examples
+     rather than values. */
   ::placeholder {
-    color: #6b7280;
+    color: #9ca3af;
     opacity: 1; /* Firefox dims placeholders by default; undo it */
   }
 }
