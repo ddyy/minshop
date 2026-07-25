@@ -40,6 +40,25 @@
   }
 }
 
+/* Product-detail images sit on a neutral frame and reveal only after their
+   bitmap loads. The html marker is script-added, so the no-JS fallback remains
+   fully visible. Cached images complete before the first painted frame. */
+.image-fade-enabled [data-image-fade] {
+  opacity: 0;
+}
+.image-fade-enabled [data-image-fade][data-image-loaded] {
+  opacity: 1;
+  transition: opacity 180ms ease-out;
+}
+.image-fade-enabled [data-image-fade][data-image-loaded].opacity-60 {
+  opacity: 0.6;
+}
+@media (prefers-reduced-motion: reduce) {
+  .image-fade-enabled [data-image-fade][data-image-loaded] {
+    transition: none;
+  }
+}
+
 /* Admin mobile nav (pure-CSS checkbox disclosure). Flip the chevron when the
    toggle is checked, and fade/slide the list in. The list-reveal is scoped to
    small screens — at sm+ the list is always shown (sm:block) as the sidebar, so

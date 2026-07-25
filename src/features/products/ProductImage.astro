@@ -14,6 +14,8 @@ interface Props {
   priority?: boolean;
   sizes?: string;
   usage?: ProductImageUsage;
+  /** Fade the bitmap over its neutral frame once the browser reports it loaded. */
+  fade?: boolean;
   /** Explicit mode for fragments that do not load the full settings overlay. */
   delivery?: ImageDelivery;
 }
@@ -28,6 +30,7 @@ const {
   priority = false,
   sizes,
   usage = priority ? 'detail' : 'card',
+  fade = false,
   delivery,
 } = Astro.props;
 const sources = productImageSources(imageKey, {
@@ -52,4 +55,5 @@ const sources = productImageSources(imageKey, {
   fetchpriority={priority ? 'high' : 'auto'}
   decoding="async"
   sizes={sources.sizes}
+  data-image-fade={fade ? '' : undefined}
 />

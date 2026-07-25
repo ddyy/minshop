@@ -148,13 +148,28 @@ const jsonLdStr = JSON.stringify(jsonLd).replace(/</g, '\\u003c');
     )
   }
 
+  {/* Progressive image reveal. The marker class is added before the image markup
+      is parsed, so incomplete images start on their neutral frame. With scripts
+      blocked the class is never added and images remain visible normally. */}
+  <script is:inline>
+    document.documentElement.classList.add('image-fade-enabled');
+    const finishImageFade = (event) => {
+      const image = event.target;
+      if (image instanceof HTMLImageElement && image.hasAttribute('data-image-fade')) {
+        image.setAttribute('data-image-loaded', '');
+      }
+    };
+    document.addEventListener('load', finishImageFade, true);
+    document.addEventListener('error', finishImageFade, true);
+  </script>
+
   <div class="mt-6 grid gap-10 md:grid-cols-2 md:gap-16">
     {
       hasGallery ? (
         <div class="reveal">
           <div
             data-hero-track
-            class="no-scrollbar relative flex snap-x snap-mandatory overflow-x-auto scroll-smooth rounded-lg bg-white"
+            class="no-scrollbar relative flex snap-x snap-mandatory overflow-x-auto scroll-smooth rounded-lg bg-gray-100"
           >
             {galleryImages.map((img, index) => (
               <img
@@ -168,7 +183,8 @@ const jsonLdStr = JSON.stringify(jsonLd).replace(/</g, '\\u003c');
                 loading={index === 0 ? 'eager' : 'lazy'}
                 fetchpriority={index === 0 ? 'high' : 'auto'}
                 decoding="async"
-                class={`aspect-square w-full shrink-0 snap-center object-cover${soldOut ? ' opacity-60' : ''}`}
+                data-image-fade
+                class={`aspect-square w-full shrink-0 snap-center bg-gray-100 object-cover${soldOut ? ' opacity-60' : ''}`}
               />
             ))}
             {soldOut && (
@@ -181,7 +197,7 @@ const jsonLdStr = JSON.stringify(jsonLd).replace(/</g, '\\u003c');
             {galleryImages.map((img) => (
               <a
                 href={`#pi-${img.id}`}
-                class="shrink-0 overflow-hidden rounded border border-line transition hover:border-brand"
+                class="shrink-0 overflow-hidden rounded border border-line bg-gray-100 transition hover:border-brand"
               >
                 <img
                   src={img.thumbnail.src}
@@ -192,20 +208,22 @@ const jsonLdStr = JSON.stringify(jsonLd).replace(/</g, '\\u003c');
                   height="64"
                   loading="lazy"
                   decoding="async"
-                  class="h-16 w-16 object-cover"
+                  data-image-fade
+                  class="h-16 w-16 bg-gray-100 object-cover"
                 />
               </a>
             ))}
           </div>
         </div>
       ) : (
-        <div class="reveal relative overflow-hidden rounded-lg bg-white">
+        <div class="reveal relative overflow-hidden rounded-lg bg-gray-100">
           <ProductImage
             imageKey={product.image_key}
             alt={product.name}
             priority
+            fade
             sizes="(min-width: 768px) 528px, calc(100vw - 48px)"
-            class={`aspect-square w-full object-cover${soldOut ? ' opacity-60' : ''}`}
+            class={`aspect-square w-full bg-gray-100 object-cover${soldOut ? ' opacity-60' : ''}`}
           />
           {soldOut && (
             <span class="absolute left-4 top-4 rounded-full bg-white/90 px-3 py-1 text-xs uppercase tracking-widest text-gray-700 ring-1 ring-line">
