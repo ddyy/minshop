@@ -32,6 +32,21 @@ export function serializeHomeTarget(target: HomeTarget): string {
 }
 
 /**
+ * Where "back to shop" / "continue shopping" links should point.
+ *
+ * The catalog lives at `/` until the home page is pointed at something else,
+ * and then it lives at `/products`. Hardcoding `/` sends shoppers to a page or
+ * a single product instead of the products they were looking for.
+ *
+ * Uses the raw setting rather than resolving it: this runs on every storefront
+ * page, and a link to `/` when the target is unresolvable is harmless — that is
+ * where the catalog falls back to anyway.
+ */
+export function catalogPath(homePage: string | null | undefined): string {
+  return homePage ? '/products' : '/';
+}
+
+/**
  * The path `/` should render, or null to render the catalog list.
  *
  * Resolution is deliberate about visibility: an unpublished page or an inactive

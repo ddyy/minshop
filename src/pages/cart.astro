@@ -6,6 +6,7 @@ import { readCart, resolveCart } from '../features/cart/cart';
 import { allowedCountries } from '../features/shipping/calculator';
 import ProductImage from '../features/products/ProductImage.astro';
 import { enabledMethods, isMethodAvailable } from '../features/payments';
+import { catalogPath } from '../features/settings/home';
 
 // Cart switched off in Settings → browse-only catalog, no cart page.
 if (!(Astro.locals.settings?.cartEnabled ?? true)) return Astro.redirect('/', 302);
@@ -41,6 +42,8 @@ const shipCountries =
     ? allowedCountries(cfg.shipping)
     : [];
 const showCountry = shipCountries.length > 1;
+// The catalog is at / until the home page is pointed elsewhere.
+const shopHref = catalogPath(Astro.locals.settings?.homePage);
 ---
 
 <Layout title="Cart">
@@ -58,7 +61,7 @@ const showCountry = shipCountries.length > 1;
     lines.length === 0 ? (
       <p class="text-gray-600">
         Your cart is empty.{' '}
-        <a href="/" class="border-b border-brand text-brand">
+        <a href={shopHref} class="border-b border-brand text-brand">
           Continue shopping
         </a>
         .

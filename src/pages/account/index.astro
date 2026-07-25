@@ -8,6 +8,7 @@ import { countOrdersByEmail, listOrdersByEmail } from '../../features/orders/db'
 import { orderNumber } from '../../features/orders/number';
 import { paginate, queryHref } from '../../pagination';
 import Pagination from '../../components/Pagination.astro';
+import { catalogPath } from '../../features/settings/home';
 
 if (!(await accountsEnabled())) return Astro.redirect('/', 303);
 const email = await getCustomerEmail(Astro.cookies);
@@ -23,6 +24,8 @@ const orders = await listOrdersByEmail(env.DB, email, PAGE_SIZE, offset);
 const hrefFor = (p: number) => queryHref('/account', { page: p > 1 ? p : undefined });
 const orderCfg = getConfig().orderNumber;
 const timeZone = Astro.locals.settings?.timeZone ?? getConfig().timeZone;
+// The catalog is at / until the home page is pointed elsewhere.
+const shopHref = catalogPath(Astro.locals.settings?.homePage);
 ---
 
 <Layout title="Your account">
@@ -36,7 +39,7 @@ const timeZone = Astro.locals.settings?.timeZone ?? getConfig().timeZone;
     {
       orders.length === 0 ? (
         <p class="rounded-lg border border-gray-200 bg-white px-4 py-6 text-center text-sm text-gray-500">
-          No orders yet. <a href="/" class="font-medium text-accent">Start shopping →</a>
+          No orders yet. <a href={shopHref} class="font-medium text-accent">Start shopping →</a>
         </p>
       ) : (
         <ul class="divide-y divide-gray-100 overflow-hidden rounded-lg border border-gray-200 bg-white">

@@ -5,6 +5,7 @@ import { formatPrice, getConfig } from '../../config';
 import { getOrderByPublicId, listOrderItems } from '../../features/orders/db';
 import { orderNumber } from '../../features/orders/number';
 import { clearCart } from '../../features/cart/cart';
+import { catalogPath } from '../../features/settings/home';
 
 const { token } = Astro.params;
 const order = token ? await getOrderByPublicId(env.DB, token) : null;
@@ -24,6 +25,8 @@ const PAYMENT_LABELS: Record<string, string> = {
   demo: 'Demo (no charge)',
 };
 const paymentLabel = order?.payment_method ? PAYMENT_LABELS[order.payment_method] ?? null : null;
+// The catalog is at / until the home page is pointed elsewhere.
+const shopHref = catalogPath(Astro.locals.settings?.homePage);
 ---
 
 <Layout title={order ? 'Order confirmed' : 'Confirming your order'}>
@@ -76,7 +79,7 @@ const paymentLabel = order?.payment_method ? PAYMENT_LABELS[order.payment_method
                 )} still paid.`}
           </p>
         )}
-        <a href="/" class="mt-6 inline-block text-accent hover:underline">
+        <a href={shopHref} class="mt-6 inline-block text-accent hover:underline">
           &larr; Continue shopping
         </a>
       </Fragment>

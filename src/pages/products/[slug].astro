@@ -10,6 +10,7 @@ import ProductImage from '../../features/products/ProductImage.astro';
 import { productImageSources, productImageUrl } from '../../features/products/image';
 import { stockState } from '../../features/products/stock';
 import { formatPrice, toMajorUnits, currencyDecimals, getConfig } from '../../config';
+import { catalogPath } from '../../features/settings/home';
 
 const { slug } = Astro.params;
 const product = slug ? await getProductBySlug(env.DB, slug) : null;
@@ -129,6 +130,8 @@ const jsonLd = {
 };
 // Escape "<" so a product name can't break out of the <script> tag.
 const jsonLdStr = JSON.stringify(jsonLd).replace(/</g, '\\u003c');
+// The catalog is at / until the home page is pointed elsewhere.
+const shopHref = catalogPath(Astro.locals.settings?.homePage);
 ---
 
 <Layout
@@ -136,7 +139,7 @@ const jsonLdStr = JSON.stringify(jsonLd).replace(/</g, '\\u003c');
   description={product.description ?? undefined}
   image={imagePath}
 >
-  <a href="/" class="text-xs uppercase tracking-widest text-gray-400 hover:text-brand">
+  <a href={shopHref} class="text-xs uppercase tracking-widest text-gray-400 hover:text-brand">
     &larr; Back to shop
   </a>
 

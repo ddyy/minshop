@@ -19,6 +19,7 @@ import {
 } from '../../pagination';
 import Pagination from '../../components/Pagination.astro';
 import SortLinks from '../../components/SortLinks.astro';
+import { catalogPath } from '../../features/settings/home';
 
 const { slug } = Astro.params;
 const category = slug ? await getCategoryBySlug(env.DB, slug) : null;
@@ -54,11 +55,13 @@ const hrefFor = (p: number) =>
     dir: dir === 'desc' ? undefined : dir,
     page: p > 1 ? p : undefined,
   });
+// The catalog is at / until the home page is pointed elsewhere.
+const shopHref = catalogPath(Astro.locals.settings?.homePage);
 ---
 
 <Layout title={category.name}>
   <nav class="mb-4 flex flex-wrap gap-x-2 text-xs uppercase tracking-widest text-gray-400">
-    <a href="/" class="hover:text-brand">Shop</a>
+    <a href={shopHref} class="hover:text-brand">Shop</a>
     {
       trail.map((c) => (
         <span class="flex gap-x-2">
