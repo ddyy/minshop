@@ -23,6 +23,11 @@ export const GET: APIRoute = async () => {
   const header = [
     'Order', 'Date', 'Email', 'Status', 'Fulfillment',
     'Subtotal', 'Shipping', 'Discount', 'Tax', 'Total', 'Currency',
+    // Both refund components, so a bookkeeper can tell money the provider sent
+    // back from money the merchant returned by hand. Net is what actually
+    // stayed, and is the figure the dashboard's revenue agrees with.
+    'Provider refunded', 'Externally refunded', 'Total refunded', 'Net',
+    'Refund state', 'Refund review',
     'Carrier', 'Tracking',
   ];
   const rows = orders.map((o) => [
@@ -38,6 +43,16 @@ export const GET: APIRoute = async () => {
     money(o.tax_cents, o.currency),
     money(o.amount_total_cents, o.currency),
     o.currency.toUpperCase(),
+    money(o.provider_refunded_cents, o.currency),
+    money(o.external_refunded_cents, o.currency),
+    money(o.refunded_cents, o.currency),
+    money(o.amount_total_cents - o.refunded_cents, o.currency),
+    o.refunded_cents === 0
+      ? 'none'
+      : o.refunded_cents >= o.amount_total_cents
+        ? 'full'
+        : 'partial',
+    o.refund_review_reason && !o.refund_reviewed_at ? o.refund_review_reason : '',
     o.tracking_carrier ?? '',
     o.tracking_number ?? '',
   ]);

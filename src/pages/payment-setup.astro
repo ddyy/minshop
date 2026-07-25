@@ -20,7 +20,7 @@ const GUIDES: Record<string, Guide> = {
     steps: [
       'Create a Stripe account and grab your Secret key from dashboard.stripe.com/apikeys.',
       'Paste it in Admin → Settings → Payment keys (Stripe secret key). It’s stored encrypted in your database.',
-      `Add a webhook endpoint in Stripe pointing at ${origin}/api/webhook/stripe (events: checkout.session.completed AND checkout.session.async_payment_succeeded).`,
+      `Add a webhook endpoint in Stripe pointing at ${origin}/api/webhook/stripe (events: checkout.session.completed, checkout.session.async_payment_succeeded, and charge.refunded — the last one syncs refunds you make in the Stripe Dashboard back to your orders).`,
       'Paste the signing secret it gives you into Payment keys (Stripe webhook signing secret). The card button goes live automatically.',
     ],
   },

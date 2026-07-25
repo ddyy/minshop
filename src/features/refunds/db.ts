@@ -531,3 +531,48 @@ export async function acknowledgeRefundReview(
     .bind(reviewedBy, orderId)
     .run();
 }
+
+export interface RefundSyncEvent {
+  provider_event_id: string;
+  provider: string;
+  provider_payment_id: string | null;
+  provider_charge_id: string | null;
+  cumulative_refunded_cents: number;
+  currency: string | null;
+  status: string;
+  attempts: number;
+  last_error: string | null;
+  created_at: string;
+  processed_at: string | null;
+}
+
+/**
+ * Refund events a provider sent that no order claims yet — almost always an
+ * order settled before its payment id was stored. They are money that really
+ * moved, so they are surfaced for reconciliation rather than dropped.
+ */
+export async function listUnmatchedRefundEvents(
+  db: D1Database,
+  limit = 20,
+): Promise<RefundSyncEvent[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT * FROM refund_sync_events
+        WHERE status IN ('unmatched', 'failed')
+        ORDER BY created_at DESC LIMIT ?`,
+    )
+    .bind(limit)
+    .all<RefundSyncEvent>();
+  return results ?? [];
+}
+
+/** Orders flagged for refund reconciliation and not yet acknowledged. */
+export async function countOpenRefundReviews(db: D1Database): Promise<number> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM orders
+        WHERE refund_review_reason IS NOT NULL AND refund_reviewed_at IS NULL`,
+    )
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}

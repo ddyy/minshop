@@ -65,6 +65,17 @@ const paymentLabel = order?.payment_method ? PAYMENT_LABELS[order.payment_method
         {paymentLabel && (
           <p class="mt-1 text-sm text-gray-500">Paid with {paymentLabel}</p>
         )}
+        {/* Amounts only — the internal note is for the merchant, not the buyer. */}
+        {order.refunded_cents > 0 && (
+          <p class="mt-2 text-sm text-gray-600">
+            {order.refunded_cents >= order.amount_total_cents
+              ? `Refunded ${formatPrice(order.refunded_cents, order.currency)}.`
+              : `Refunded ${formatPrice(order.refunded_cents, order.currency)} — ${formatPrice(
+                  order.amount_total_cents - order.refunded_cents,
+                  order.currency,
+                )} still paid.`}
+          </p>
+        )}
         <a href="/" class="mt-6 inline-block text-accent hover:underline">
           &larr; Continue shopping
         </a>

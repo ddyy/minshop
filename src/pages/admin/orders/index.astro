@@ -7,6 +7,7 @@ import { orderByClause } from '../../../features/orders/sort';
 import { orderNumber } from '../../../features/orders/number';
 import { paginate, queryHref } from '../../../pagination';
 import Pagination from '../../../components/Pagination.astro';
+import { listUnmatchedRefundEvents } from '../../../features/refunds/db';
 
 const sort = Astro.url.searchParams.get('sort');
 const dir = Astro.url.searchParams.get('dir');
@@ -26,9 +27,57 @@ const timeZone = Astro.locals.settings?.timeZone ?? getConfig().timeZone;
 const sortHref = (col: string) =>
   queryHref('/admin/orders', { sort: col, dir: sort === col && dir === 'desc' ? 'asc' : 'desc' });
 const arrow = (col: string) => (sort === col ? (dir === 'asc' ? ' ↑' : ' ↓') : '');
+
+// Refunds a provider reported that no order claims — real money that moved, so
+// they surface here rather than sitting silently in a table.
+const unmatched = await listUnmatchedRefundEvents(env.DB);
+const listError = Astro.url.searchParams.get('error');
 ---
 
 <AdminLayout title="Orders" active="orders">
+  {
+    listError && (
+      <p class="mb-6 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        {listError}
+      </p>
+    )
+  }
+  {
+    unmatched.length > 0 && (
+      <section class="mb-8 rounded-lg border border-amber-200 bg-amber-50 px-5 py-4">
+        <h2 class="text-sm font-medium text-amber-900">
+          {unmatched.length} refund{unmatched.length === 1 ? '' : 's'} could not be matched to an order
+        </h2>
+        <p class="mt-1 text-xs text-amber-800">
+          Your payment provider reported these refunds, but no order here records that payment —
+          usually an order placed before minshop started storing payment IDs. Nothing was counted
+          against your revenue yet.
+        </p>
+        <ul class="mt-3 space-y-2">
+          {unmatched.map((e) => (
+            <li class="flex flex-wrap items-center gap-3 text-xs text-amber-900">
+              <span class="font-mono">{e.provider_payment_id ?? '—'}</span>
+              <span class="tabular-nums">
+                {formatPrice(e.cumulative_refunded_cents, e.currency ?? undefined)}
+              </span>
+              <span>{formatDate(e.created_at, undefined, timeZone)}</span>
+              {e.last_error && <span>{e.last_error}</span>}
+              <form method="POST" action="/api/admin/refunds">
+                <input type="hidden" name="_action" value="retry_refund_event" />
+                <input type="hidden" name="event_id" value={e.provider_event_id} />
+                <button
+                  type="submit"
+                  class="rounded-md border border-amber-300 bg-white px-3 py-1 font-medium uppercase tracking-wider hover:bg-amber-100"
+                >
+                  Retry
+                </button>
+              </form>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )
+  }
   <div class="mb-8 flex items-center justify-between">
     <h1 class="font-serif text-3xl tracking-tight">Orders</h1>
     <a
