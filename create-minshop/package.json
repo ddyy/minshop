@@ -1,6 +1,6 @@
 {
   "name": "create-minshop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Scaffold a Minshop storefront for Cloudflare Workers",
   "type": "module",
   "bin": {
