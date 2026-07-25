@@ -6,6 +6,8 @@ export interface Page {
   slug: string;
   body_markdown: string;
   published: number;
+  /** Layout preset key; see features/pages/layouts.ts. */
+  layout: string;
   created_at: string;
   updated_at: string;
 }
@@ -80,18 +82,31 @@ export async function createDraft(
 export async function updatePage(
   db: D1Database,
   id: number,
-  fields: { title: string; slug: string; body_markdown: string; published: number },
+  fields: {
+    title: string;
+    slug: string;
+    body_markdown: string;
+    published: number;
+    layout: string;
+  },
 ): Promise<void> {
   // updated_at is application-maintained — the column default only covers
   // insert, so without this the admin's "Updated" would stay at creation time.
   await db
     .prepare(
       `UPDATE pages
-          SET title = ?, slug = ?, body_markdown = ?, published = ?,
+          SET title = ?, slug = ?, body_markdown = ?, published = ?, layout = ?,
               updated_at = datetime('now')
         WHERE id = ?`,
     )
-    .bind(fields.title, fields.slug, fields.body_markdown, fields.published, id)
+    .bind(
+      fields.title,
+      fields.slug,
+      fields.body_markdown,
+      fields.published,
+      fields.layout,
+      id,
+    )
     .run();
 }
 

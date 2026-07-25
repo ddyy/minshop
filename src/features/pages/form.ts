@@ -1,3 +1,5 @@
+import { normalizePageLayout, type PageLayout } from './layouts.ts';
+
 const MAX_TITLE = 120;
 const MAX_BODY = 100_000;
 
@@ -7,6 +9,8 @@ export interface PageFields {
   slug: string;
   body_markdown: string;
   published: number;
+  /** Always a known preset — unknown submissions fall back to the default. */
+  layout: PageLayout;
 }
 
 /**
@@ -32,6 +36,7 @@ export function parsePageForm(form: FormData): { data: PageFields } | { error: s
       body_markdown: body,
       // Checkbox: present = on. Any other truthy encoding ('1', 'true') also works.
       published: form.get('published') ? 1 : 0,
+      layout: normalizePageLayout(form.get('layout')),
     },
   };
 }

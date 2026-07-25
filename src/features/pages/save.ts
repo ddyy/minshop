@@ -24,7 +24,13 @@ export interface SaveResult {
 export async function savePageBody(
   db: D1Database,
   existing: Page,
-  fields: { title: string; slug: string; body_markdown: string; published: number },
+  fields: {
+    title: string;
+    slug: string;
+    body_markdown: string;
+    published: number;
+    layout: string;
+  },
   options: { baseUrl?: string } = {},
 ): Promise<SaveResult> {
   const referenced = extractMediaKeys(fields.body_markdown, { baseUrl: options.baseUrl });

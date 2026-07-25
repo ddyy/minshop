@@ -3,6 +3,10 @@ import { env } from 'cloudflare:workers';
 import AdminLayout from '../../../../layouts/AdminLayout.astro';
 import MediaPicker from '../../../../features/media/MediaPicker.astro';
 import { getPage } from '../../../../features/pages/db';
+import {
+  PAGE_LAYOUT_OPTIONS,
+  normalizePageLayout,
+} from '../../../../features/pages/layouts';
 
 const id = Number(Astro.params.id);
 const page = Number.isFinite(id) ? await getPage(env.DB, id) : null;
@@ -11,6 +15,7 @@ if (!page) return new Response('Not found', { status: 404 });
 const error = Astro.url.searchParams.get('error');
 const warning = Astro.url.searchParams.get('warning');
 const saved = Astro.url.searchParams.has('saved');
+const currentLayout = normalizePageLayout(page.layout);
 
 // Toolbar buttons are declarative: each carries the syntax to wrap or insert,
 // so the script stays one generic selection handler rather than nine.
@@ -139,8 +144,34 @@ const tools = [
       >
 
       {/* Populated by the preview endpoint; same class the storefront uses. */}
-      <div data-preview class="markdown-content hidden px-4 py-3"></div>
+      <div data-preview class="hidden px-4 py-3"></div>
     </div>
+
+    {/* Options are generated from features/pages/layouts.ts — adding a preset
+        there adds it here with no change to this file. */}
+    <label class="mt-6 block max-w-sm text-xs uppercase tracking-widest text-gray-400">
+      Layout
+      <select
+        name="layout"
+        data-layout-select
+        class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none"
+      >
+        {
+          PAGE_LAYOUT_OPTIONS.map((option) => (
+            <option
+              value={option.key}
+              data-hint={option.hint}
+              selected={option.key === currentLayout}
+            >
+              {option.label}
+            </option>
+          ))
+        }
+      </select>
+      <span data-layout-hint class="mt-1 block normal-case tracking-normal text-gray-400">
+        {PAGE_LAYOUT_OPTIONS.find((o) => o.key === currentLayout)?.hint}
+      </span>
+    </label>
 
     <div class="mt-6 flex flex-wrap items-center gap-4">
       <label class="flex items-center gap-2 text-sm text-gray-700">
@@ -227,6 +258,12 @@ const tools = [
       preview.textContent = 'Rendering…';
       const body = new FormData();
       body.append('body_markdown', editor.value);
+      // Send the chosen layout so the preview uses the same measure and title
+      // alignment the storefront will.
+      // Cast rather than parameterise: the Workers `Element` type in scope here
+      // doesn't satisfy querySelector's generic constraint for HTMLSelectElement.
+      const layoutSelect = form.querySelector('[data-layout-select]') as HTMLSelectElement | null;
+      if (layoutSelect) body.append('layout', layoutSelect.value);
       try {
         const res = await fetch('/api/admin/pages/preview', { method: 'POST', body });
         if (!res.ok) throw new Error(`Preview failed (${res.status})`);
@@ -238,5 +275,14 @@ const tools = [
       }
     };
     tabs.forEach((tab) => tab.addEventListener('click', () => setTab(tab.dataset.tab!)));
+
+    // Keep the hint in step with the dropdown. Hints are read from the rendered
+    // options' data attributes, so this needs no per-preset code either.
+    const layoutSelect = form.querySelector('[data-layout-select]') as HTMLSelectElement | null;
+    const layoutHint = form.querySelector<HTMLElement>('[data-layout-hint]');
+    layoutSelect?.addEventListener('change', () => {
+      const hint = layoutSelect.selectedOptions[0]?.dataset.hint;
+      if (layoutHint && hint) layoutHint.textContent = hint;
+    });
   }
 </script>

@@ -89,7 +89,8 @@ try {
        id INTEGER PRIMARY KEY AUTOINCREMENT,
        title TEXT NOT NULL,
        slug TEXT NOT NULL UNIQUE,
-       published INTEGER NOT NULL DEFAULT 0)`,
+       published INTEGER NOT NULL DEFAULT 0,
+       layout TEXT NOT NULL DEFAULT 'standard')`,
     `CREATE TABLE page_media (
        page_id INTEGER NOT NULL,
        media_id INTEGER NOT NULL,

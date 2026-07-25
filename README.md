@@ -198,7 +198,7 @@ src/
   features/
     auth/       admin, customer sessions, Access, Turnstile
     media/      the shared file library — the only feature that deletes objects
-    pages/      Markdown pages: rendering, slugs, save/media sync
+    pages/      Markdown pages: rendering, slugs, layout presets, save/media sync
     products/   catalog data, forms, inventory, image handling
     orders/     order data, reservations, tracking
     payments/   provider port + Stripe, Lightning, OpenNode, demo adapters

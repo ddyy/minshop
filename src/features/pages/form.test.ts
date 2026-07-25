@@ -12,8 +12,28 @@ describe('parsePageForm', () => {
   it('accepts a minimal page', () => {
     const parsed = parsePageForm(form({ title: 'About us' }));
     expect(parsed).toEqual({
-      data: { title: 'About us', slug: '', body_markdown: '', published: 0 },
+      data: {
+        title: 'About us',
+        slug: '',
+        body_markdown: '',
+        published: 0,
+        layout: 'standard',
+      },
     });
+  });
+
+  it('accepts a known layout preset', () => {
+    expect(parsePageForm(form({ title: 'A', layout: 'wide' }))).toHaveProperty(
+      'data.layout',
+      'wide',
+    );
+  });
+
+  it('falls back to the default layout for an unknown preset', () => {
+    expect(parsePageForm(form({ title: 'A', layout: 'nope' }))).toHaveProperty(
+      'data.layout',
+      'standard',
+    );
   });
 
   it('requires a title', () => {

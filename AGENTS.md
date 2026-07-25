@@ -153,6 +153,13 @@ To swap/add a provider, write one adapter file + wire the factory:
 - **A content page:** nothing to add — merchants create them at `/admin/pages`.
   Published pages appear at `/pages/<slug>`, in the footer, sitemap, and
   `llms.txt` automatically.
+- **A page layout preset:** add ONE entry to `PAGE_LAYOUTS` in
+  `features/pages/layouts.ts`. The editor dropdown, validation, the storefront,
+  and the admin preview all derive from it, and `measure`/`titleAlign` are
+  emitted as CSS custom properties, so no stylesheet edit is needed. A preset
+  that needs more than those two axes can also target
+  `[data-page-layout="<key>"]` in `global.css`. Unknown/removed presets fall
+  back to `standard` at render time, so old rows never break.
 - **A config setting:** build-time → add to the `SiteConfig` interface AND
   `defaultConfig()` in `config.ts`; read via `getConfig()`; document the override
   in `store.config.example.ts` (per-env overrides can read an env var, see

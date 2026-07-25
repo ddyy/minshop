@@ -1,6 +1,10 @@
 import type { APIRoute } from 'astro';
 import { getConfig } from '../../../../config';
 import { renderMarkdown } from '../../../../features/pages/markdown';
+import {
+  normalizePageLayout,
+  pageLayoutStyle,
+} from '../../../../features/pages/layouts';
 
 export const prerender = false;
 
@@ -22,8 +26,14 @@ export const POST: APIRoute = async ({ request }) => {
   const form = await request.formData();
   const markdown = String(form.get('body_markdown') ?? '').slice(0, MAX_BODY);
   const html = renderMarkdown(markdown, { baseUrl: getConfig().images.baseUrl });
+  // Wrap in the same article element the storefront uses, so the preview shows
+  // the chosen layout rather than always rendering at the default measure.
+  const layout = normalizePageLayout(form.get('layout'));
+  const wrapped =
+    `<div class="markdown-content" data-page-layout="${layout}" ` +
+    `style="${pageLayoutStyle(layout)}">${html}</div>`;
 
-  return new Response(html, {
+  return new Response(wrapped, {
     headers: {
       'content-type': 'text/html; charset=utf-8',
       'cache-control': 'private, no-store',

@@ -203,11 +203,18 @@
    so it styles rendered page bodies only, never the rest of the storefront.
    Deliberately hand-written rather than pulling in a typography plugin for one
    feature: this is ~40 lines and the storefront already has its own type scale. */
+/* Width and title alignment come from the page's layout preset as custom
+   properties (features/pages/layouts.ts → pageLayoutStyle). The fallbacks are
+   the `standard` preset, so an unstyled .markdown-content still renders
+   correctly — the admin preview and any future consumer get it for free.
+   A preset needing more than these two axes can target
+   [data-page-layout="<key>"], which is always present on the article. */
 .markdown-content {
-  max-width: 48rem;
+  max-width: var(--page-measure, 48rem);
   line-height: 1.75;
 }
 .markdown-content h1 {
+  text-align: var(--page-title-align, left);
   font-family: var(--font-serif, ui-serif, Georgia, serif);
   font-size: 2.25rem;
   letter-spacing: -0.02em;
