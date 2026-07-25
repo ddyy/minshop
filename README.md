@@ -250,7 +250,7 @@ A few **data-coupled** settings stay build-time (change + `npm run deploy`):
 | Currency | `currency` in `src/store.config.ts` | One store-wide currency — prices are stored as integer minor-units bound to it, so it can't safely flip at runtime |
 | Image width | `images.maxWidth` in `src/store.config.ts` | Maximum width used when image optimization is enabled in Admin |
 | Order number | `orderNumber.{offset,step,randomStep}` in `src/store.config.ts` | Friendly customer-facing number derived from the internal id (e.g. `#1000`). `step` spaces them out; `randomStep` adds jitter to obscure the count (keep `step > randomStep`). The URL/security uses the random `public_id`, not this number |
-| Favicon | replace `public/favicon.svg` | Browser tab icon |
+| Favicon | replace `public/favicon.svg` and regenerate `public/favicon.ico` | Browser tab icon with a legacy-client fallback |
 
 Change a value, then `npm run deploy`. Currency uses `Intl.NumberFormat`, so `usd → $`, `eur → €`, `gbp → £`, `jpy → ¥` (decimals handled per-currency).
 

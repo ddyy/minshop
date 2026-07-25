@@ -12,7 +12,7 @@ import type { ShippingConfig } from './features/shipping/calculator';
  * - storeName: also overridable per-environment via the STORE_NAME var (wrangler.jsonc)
  * - currency:  store-wide currency code; drives formatPrice(), new-product
  *              default, and checkout.
- * - favicon:   replace the file at public/favicon.svg (not configured here).
+ * - favicon:   replace public/favicon.svg and regenerate the favicon.ico fallback.
  */
 export interface SiteConfig {
   storeName: string;
