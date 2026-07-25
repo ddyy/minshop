@@ -99,6 +99,48 @@ export async function mediaUsage(db: D1Database, id: number): Promise<MediaUsage
   return map.get(id) ?? emptyUsage();
 }
 
+export interface UsageLink {
+  href: string;
+  label: string;
+  kind: 'product' | 'page' | 'logo';
+  /** Tooltip. Per-kind rather than templated: "the logo that uses this image"
+   *  reads wrong, because the logo IS the use rather than a thing having one. */
+  title: string;
+}
+
+/**
+ * Where a media item is used, as admin links. Deleting is refused while any of
+ * these exist, so the answer to "why can't I remove this?" should be one click
+ * away rather than a name the admin has to go hunting for.
+ */
+export function usageLinks(usage: MediaUsage): UsageLink[] {
+  return [
+    ...usage.products.map((p) => ({
+      href: `/admin/products/${p.id}/edit`,
+      label: p.name,
+      kind: 'product' as const,
+      title: `Edit ${p.name}`,
+    })),
+    ...usage.pages.map((p) => ({
+      href: `/admin/pages/${p.id}/edit`,
+      label: p.title,
+      kind: 'page' as const,
+      title: `Edit the ${p.title} page`,
+    })),
+    // The logo is a setting, not a row, so it links to where it is chosen.
+    ...(usage.logo
+      ? [
+          {
+            href: '/admin/settings',
+            label: 'Store logo',
+            kind: 'logo' as const,
+            title: 'Change the logo in Settings',
+          },
+        ]
+      : []),
+  ];
+}
+
 /** Human-readable "why can't I delete this" message. */
 export function describeUsage(usage: MediaUsage): string {
   const parts: string[] = [];

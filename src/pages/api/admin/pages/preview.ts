@@ -25,7 +25,12 @@ const MAX_BODY = 100_000; // same bound the page form enforces
 export const POST: APIRoute = async ({ request }) => {
   const form = await request.formData();
   const markdown = String(form.get('body_markdown') ?? '').slice(0, MAX_BODY);
-  const html = renderMarkdown(markdown, { baseUrl: getConfig().images.baseUrl });
+  // sourceMap is admin-only: it stamps data-source-line so a click in the
+  // preview can jump to the matching line in the editor.
+  const html = renderMarkdown(markdown, {
+    baseUrl: getConfig().images.baseUrl,
+    sourceMap: true,
+  });
   // Wrap in the same article element the storefront uses, so the preview shows
   // the chosen layout rather than always rendering at the default measure.
   // The page title is deliberately NOT included: it is a form field right above

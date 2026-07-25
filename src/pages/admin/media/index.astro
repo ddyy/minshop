@@ -3,7 +3,7 @@ import { env } from 'cloudflare:workers';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import Pagination from '../../../components/Pagination.astro';
 import { MEDIA_PAGE_SIZE, countMedia } from '../../../features/media/db';
-import { isUnused, describeUsage } from '../../../features/media/usage';
+import { isUnused, usageLinks } from '../../../features/media/usage';
 import { mediaUrl } from '../../../features/media/url';
 import { loadMediaPage } from '../../api/admin/media';
 import { paginate, queryHref } from '../../../pagination';
@@ -102,11 +102,25 @@ function formatSize(bytes: number | null): string | null {
                 {size ? ` · ${size}` : ''}
                 {!m.mime_type && !size ? ' · Legacy image' : ''}
               </p>
-              <p class="text-xs">
+              <p class="text-xs text-gray-600">
                 {unused ? (
                   <span class="text-gray-400">Unused</span>
                 ) : (
-                  <span class="text-gray-600">Used by {describeUsage(entry!)}</span>
+                  <Fragment>
+                    Used by{' '}
+                    {usageLinks(entry!).map((link, index) => (
+                      <Fragment>
+                        {index > 0 && ', '}
+                        <a
+                          href={link.href}
+                          title={link.title}
+                          class="underline decoration-gray-300 underline-offset-2 hover:text-brand"
+                        >
+                          {link.label}
+                        </a>
+                      </Fragment>
+                    ))}
+                  </Fragment>
                 )}
               </p>
               <div class="mt-auto flex items-center gap-3 pt-1">

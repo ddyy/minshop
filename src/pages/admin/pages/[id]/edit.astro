@@ -215,7 +215,7 @@ const tools = [
           <div
             class="flex h-11 items-center justify-between border-b border-line px-4 text-xs uppercase tracking-widest text-gray-400"
           >
-            <span>Preview</span>
+            <span>Preview <span class="normal-case tracking-normal">· click to find the source</span></span>
             {/* Reserved space, so the row doesn't reflow each time it renders. */}
             <span data-preview-status class="text-gray-300"></span>
           </div>
@@ -425,6 +425,55 @@ const tools = [
     // Wrapping changes with the pane width, so the height has to be recomputed.
     window.addEventListener('resize', autosize);
 
+    /** Character offset where a 1-based source line starts. */
+    const offsetOfLine = (line: number) => {
+      const lines = editor.value.split('\n');
+      let offset = 0;
+      for (let i = 0; i < Math.min(line - 1, lines.length); i++) offset += lines[i].length + 1;
+      return offset;
+    };
+
+    /** Select a range, focus the field, and bring it into view. */
+    const selectRange = (start: number, end: number) => {
+      editor.focus();
+      editor.setSelectionRange(start, end);
+      // The field never scrolls internally (it grows to fit), so scrolling the
+      // page to the selection is what actually reveals it.
+      const before = editor.value.slice(0, start).split('\n').length - 1;
+      const lineHeight = parseFloat(getComputedStyle(editor).lineHeight) || 20;
+      const target = editor.getBoundingClientRect().top + window.scrollY + before * lineHeight;
+      window.scrollTo({ top: Math.max(0, target - window.innerHeight / 3), behavior: 'smooth' });
+    };
+
+    // Click anywhere in the preview to land on the source that produced it.
+    // Block elements carry data-source-line from the renderer; an image also
+    // selects its whole ![alt](src) span so it can be edited or replaced.
+    preview.addEventListener('click', (event) => {
+      const target = event.target as HTMLElement;
+      const block = target.closest<HTMLElement>('[data-source-line]');
+      if (!block) return;
+      const line = Number(block.dataset.sourceLine);
+      if (!Number.isFinite(line)) return;
+
+      const lineStart = offsetOfLine(line);
+
+      if (target.tagName === 'IMAGE' || target.tagName === 'IMG') {
+        // Inline tokens have no source map, so find the image syntax at or after
+        // the block's first line. Images are inserted on their own line, so this
+        // is exact for anything the editor wrote.
+        const match = /!\[[^\]]*\]\([^)]*\)/.exec(editor.value.slice(lineStart));
+        if (match) {
+          const start = lineStart + match.index;
+          selectRange(start, start + match[0].length);
+          return;
+        }
+      }
+
+      // Otherwise select the whole line, which reads as "here is this bit".
+      const lineEnd = editor.value.indexOf('\n', lineStart);
+      selectRange(lineStart, lineEnd === -1 ? editor.value.length : lineEnd);
+    });
+
     // Markdown / Split / Preview. The control only exists with JavaScript, so
     // it is revealed here rather than rendered visible and then broken.
     const modeButtons = form.querySelectorAll<HTMLButtonElement>('[data-mode]');
@@ -477,3 +526,16 @@ const tools = [
     });
   }
 </script>
+
+<style is:global>
+  /* The preview HTML is injected at runtime, so Astro's scoped styles can't
+     reach it — hence is:global, narrowed to [data-preview] which exists only
+     on this screen. Signals that blocks are clickable. */
+  [data-preview] [data-source-line] {
+    cursor: pointer;
+    border-radius: 2px;
+  }
+  [data-preview] [data-source-line]:hover {
+    background: rgba(0, 0, 0, 0.035);
+  }
+</style>

@@ -102,6 +102,35 @@ describe('renderMarkdown — images', () => {
   });
 });
 
+describe('renderMarkdown — source map', () => {
+  it('is off by default, so storefront HTML carries no editor plumbing', () => {
+    expect(renderMarkdown('# Title\n\nBody.')).not.toContain('data-source-line');
+  });
+
+  it('stamps the start line on block elements when enabled', () => {
+    const html = renderMarkdown('# Title\n\nSecond block.', { sourceMap: true });
+    expect(html).toContain('<h1 data-source-line="1">');
+    expect(html).toContain('<p data-source-line="3">');
+  });
+
+  it('numbers lines from 1, matching what an editor shows', () => {
+    const html = renderMarkdown('\n\n\nFourth line.', { sourceMap: true });
+    expect(html).toContain('data-source-line="4"');
+  });
+
+  it('maps list items so a click inside a list still resolves', () => {
+    const html = renderMarkdown('- one\n- two', { sourceMap: true });
+    expect(html).toContain('<li data-source-line="1">');
+    expect(html).toContain('<li data-source-line="2">');
+  });
+
+  it('does not change the rendered content itself', () => {
+    const plain = renderMarkdown('## Heading\n\n**bold**');
+    const mapped = renderMarkdown('## Heading\n\n**bold**', { sourceMap: true });
+    expect(mapped.replace(/ data-source-line="\d+"/g, '')).toBe(plain);
+  });
+});
+
 describe('extractMediaKeys', () => {
   it('finds root-relative references', () => {
     expect(extractMediaKeys('![a](/images/media/a.webp)')).toEqual(['media/a.webp']);

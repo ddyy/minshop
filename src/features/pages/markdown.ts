@@ -39,6 +39,12 @@ function localKeyFromSrc(src: string, baseUrl: string): string | null {
 export interface RenderOptions {
   /** config.images.baseUrl — lets page images use a custom image origin. */
   baseUrl?: string;
+  /**
+   * Emit `data-source-line` on block elements. Admin preview only — it lets a
+   * click in the preview jump to the matching line in the editor. The public
+   * page renders without it, so storefront HTML stays free of editor plumbing.
+   */
+  sourceMap?: boolean;
 }
 
 /**
@@ -76,6 +82,21 @@ export function renderMarkdown(markdown: string, options: RenderOptions = {}): s
     typographer: false,
   });
   installImageRule(instance, baseUrl);
+
+  if (options.sourceMap) {
+    // Block tokens carry `map: [startLine, endLine]`. Stamping the start line on
+    // the opening tag is all the editor needs to map a click back to the source;
+    // inline tokens have no map, so images inherit their block's line.
+    const renderToken = instance.renderer.renderToken.bind(instance.renderer);
+    instance.renderer.renderToken = (tokens, idx, opts) => {
+      const token = tokens[idx];
+      if (token.map && token.nesting !== -1) {
+        token.attrSet('data-source-line', String(token.map[0] + 1));
+      }
+      return renderToken(tokens, idx, opts);
+    };
+  }
+
   return instance.render(markdown);
 }
 
