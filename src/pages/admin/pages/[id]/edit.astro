@@ -96,21 +96,35 @@ const tools = [
     </div>
 
     <div class="mt-6 rounded-md border border-line">
-      {/* Source and preview sit side by side from lg up. Below that there isn't
-          room for two readable columns, so the tabs switch between them —
-          they're hidden at lg where both panes are visible anyway. */}
-      <div class="flex items-center gap-1 border-b border-line px-2 py-2 lg:hidden">
+      {/* Markdown / Split / Preview. Rendered hidden and revealed by the script,
+          because without JavaScript there is nothing to switch between — the
+          textarea is the whole editor and the preview never populates. */}
+      <div
+        data-modes
+        hidden
+        role="group"
+        aria-label="Editor view"
+        class="flex items-center gap-1 border-b border-line px-2 py-2"
+      >
         <button
           type="button"
-          data-tab="write"
-          class="rounded bg-gray-100 px-3 py-1.5 text-xs uppercase tracking-widest text-gray-700"
-          aria-pressed="true"
+          data-mode="write"
+          class="rounded px-3 py-1.5 text-xs uppercase tracking-widest text-gray-500"
+          aria-pressed="false"
         >
-          Write
+          Markdown
         </button>
         <button
           type="button"
-          data-tab="preview"
+          data-mode="split"
+          class="rounded px-3 py-1.5 text-xs uppercase tracking-widest text-gray-500"
+          aria-pressed="false"
+        >
+          Split
+        </button>
+        <button
+          type="button"
+          data-mode="preview"
           class="rounded px-3 py-1.5 text-xs uppercase tracking-widest text-gray-500"
           aria-pressed="false"
         >
@@ -118,11 +132,11 @@ const tools = [
         </button>
       </div>
 
-      <div class="lg:grid lg:grid-cols-2 lg:divide-x lg:divide-line">
-        {/* lg:block so the tab toggle's `hidden` can never win at lg — otherwise
-            switching to Preview on a phone and then widening the window would
-            leave the editor hidden on desktop. */}
-        <div data-pane="write" class="min-w-0 lg:block">
+      {/* Split becomes two columns only where there's room for two readable
+          measures; below lg it stacks, so the mode still means something on a
+          phone instead of disappearing from the control. */}
+      <div data-panes class="lg:divide-x lg:divide-line">
+        <div data-pane="write" class="min-w-0">
           <div
             data-toolbar
             class="flex flex-wrap items-center gap-1 border-b border-line px-2 py-2"
@@ -153,7 +167,10 @@ const tools = [
           >
         </div>
 
-        <div data-pane="preview" class="hidden min-w-0 lg:block">
+        {/* hidden attribute, not a class: visibility is entirely the script's
+            job now, so there is no responsive utility to fight with. Starts
+            hidden so a no-JS editor shows the textarea alone. */}
+        <div data-pane="preview" hidden class="min-w-0 border-t border-line lg:border-t-0">
           <div
             class="flex items-center justify-between border-b border-line px-4 py-2 text-xs uppercase tracking-widest text-gray-400"
           >
@@ -269,7 +286,9 @@ const tools = [
     // Cast rather than parameterise: the Workers `Element` type in scope here
     // doesn't satisfy querySelector's generic constraint for HTMLSelectElement.
     const layoutSelect = form.querySelector('[data-layout-select]') as HTMLSelectElement | null;
-    const titleInput = form.querySelector<HTMLInputElement>('input[name="title"]');
+    const panes = form.querySelector<HTMLElement>('[data-panes]');
+    const modeBar = form.querySelector<HTMLElement>('[data-modes]');
+    const MODE_KEY = 'minshop:page-editor-mode';
 
     let inFlight: AbortController | null = null;
     let lastRendered: string | null = null;
@@ -281,10 +300,10 @@ const tools = [
     const render = async () => {
       if (!previewVisible()) return;
       const markdown = editor.value;
-      // Every input the preview depends on belongs in this key. Leave one
-      // out and a change to it looks identical to "nothing changed", so the
-      // render is skipped — exactly what happened when only the title moved.
-      const key = `${layoutSelect?.value ?? ''} ${titleInput?.value ?? ''} ${markdown}`;
+      // Every input the preview depends on belongs in this key. Leave one out
+      // and a change to it looks identical to "nothing changed", so the render
+      // is skipped.
+      const key = `${layoutSelect?.value ?? ''} ${markdown}`;
       if (key === lastRendered) return; // nothing changed since the last render
 
       // Supersede any request still in flight: with fast typing the responses
@@ -299,8 +318,6 @@ const tools = [
       // Send the chosen layout so the preview uses the same measure and title
       // alignment the storefront will.
       if (layoutSelect) body.append('layout', layoutSelect.value);
-      // The storefront prints the title above the body; send it so the panes match.
-      if (titleInput) body.append('title', titleInput.value);
       try {
         const res = await fetch('/api/admin/pages/preview', {
           method: 'POST',
@@ -329,29 +346,46 @@ const tools = [
     };
 
     editor.addEventListener('input', scheduleRender);
-    titleInput?.addEventListener('input', scheduleRender);
     layoutSelect?.addEventListener('change', scheduleRender);
-    render(); // first paint, so the pane isn't empty on load
 
-    // Below lg only one pane fits, so the tabs swap them. At lg both are visible
-    // and the tab bar is hidden, which is why this only toggles the panes.
-    const tabs = form.querySelectorAll<HTMLButtonElement>('[data-tab]');
-    tabs.forEach((tab) =>
-      tab.addEventListener('click', () => {
-        const name = tab.dataset.tab;
-        tabs.forEach((other) => {
-          const active = other === tab;
-          other.setAttribute('aria-pressed', String(active));
-          other.classList.toggle('bg-gray-100', active);
-          other.classList.toggle('text-gray-700', active);
-          other.classList.toggle('text-gray-500', !active);
-        });
-        writePane?.classList.toggle('hidden', name !== 'write');
-        previewPane?.classList.toggle('hidden', name !== 'preview');
-        // The pane was hidden while edits happened, so refresh on reveal.
-        if (name === 'preview') render();
-      }),
+    // Markdown / Split / Preview. The control only exists with JavaScript, so
+    // it is revealed here rather than rendered visible and then broken.
+    const modeButtons = form.querySelectorAll<HTMLButtonElement>('[data-mode]');
+    const setMode = (mode: string) => {
+      modeButtons.forEach((button) => {
+        const active = button.dataset.mode === mode;
+        button.setAttribute('aria-pressed', String(active));
+        button.classList.toggle('bg-gray-100', active);
+        button.classList.toggle('text-gray-700', active);
+        button.classList.toggle('text-gray-500', !active);
+      });
+      if (writePane) writePane.hidden = mode === 'preview';
+      if (previewPane) previewPane.hidden = mode === 'write';
+      // Two columns only in split, and only where two measures fit.
+      panes?.classList.toggle('lg:grid', mode === 'split');
+      panes?.classList.toggle('lg:grid-cols-2', mode === 'split');
+      try {
+        localStorage.setItem(MODE_KEY, mode);
+      } catch {
+        // Private browsing or storage disabled — the mode just won't persist.
+      }
+      // The pane may have been hidden while edits happened, so catch it up.
+      if (mode !== 'write') render();
+    };
+
+    modeButtons.forEach((button) =>
+      button.addEventListener('click', () => setMode(button.dataset.mode!)),
     );
+    if (modeBar) modeBar.hidden = false;
+
+    let initial = 'split';
+    try {
+      const stored = localStorage.getItem(MODE_KEY);
+      if (stored === 'write' || stored === 'split' || stored === 'preview') initial = stored;
+    } catch {
+      // Ignore and use the default.
+    }
+    setMode(initial); // also performs the first render
 
     // Keep the hint in step with the dropdown. Hints are read from the rendered
     // options' data attributes, so this needs no per-preset code either.

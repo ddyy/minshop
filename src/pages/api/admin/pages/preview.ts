@@ -22,29 +22,18 @@ const MAX_BODY = 100_000; // same bound the page form enforces
  * A static filename beats the sibling [id].ts route, so this never collides
  * with a page whose id is "preview".
  */
-/** The title is plain text from an admin, but it lands in HTML — escape it. */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
 export const POST: APIRoute = async ({ request }) => {
   const form = await request.formData();
   const markdown = String(form.get('body_markdown') ?? '').slice(0, MAX_BODY);
   const html = renderMarkdown(markdown, { baseUrl: getConfig().images.baseUrl });
   // Wrap in the same article element the storefront uses, so the preview shows
   // the chosen layout rather than always rendering at the default measure.
+  // The page title is deliberately NOT included: it is a form field right above
+  // the editor, so repeating it in the preview is noise rather than parity.
   const layout = normalizePageLayout(form.get('layout'));
-  // The storefront renders the page title above the body; including it keeps the
-  // side-by-side preview an honest match rather than "the body, roughly".
-  const title = String(form.get('title') ?? '').trim();
-  const heading = title ? `<h1>${escapeHtml(title)}</h1>` : '';
   const wrapped =
     `<div class="markdown-content" data-page-layout="${layout}" ` +
-    `style="${pageLayoutStyle(layout)}">${heading}${html}</div>`;
+    `style="${pageLayoutStyle(layout)}">${html}</div>`;
 
   return new Response(wrapped, {
     headers: {
