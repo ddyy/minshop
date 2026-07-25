@@ -9,6 +9,7 @@ import {
   openRefundReview,
   acknowledgeRefundReview,
 } from '../src/features/refunds/db.ts';
+import { persistRefundEvent, applyRefundEvent } from '../src/features/refunds/sync.ts';
 
 // Refund accounting against a real D1. The properties under test are the ones
 // a mocked database cannot show: that the guarded batches actually serialize,
@@ -72,6 +73,19 @@ try {
        reverses_refund_id INTEGER UNIQUE REFERENCES refunds(id),
        created_at TEXT NOT NULL DEFAULT (datetime('now')),
        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+     )`,
+    `CREATE TABLE refund_sync_events (
+       provider_event_id TEXT PRIMARY KEY,
+       provider TEXT NOT NULL,
+       provider_payment_id TEXT,
+       provider_charge_id TEXT,
+       cumulative_refunded_cents INTEGER NOT NULL,
+       currency TEXT,
+       status TEXT NOT NULL DEFAULT 'pending',
+       attempts INTEGER NOT NULL DEFAULT 0,
+       last_error TEXT,
+       created_at TEXT NOT NULL DEFAULT (datetime('now')),
+       processed_at TEXT
      )`,
   ]) {
     // D1's exec() splits on newlines, so the schema has to arrive as one line.
@@ -392,6 +406,99 @@ try {
       .first();
     assert.equal(o.rr, 'exceeds_total');
     assert.equal(o.ra, null, 'a new conflict must reopen the review');
+  });
+
+  console.log('provider webhook events');
+
+  const eventStatus = (eid) =>
+    db.prepare('SELECT status FROM refund_sync_events WHERE provider_event_id = ?').bind(eid).first();
+  const withPi = async (pi) => {
+    const id = await newOrder({ method: 'stripe' });
+    await db.prepare('UPDATE orders SET provider_payment_id = ? WHERE id = ?').bind(pi, id).run();
+    return id;
+  };
+  const evt = (o) => ({ providerChargeId: 'ch_x', currency: 'usd', ...o });
+
+  await check('a refund event applies to the order it names', async () => {
+    const id = await withPi('pi_ok');
+    const input = evt({ eventId: 'ev_ok', providerPaymentId: 'pi_ok', cumulativeRefundedCents: 2500 });
+    await persistRefundEvent(db, 'stripe', input);
+    const out = await applyRefundEvent(db, 'stripe', input);
+    assert.equal(out.status, 'processed');
+    assert.equal(out.deltaCents, 2500);
+    assert.equal((await totals(id)).p, 2500);
+    assert.equal((await eventStatus('ev_ok')).status, 'processed');
+  });
+
+  await check('a redelivered event changes nothing', async () => {
+    const id = await withPi('pi_dup');
+    const input = evt({ eventId: 'ev_dup', providerPaymentId: 'pi_dup', cumulativeRefundedCents: 2500 });
+    await persistRefundEvent(db, 'stripe', input);
+    await applyRefundEvent(db, 'stripe', input);
+    // Exactly what Stripe does on retry: same event id, same payload.
+    await persistRefundEvent(db, 'stripe', input);
+    const out = await applyRefundEvent(db, 'stripe', input);
+    assert.equal(out.status, 'no_change');
+    assert.equal((await totals(id)).p, 2500);
+    const n = await db
+      .prepare("SELECT COUNT(*) n FROM refunds WHERE order_id = ? AND kind = 'provider_sync'")
+      .bind(id)
+      .first();
+    assert.equal(n.n, 1, 'a retry must not add a second ledger row');
+  });
+
+  await check('an event for an unknown payment is kept, not lost', async () => {
+    const input = evt({ eventId: 'ev_unk', providerPaymentId: 'pi_missing', cumulativeRefundedCents: 900 });
+    await persistRefundEvent(db, 'stripe', input);
+    const out = await applyRefundEvent(db, 'stripe', input);
+    assert.equal(out.status, 'unmatched');
+    assert.equal((await eventStatus('ev_unk')).status, 'unmatched');
+  });
+
+  await check('an unmatched event can be retried after the id is backfilled', async () => {
+    const input = evt({ eventId: 'ev_retry', providerPaymentId: 'pi_late', cumulativeRefundedCents: 1500 });
+    await persistRefundEvent(db, 'stripe', input);
+    assert.equal((await applyRefundEvent(db, 'stripe', input)).status, 'unmatched');
+    const id = await withPi('pi_late'); // the legacy backfill
+    const out = await applyRefundEvent(db, 'stripe', input);
+    assert.equal(out.status, 'processed');
+    assert.equal((await totals(id)).p, 1500);
+  });
+
+  await check('a currency mismatch opens a review and moves no money', async () => {
+    const id = await withPi('pi_cur');
+    const input = evt({
+      eventId: 'ev_cur',
+      providerPaymentId: 'pi_cur',
+      cumulativeRefundedCents: 5000,
+      currency: 'eur',
+    });
+    await persistRefundEvent(db, 'stripe', input);
+    const out = await applyRefundEvent(db, 'stripe', input);
+    assert.equal(out.status, 'review');
+    assert.equal(out.reason, 'currency_mismatch');
+    assert.equal((await totals(id)).p, 0, 'totals must be untouched');
+    const o = await db
+      .prepare('SELECT refund_review_reason rr, refund_reviewed_at ra FROM orders WHERE id = ?')
+      .bind(id)
+      .first();
+    assert.equal(o.rr, 'currency_mismatch');
+    assert.equal(o.ra, null);
+  });
+
+  await check('provider plus manual exceeding the total opens a review', async () => {
+    const id = await withPi('pi_over');
+    await recordExternalRefund(db, { orderId: id, amountCents: 6000, idempotencyKey: 'ex-over' });
+    const input = evt({ eventId: 'ev_over', providerPaymentId: 'pi_over', cumulativeRefundedCents: 8000 });
+    await persistRefundEvent(db, 'stripe', input);
+    const out = await applyRefundEvent(db, 'stripe', input);
+    assert.equal(out.status, 'review');
+    assert.equal(out.reason, 'exceeds_order_total');
+    const t = await totals(id);
+    // Both numbers are kept; only the derived aggregate is clamped.
+    assert.equal(t.p, 8000);
+    assert.equal(t.e, 6000);
+    assert.equal(t.r, 10000);
   });
 
   console.log('invariants');

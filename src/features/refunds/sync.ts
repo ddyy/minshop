@@ -7,7 +7,11 @@
 // persist is worth a 500 — that is the one case where a retry helps.
 
 import type { RefundSyncInput } from '../payments/provider';
-import { syncProviderRefund, openRefundReview } from './db';
+// Explicit .ts extension: this module is imported directly by
+// scripts/test-refunds.mjs under node's type stripping, which does not resolve
+// extensionless relative paths. allowImportingTsExtensions is on, so Vite and
+// astro check both accept it.
+import { syncProviderRefund, openRefundReview } from './db.ts';
 
 export type SyncOutcome =
   /** Applied; `deltaCents` is how much the provider total advanced by. */

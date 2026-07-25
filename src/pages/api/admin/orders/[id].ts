@@ -82,14 +82,11 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
   if (action === 'refund') {
     const order = await getOrder(env.DB, id);
     if (!order?.provider_session_id) return back;
-    const provider = await getPaymentProvider(
-      (order.payment_method ?? undefined) as PaymentMethod | undefined,
-    );
-    if (!provider.refund) {
-      return fail(
-        'Refunds are not supported for this payment method — return the money yourself, then use "Record refund".',
-      );
-    }
+
+    // Local guards first, before building a provider client: constructing one
+    // throws when the rail isn't fully configured, and a request we were going
+    // to reject anyway shouldn't surface as a 500 with no explanation.
+    //
     // A refund already recorded by hand makes a full provider refund ambiguous:
     // we would be asking the provider for the whole total while part of it has
     // already gone back another way. The merchant should refund the remainder
@@ -102,6 +99,14 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     if (refundableCents(order) <= 0) return fail('This order is already fully refunded.');
 
     try {
+      const provider = await getPaymentProvider(
+        (order.payment_method ?? undefined) as PaymentMethod | undefined,
+      );
+      if (!provider.refund) {
+        return fail(
+          'Refunds are not supported for this payment method — return the money yourself, then use "Record refund".',
+        );
+      }
       await provider.refund(order.provider_session_id);
     } catch (err) {
       return fail(`Refund failed: ${(err as Error).message}`);
