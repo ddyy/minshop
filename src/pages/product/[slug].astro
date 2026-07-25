@@ -148,20 +148,6 @@ const jsonLdStr = JSON.stringify(jsonLd).replace(/</g, '\\u003c');
     )
   }
 
-  {/* Progressive image reveal. The marker class is added before the image markup
-      is parsed, so incomplete images start on their neutral frame. With scripts
-      blocked the class is never added and images remain visible normally. */}
-  <script is:inline>
-    document.documentElement.classList.add('image-fade-enabled');
-    const finishImageFade = (event) => {
-      const image = event.target;
-      if (image instanceof HTMLImageElement && image.hasAttribute('data-image-fade')) {
-        image.setAttribute('data-image-loaded', '');
-      }
-    };
-    document.addEventListener('load', finishImageFade, true);
-    document.addEventListener('error', finishImageFade, true);
-  </script>
 
   <div class="mt-6 grid gap-10 md:grid-cols-2 md:gap-16">
     {
@@ -442,10 +428,11 @@ const jsonLdStr = JSON.stringify(jsonLd).replace(/</g, '\\u003c');
           {related.map((r) => (
             <li class="group">
               <a href={`/product/${r.slug}`} class="block">
-                <div class="relative overflow-hidden rounded-md bg-white">
+                <div class="relative overflow-hidden rounded-md bg-gray-100">
                   <ProductImage
                     imageKey={r.image_key}
                     alt={r.name}
+                    fade
                     sizes="(min-width: 1024px) 252px, calc(50vw - 36px)"
                     class={`aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]${0 >= r.stock ? ' opacity-60' : ''}`}
                   />

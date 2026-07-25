@@ -97,11 +97,12 @@ const hrefFor = (p: number) =>
       products.map((p, i) => (
         <li class="reveal group" style={`animation-delay:${Math.min(i, 8) * 60}ms`}>
           <a href={`/product/${p.slug}`} class="block">
-            <div class="relative overflow-hidden rounded-md bg-white">
+            <div class="relative overflow-hidden rounded-md bg-gray-100">
               <ProductImage
                 imageKey={p.image_key}
                 alt={p.name}
                 priority={i === 0}
+                fade
                 sizes="(min-width: 1024px) 352px, calc(50vw - 36px)"
                 class={`aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]${0 >= p.stock ? ' opacity-60' : ''}`}
               />

@@ -56,6 +56,23 @@ const ogImage = image ? new URL(image, Astro.url.origin).href : undefined;
     <meta name="twitter:title" content={pageTitle} />
     <meta name="twitter:description" content={desc} />
     {ogImage && <meta name="twitter:image" content={ogImage} />}
+
+    {/* Progressive image reveal, site-wide. The marker class is added in <head>,
+        before any image markup is parsed, so incomplete images start on their
+        neutral frame instead of flashing white. Capture-phase listeners catch
+        every [data-image-fade] on the page, including images added later. With
+        scripts blocked the class is never added and images stay visible. */}
+    <script is:inline>
+      document.documentElement.classList.add('image-fade-enabled');
+      const finishImageFade = (event) => {
+        const image = event.target;
+        if (image instanceof HTMLImageElement && image.hasAttribute('data-image-fade')) {
+          image.setAttribute('data-image-loaded', '');
+        }
+      };
+      document.addEventListener('load', finishImageFade, true);
+      document.addEventListener('error', finishImageFade, true);
+    </script>
   </head>
   <body class="flex min-h-screen flex-col bg-paper text-gray-900 antialiased">
     {/* Announcement bar. Deliberately NOT fixed: the header below is sticky, so a

@@ -14,7 +14,8 @@ interface Props {
   priority?: boolean;
   sizes?: string;
   usage?: ProductImageUsage;
-  /** Fade the bitmap over its neutral frame once the browser reports it loaded. */
+  /** Fade the bitmap over its neutral frame once the browser reports it loaded.
+   *  Ignored for `priority` images — see the data-image-fade binding below. */
   fade?: boolean;
   /** Explicit mode for fragments that do not load the full settings overlay. */
   delivery?: ImageDelivery;
@@ -43,7 +44,13 @@ const sources = productImageSources(imageKey, {
 
 {/* width/height are a square (1:1) aspect hint to reserve space (no CLS) — the
     actual display size comes from `class`. All product images + the placeholder
-    are square; object-cover crops anything that isn't. */}
+    are square; object-cover crops anything that isn't.
+
+    A priority image never fades: `priority` marks the likely LCP element and asks
+    the browser to fetch it first, but an opacity:0 element isn't a valid LCP
+    candidate, so fading would hold the paint back until the load event, an
+    attribute flip and a 180ms transition — undoing the head start. Enforced here
+    rather than at the call sites so the two can't be combined by mistake. */}
 <img
   src={sources.src}
   srcset={sources.srcset}
@@ -55,5 +62,5 @@ const sources = productImageSources(imageKey, {
   fetchpriority={priority ? 'high' : 'auto'}
   decoding="async"
   sizes={sources.sizes}
-  data-image-fade={fade ? '' : undefined}
+  data-image-fade={fade && !priority ? '' : undefined}
 />
