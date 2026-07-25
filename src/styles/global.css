@@ -211,6 +211,11 @@
    [data-page-layout="<key>"], which is always present on the article. */
 .markdown-content {
   max-width: var(--page-measure, 48rem);
+  /* Centre the measure inside <main>, which is max-w-6xl (72rem). Without this
+     a 48rem column sits hard against the left edge with ~360px of dead space on
+     the right, while the header and footer span the full width — it reads as a
+     broken layout rather than a deliberate narrow column. */
+  margin-inline: auto;
   line-height: 1.75;
 }
 .markdown-content h1 {
