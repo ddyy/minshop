@@ -1,0 +1,301 @@
+---
+import { formatPrice, formatDate } from '../../config';
+import type { Order } from '../orders/db';
+import { listRefunds, reversedRefundIds, refundableCents } from './db';
+import { env } from 'cloudflare:workers';
+
+interface Props {
+  order: Order;
+  timeZone: string;
+}
+
+const { order, timeZone } = Astro.props;
+
+const history = await listRefunds(env.DB, order.id);
+const reversed = reversedRefundIds(history);
+const remaining = refundableCents(order);
+const method = order.payment_method;
+
+// Which controls make sense depends on what the rail can actually do, not on
+// what minshop would like it to do. Only Stripe can be refunded through an API;
+// everything else is money the merchant moved themselves and is telling us about.
+const canRefundViaProvider =
+  (method === 'stripe' || method == null) &&
+  !!order.provider_session_id &&
+  remaining > 0 &&
+  order.external_refunded_cents === 0;
+const canSyncProvider = (method === 'stripe' || method == null) && remaining > 0;
+const isDemo = method === 'demo';
+const canRecord = remaining > 0;
+
+// Partial is derived, never stored: it is simply "some, but not all".
+const state =
+  order.refunded_cents === 0
+    ? 'none'
+    : order.refunded_cents >= order.amount_total_cents
+      ? 'full'
+      : 'partial';
+
+const reviewOpen = order.refund_review_reason !== null && order.refund_reviewed_at === null;
+const REVIEW_COPY: Record<string, string> = {
+  currency_mismatch:
+    'A refund arrived in a different currency than this order was charged in. The totals were left untouched.',
+  exceeds_order_total:
+    'The provider’s refund total plus what was recorded here is more than the order total.',
+};
+
+const KIND_LABEL: Record<string, string> = {
+  provider_api: 'Refunded through provider',
+  provider_sync: 'Synced from provider',
+  manual_external: 'Recorded by hand',
+  manual_reversal: 'Correction',
+  demo: 'Demo adjustment',
+  legacy: 'Recorded before refund history',
+};
+
+const dollars = (cents: number) => (cents / 100).toFixed(2);
+---
+
+<section class="mb-8 rounded-lg border border-line">
+  <div class="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3">
+    <h2 class="font-serif text-lg tracking-tight">Refunds</h2>
+    {
+      state !== 'none' && (
+        <span
+          class:list={[
+            'rounded-full px-3 py-1 text-xs uppercase tracking-wide ring-1',
+            state === 'full'
+              ? 'bg-red-50 text-red-700 ring-red-200'
+              : 'bg-amber-50 text-amber-800 ring-amber-200',
+          ]}
+        >
+          {state === 'full' ? 'Refunded' : 'Partially refunded'}
+        </span>
+      )
+    }
+  </div>
+
+  {
+    reviewOpen && (
+      <div class="border-b border-line bg-amber-50 px-5 py-4">
+        <p class="text-sm text-amber-900">
+          <strong>Needs review.</strong>{' '}
+          {REVIEW_COPY[order.refund_review_reason!] ?? order.refund_review_reason}
+        </p>
+        <form method="POST" action={`/api/admin/orders/${order.id}`} class="mt-3">
+          <input type="hidden" name="_action" value="review_refund" />
+          <button
+            type="submit"
+            class="rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-amber-900 hover:bg-amber-100"
+          >
+            Mark reviewed
+          </button>
+        </form>
+      </div>
+    )
+  }
+
+  <dl class="grid grid-cols-2 gap-x-8 gap-y-3 px-5 py-4 text-sm sm:grid-cols-3">
+    <div>
+      <dt class="text-xs uppercase tracking-widest text-gray-400">Order total</dt>
+      <dd class="tabular-nums">{formatPrice(order.amount_total_cents, order.currency)}</dd>
+    </div>
+    {
+      order.provider_refunded_cents > 0 && (
+        <div>
+          <dt class="text-xs uppercase tracking-widest text-gray-400">Through provider</dt>
+          <dd class="tabular-nums">
+            {formatPrice(order.provider_refunded_cents, order.currency)}
+          </dd>
+        </div>
+      )
+    }
+    {
+      order.external_refunded_cents > 0 && (
+        <div>
+          <dt class="text-xs uppercase tracking-widest text-gray-400">Recorded by hand</dt>
+          <dd class="tabular-nums">
+            {formatPrice(order.external_refunded_cents, order.currency)}
+          </dd>
+        </div>
+      )
+    }
+    <div>
+      <dt class="text-xs uppercase tracking-widest text-gray-400">Total refunded</dt>
+      <dd class="font-medium tabular-nums">{formatPrice(order.refunded_cents, order.currency)}</dd>
+    </div>
+    <div>
+      <dt class="text-xs uppercase tracking-widest text-gray-400">Refundable left</dt>
+      <dd class="tabular-nums">{formatPrice(remaining, order.currency)}</dd>
+    </div>
+    <div>
+      <dt class="text-xs uppercase tracking-widest text-gray-400">Net</dt>
+      <dd class="font-medium tabular-nums">
+        {formatPrice(order.amount_total_cents - order.refunded_cents, order.currency)}
+      </dd>
+    </div>
+  </dl>
+
+  {
+    history.length > 0 && (
+      <ul class="border-t border-line text-sm">
+        {history.map((r) => (
+          <li class="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line px-5 py-3 last:border-b-0">
+            <span
+              class:list={[
+                'tabular-nums font-medium',
+                r.amount_cents < 0 ? 'text-gray-500' : '',
+                reversed.has(r.id) ? 'text-gray-400 line-through' : '',
+              ]}
+            >
+              {r.amount_cents < 0 ? '−' : ''}
+              {formatPrice(Math.abs(r.amount_cents), order.currency)}
+            </span>
+            <span class="text-xs uppercase tracking-widest text-gray-400">
+              {KIND_LABEL[r.kind] ?? r.kind}
+            </span>
+            <span class="text-xs text-gray-500">{formatDate(r.created_at, undefined, timeZone)}</span>
+            {r.created_by && <span class="text-xs text-gray-500">{r.created_by}</span>}
+            {r.provider_refund_id && (
+              <span class="font-mono text-xs text-gray-400">{r.provider_refund_id}</span>
+            )}
+            {reversed.has(r.id) && (
+              <span class="text-xs uppercase tracking-widest text-gray-400">Voided</span>
+            )}
+            <span class="w-full text-xs text-gray-500">
+              {[r.reason, r.note].filter(Boolean).join(' — ')}
+            </span>
+            {/* Only entries minshop invented can be corrected here. A provider's
+                own numbers belong to the provider, so they are reconciled rather
+                than edited. */}
+            {(r.kind === 'manual_external' || r.kind === 'demo') &&
+              r.status === 'succeeded' &&
+              !reversed.has(r.id) && (
+                <form
+                  method="POST"
+                  action={`/api/admin/orders/${order.id}`}
+                  onsubmit="return confirm('Void this recorded refund? This corrects minshop’s records only and moves no money.')"
+                >
+                  <input type="hidden" name="_action" value="void_refund" />
+                  <input type="hidden" name="refund_id" value={r.id} />
+                  <button
+                    type="submit"
+                    class="text-xs uppercase tracking-widest text-gray-400 hover:text-red-600"
+                  >
+                    Void
+                  </button>
+                </form>
+              )}
+          </li>
+        ))}
+      </ul>
+    )
+  }
+
+  {
+    (canRefundViaProvider || canRecord || canSyncProvider) && (
+      <div class="space-y-5 border-t border-line px-5 py-4">
+        {/* The one control here that moves money is styled as the only one that
+            does. Everything else is bookkeeping and says so in its own copy. */}
+        {canRefundViaProvider && (
+          <form
+            method="POST"
+            action={`/api/admin/orders/${order.id}`}
+            onsubmit="return confirm('Refund this order in full through the payment provider? This sends money back to the customer.')"
+          >
+            <input type="hidden" name="_action" value="refund" />
+            <button
+              type="submit"
+              class="rounded-md bg-red-600 px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-red-700"
+            >
+              Refund {formatPrice(order.amount_total_cents, order.currency)} through provider
+            </button>
+            <p class="mt-2 text-xs text-gray-500">
+              Sends the money back. For a partial refund, use your provider’s dashboard — it
+              syncs back here automatically.
+            </p>
+          </form>
+        )}
+
+        {canRecord && (
+          <form method="POST" action={`/api/admin/orders/${order.id}`} class="space-y-2">
+            <input type="hidden" name="_action" value="record_refund" />
+            <p class="text-xs uppercase tracking-widest text-gray-400">
+              {isDemo ? 'Mark demo order refunded' : 'Record a refund you already sent'}
+            </p>
+            <div class="flex flex-wrap items-center gap-2">
+              <input
+                type="number"
+                name="amount"
+                step="0.01"
+                min="0.01"
+                max={dollars(remaining)}
+                value={dollars(remaining)}
+                required
+                aria-label="Refund amount"
+                class="w-28 rounded-md border border-gray-200 px-2 py-1.5 text-sm tabular-nums"
+              />
+              <input
+                type="text"
+                name="note"
+                placeholder="How it was sent (internal)"
+                aria-label="Internal note"
+                class="min-w-48 flex-1 rounded-md border border-gray-200 px-2 py-1.5 text-sm"
+              />
+              <button
+                type="submit"
+                class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand"
+              >
+                {isDemo ? 'Mark refunded' : 'Record refund'}
+              </button>
+            </div>
+            <p class="text-xs text-gray-500">
+              {isDemo
+                ? 'This only updates the demo order and store statistics. No money was charged or returned.'
+                : 'This only updates minshop’s records and moves no money. Send the refund from your wallet or provider first.'}
+            </p>
+          </form>
+        )}
+
+        {canSyncProvider && (
+          <form method="POST" action={`/api/admin/orders/${order.id}`} class="space-y-2">
+            <input type="hidden" name="_action" value="sync_refund" />
+            <p class="text-xs uppercase tracking-widest text-gray-400">
+              Sync a refund from your provider
+            </p>
+            <div class="flex flex-wrap items-center gap-2">
+              <input
+                type="number"
+                name="amount"
+                step="0.01"
+                min="0"
+                max={dollars(order.amount_total_cents)}
+                required
+                aria-label="Total refunded at the provider"
+                placeholder={dollars(order.amount_total_cents)}
+                class="w-28 rounded-md border border-gray-200 px-2 py-1.5 text-sm tabular-nums"
+              />
+              <input
+                type="text"
+                name="provider_refund_id"
+                placeholder="Provider refund ID (optional)"
+                aria-label="Provider refund ID"
+                class="min-w-48 flex-1 rounded-md border border-gray-200 px-2 py-1.5 text-sm"
+              />
+              <button
+                type="submit"
+                class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand"
+              >
+                Sync total
+              </button>
+            </div>
+            <p class="text-xs text-gray-500">
+              Use this only if a refund you made at the provider never appeared here. Enter the
+              <strong> total refunded so far</strong>, not just the latest amount.
+            </p>
+          </form>
+        )}
+      </div>
+    )
+  }
+</section>

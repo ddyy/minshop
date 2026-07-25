@@ -238,3 +238,81 @@ export function orderShippedEmail(order: Order, baseUrl: string, storeName: stri
     text,
   };
 }
+
+/**
+ * Refund notice. Sent once per newly recognised refund — the amount the total
+ * just advanced by, not the cumulative total — so a partial refund followed by
+ * another reads as two distinct amounts rather than one growing number.
+ *
+ * `refundedCents` is the running total, shown only when it differs from this
+ * refund, i.e. when there was an earlier one.
+ */
+export function orderRefundedEmail(
+  order: Order,
+  refundCents: number,
+  refundedCents: number,
+  baseUrl: string,
+  storeName: string,
+): EmailMessage {
+  const cfg = getConfig();
+  const num = orderNumber(order.id, cfg.orderNumber);
+  const orderUrl = order.public_id ? `${baseUrl}/order/${order.public_id}` : null;
+  const full = refundedCents >= order.amount_total_cents;
+  const remaining = Math.max(0, order.amount_total_cents - refundedCents);
+  const method = order.payment_method;
+
+  // How the money actually gets back differs per rail, and the honest answer is
+  // "it depends on your bank" for cards. Saying nothing invites a support email.
+  const timing =
+    method === 'stripe' || method === null
+      ? 'Card refunds usually appear within 5-10 business days, depending on your bank.'
+      : 'The refund was sent back over the same payment method you used.';
+
+  const priorLine =
+    refundedCents > refundCents
+      ? `Total refunded so far: ${formatPrice(refundedCents)}`
+      : null;
+
+  const text = [
+    full ? `Your order #${num} has been refunded.` : `A refund was issued for order #${num}.`,
+    ``,
+    `Refunded: ${formatPrice(refundCents)}`,
+    ...(priorLine ? [priorLine] : []),
+    ...(full ? [] : [`Still paid: ${formatPrice(remaining)}`]),
+    ``,
+    timing,
+    ...(orderUrl ? [``, `View your order: ${orderUrl}`] : []),
+  ].join('\n');
+
+  const rows: TotalRow[] = [
+    { label: 'Refunded', amount: formatPrice(refundCents), strong: true },
+    ...(priorLine ? [{ label: 'Total refunded', amount: formatPrice(refundedCents) }] : []),
+    ...(full ? [] : [{ label: 'Still paid', amount: formatPrice(remaining) }]),
+  ];
+
+  const html = emailShell({
+    storeName,
+    heading: full ? 'Your order has been refunded' : 'A refund is on its way',
+    subheading: `Order #${num}`,
+    body:
+      emailLabel('Refund') +
+      `<table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px;">${rows
+        .map(
+          (r) =>
+            `<tr><td style="padding:4px 0;font-size:14px;color:${PALETTE.muted};">${escapeHtml(r.label)}</td>` +
+            `<td align="right" style="padding:4px 0;font-size:14px;${r.strong ? 'font-weight:600;' : ''}">${escapeHtml(r.amount)}</td></tr>`,
+        )
+        .join('')}</table>` +
+      `<p style="margin:0 0 16px;font-size:14px;line-height:1.6;color:${PALETTE.muted};">${escapeHtml(timing)}</p>` +
+      (orderUrl ? emailButton(orderUrl, 'View your order') : ''),
+  });
+
+  return {
+    to: order.email!,
+    subject: full
+      ? `Your ${storeName} order #${num} has been refunded`
+      : `A refund for your ${storeName} order #${num}`,
+    html,
+    text,
+  };
+}

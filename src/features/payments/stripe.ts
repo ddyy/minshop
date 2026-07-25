@@ -179,10 +179,16 @@ export function createStripeProvider(
             }
           : null;
 
+        const paymentIntentId =
+          typeof session.payment_intent === 'string'
+            ? session.payment_intent
+            : (session.payment_intent?.id ?? null);
+
         return {
           type: event.type,
           order: {
             providerSessionId: session.id,
+            providerPaymentId: paymentIntentId,
             publicId: session.metadata?.public_id ?? undefined,
             reservationId: session.metadata?.reservation_id ?? undefined,
             email: session.customer_details?.email ?? null,
@@ -196,6 +202,35 @@ export function createStripeProvider(
           },
         };
       }
+      // A refund made anywhere — Stripe Dashboard, the API, or minshop's own
+      // button. `amount_refunded` is the charge's CUMULATIVE refunded total, so
+      // it is reported as-is and reconciled absolutely: a replayed or
+      // out-of-order event then changes nothing, and minshop's own refund plus
+      // the webhook it triggers count once between them.
+      //
+      // Scope: Stripe Checkout with ordinary automatic capture produces at most
+      // one successful charge per PaymentIntent, so this charge's total is the
+      // payment's total. If minshop ever supports multi-capture flows, this must
+      // become a sum over stripe.refunds.list({ payment_intent }) instead.
+      if (event.type === 'charge.refunded') {
+        const charge = event.data.object;
+        const pi =
+          typeof charge.payment_intent === 'string'
+            ? charge.payment_intent
+            : (charge.payment_intent?.id ?? null);
+        if (!pi) return { type: event.type };
+        return {
+          type: event.type,
+          refundSync: {
+            eventId: event.id,
+            providerPaymentId: pi,
+            providerChargeId: charge.id,
+            cumulativeRefundedCents: charge.amount_refunded ?? 0,
+            currency: charge.currency ?? null,
+          },
+        };
+      }
+
       return { type: event.type };
     },
 

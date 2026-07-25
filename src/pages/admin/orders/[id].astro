@@ -5,6 +5,7 @@ import { formatPrice, formatDate, getConfig } from '../../../config';
 import { getOrder, listOrderItems } from '../../../features/orders/db';
 import { orderNumber } from '../../../features/orders/number';
 import { CARRIERS, carrierName, trackingUrl } from '../../../features/orders/tracking';
+import RefundPanel from '../../../features/refunds/RefundPanel.astro';
 
 const id = Number(Astro.params.id);
 const order = Number.isFinite(id) ? await getOrder(env.DB, id) : null;
@@ -28,7 +29,6 @@ const timeZone = Astro.locals.settings?.timeZone ?? getConfig().timeZone;
 const items = await listOrderItems(env.DB, order.id);
 const fulfilled = order.fulfillment_status === 'fulfilled';
 const trackUrl = trackingUrl(order.tracking_carrier, order.tracking_number);
-const refunded = order.status === 'refunded';
 const error = Astro.url.searchParams.get('error');
 const itemsTotalCents = items.reduce((sum, it) => sum + it.price_cents * it.quantity, 0);
 // Older orders (placed before line-item capture) may have no items; flag any
@@ -58,32 +58,10 @@ const ship = order.ship_address
   >
     &larr; Back to orders
   </a>
-  <div class="mt-4 mb-8 flex items-center justify-between gap-4">
+  {/* Refund controls all live in the Refunds panel below, so the one button
+      that moves money can't sit next to bookkeeping ones that don't. */}
+  <div class="mt-4 mb-8">
     <h1 class="font-serif text-3xl tracking-tight">Order #{num}</h1>
-    {
-      refunded ? (
-        <span class="rounded-full bg-red-50 px-3 py-1 text-xs uppercase tracking-wide text-red-700 ring-1 ring-red-200">
-          Refunded
-        </span>
-      ) : (
-        (order.payment_method === 'stripe' || order.payment_method == null) &&
-          order.provider_session_id && (
-          <form
-            method="POST"
-            action={`/api/admin/orders/${order.id}`}
-            onsubmit="return confirm('Refund this order in full? This cannot be undone.')"
-          >
-            <input type="hidden" name="_action" value="refund" />
-            <button
-              type="submit"
-              class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-red-600 hover:border-red-300 hover:bg-red-50"
-            >
-              Refund order
-            </button>
-          </form>
-        )
-      )
-    }
   </div>
 
   {
@@ -158,6 +136,8 @@ const ship = order.ship_address
       <dd class="font-mono text-xs break-all">{order.provider_session_id ?? '—'}</dd>
     </div>
   </dl>
+
+  <RefundPanel order={order} timeZone={timeZone} />
 
   <div class="mb-8 rounded-lg border border-line p-5">
     <h2 class="mb-3 text-xs uppercase tracking-widest text-gray-400">Fulfillment</h2>

@@ -22,6 +22,12 @@ export interface Order {
   currency: string;
   status: string; // payment status (e.g. 'paid' | 'refunded')
   payment_method: string | null; // 'stripe' | 'lightning' | 'opennode' (NULL = legacy/default)
+  provider_payment_id: string | null; // Stripe PaymentIntent (NULL = pre-0025 order)
+  provider_refunded_cents: number; // absolute total confirmed by the provider
+  external_refunded_cents: number; // additive total recorded by hand
+  refund_review_reason: string | null; // active review = reason set, reviewed_at NULL
+  refund_reviewed_at: string | null;
+  refund_reviewed_by: string | null;
   refunded_cents: number; // total refunded (0 = none; = amount_total_cents when fully refunded)
   fulfillment_status: string; // 'unfulfilled' | 'fulfilled'
   tracking_carrier: string | null;
@@ -66,6 +72,12 @@ export interface PaidOrderInput {
   currency: string;
   /** Which rail settled it ('stripe' | 'lightning' | 'opennode'). */
   paymentMethod?: string;
+  /**
+   * Provider payment id (Stripe PaymentIntent). Stored at settlement because
+   * refund events identify the charge and its payment, not the checkout
+   * session — so without this a charge.refunded can't find its order.
+   */
+  providerPaymentId?: string | null;
   items?: OrderItemInput[];
 }
 
@@ -174,36 +186,10 @@ export async function getOrder(db: D1Database, id: number): Promise<Order | null
   return db.prepare('SELECT * FROM orders WHERE id = ?').bind(id).first<Order>();
 }
 
-/** Set the payment status (e.g. 'paid' → 'refunded'). */
-export async function setOrderStatus(
-  db: D1Database,
-  id: number,
-  status: string,
-): Promise<void> {
-  await db.prepare('UPDATE orders SET status = ? WHERE id = ?').bind(status, id).run();
-}
-
-/**
- * Record a refund of `cents` on an order: add to refunded_cents and flip status
- * to 'refunded' once fully refunded. Caps refunded_cents at the order total so a
- * double-submit can't push net revenue negative. Returns the new refunded total.
- */
-export async function recordRefund(
-  db: D1Database,
-  id: number,
-  cents: number,
-): Promise<void> {
-  await db
-    .prepare(
-      `UPDATE orders
-         SET refunded_cents = MIN(amount_total_cents, refunded_cents + ?),
-             status = CASE WHEN MIN(amount_total_cents, refunded_cents + ?) >= amount_total_cents
-                           THEN 'refunded' ELSE status END
-       WHERE id = ?`,
-    )
-    .bind(cents, cents, id)
-    .run();
-}
+// Refund writes live in features/refunds/db.ts. They cannot happen here any
+// more: refunded_cents is a GENERATED column as of migration 0025, so an UPDATE
+// against it fails outright — the aggregate is only ever moved by writing its
+// provider_refunded_cents / external_refunded_cents components.
 
 /** Single order by its public token, or null if missing (customer-facing). */
 export async function getOrderByPublicId(db: D1Database, publicId: string): Promise<Order | null> {
@@ -316,12 +302,15 @@ export async function recordPaidOrder(
     o.currency,
     o.shippingAddress ? JSON.stringify(o.shippingAddress) : null,
     o.paymentMethod ?? null,
+    // Stripe PaymentIntent. Refund webhooks identify the charge and its payment
+    // but not the session, so this is what charge.refunded resolves an order by.
+    o.providerPaymentId ?? null,
   ] as const;
   const insertOrder = o.reservationId
     ? db
         .prepare(
-          `INSERT INTO orders (provider_session_id, public_id, email, amount_total_cents, shipping_cents, discount_cents, tax_cents, currency, ship_address, status, payment_method, settlement_token)
-           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, NULL
+          `INSERT INTO orders (provider_session_id, public_id, email, amount_total_cents, shipping_cents, discount_cents, tax_cents, currency, ship_address, status, payment_method, settlement_token, provider_payment_id)
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, NULL, ?
             WHERE EXISTS (
               SELECT 1 FROM checkout_reservations
                WHERE public_id = ? AND status IN ('active', 'payment_pending')
@@ -332,8 +321,8 @@ export async function recordPaidOrder(
         .bind(...orderValues, o.reservationId)
     : db
         .prepare(
-          `INSERT INTO orders (provider_session_id, public_id, email, amount_total_cents, shipping_cents, discount_cents, tax_cents, currency, ship_address, status, payment_method, settlement_token)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, NULL)
+          `INSERT INTO orders (provider_session_id, public_id, email, amount_total_cents, shipping_cents, discount_cents, tax_cents, currency, ship_address, status, payment_method, settlement_token, provider_payment_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, NULL, ?)
            ON CONFLICT(provider_session_id) DO NOTHING
            RETURNING id`,
         )

@@ -75,6 +75,25 @@ export interface WebhookResult {
   settlePendingPaymentId?: string;
   /** Present only when the event represents a completed, paid checkout. */
   order?: PaidOrderInput;
+  /** Present only when the event reports a refund made at the provider. */
+  refundSync?: RefundSyncInput;
+}
+
+/**
+ * A provider telling us how much of a payment it has refunded IN TOTAL.
+ *
+ * Cumulative and absolute, never a delta: that is what lets a duplicate or
+ * out-of-order webhook be a no-op instead of double-counting. The order is
+ * resolved by `providerPaymentId`, because refund events identify the charge
+ * and its payment, not the checkout session that created it.
+ */
+export interface RefundSyncInput {
+  /** Provider event id — the idempotency boundary for the whole sync. */
+  eventId: string;
+  providerPaymentId: string;
+  providerChargeId?: string | null;
+  cumulativeRefundedCents: number;
+  currency: string | null;
 }
 
 export interface PaymentProvider {

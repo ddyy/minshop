@@ -7,7 +7,12 @@ import {
   listOrderItemsWithImages,
 } from './db';
 import { getEmailProvider } from '../email';
-import { orderConfirmationEmail, orderNotificationEmail } from '../email/orderConfirmation';
+import {
+  orderConfirmationEmail,
+  orderNotificationEmail,
+  orderRefundedEmail,
+} from '../email/orderConfirmation';
+import { persistRefundEvent, applyRefundEvent } from '../refunds/sync';
 import { shouldSendCustomerOrderEmail } from '../email/orderPolicy';
 import { getConfig } from '../../config';
 import { getSetting } from '../settings/db';
@@ -17,6 +22,37 @@ import {
   releaseInventoryReservation,
 } from './reservations';
 import { markPendingSettled } from '../payments/lightning/pending';
+
+/**
+ * Tell the customer about a refund we just recognised.
+ *
+ * Sent only when the total actually ADVANCED, and only for the delta, so a
+ * replayed webhook (which advances nothing) is silent and a minshop-initiated
+ * refund plus its own provider event mail once between them. Demo orders never
+ * take money, so they never get one. Email failure never unwinds the refund:
+ * the accounting is already committed.
+ */
+async function sendRefundEmail(
+  orderId: number,
+  deltaCents: number,
+  origin: string,
+  paymentMethod: string,
+): Promise<void> {
+  if (deltaCents <= 0) return;
+  if (!shouldSendCustomerOrderEmail(paymentMethod)) return;
+  const order = await getOrder(env.DB, orderId);
+  if (!order?.email) return;
+  const emailer = await getEmailProvider();
+  if (!emailer) return;
+  try {
+    const storeName = (await getSetting(env.DB, 'store_name')) || getConfig().storeName;
+    await emailer.send(
+      orderRefundedEmail(order, deltaCents, order.refunded_cents, origin, storeName),
+    );
+  } catch (err) {
+    console.error('Refund email failed:', err);
+  }
+}
 
 /**
  * Persist a verified paid-webhook order (idempotent on the provider session id)
@@ -41,6 +77,21 @@ export async function recordPaidWebhookOrder(
   if (result.pendingReservationId) {
     await markInventoryReservationPaymentPending(env.DB, result.pendingReservationId);
   }
+
+  // A refund reported by the provider. persistRefundEvent is deliberately NOT
+  // wrapped: if we can't even record the event, the caller should 5xx so the
+  // provider retries. Everything after it is recoverable from the stored row,
+  // so an unmatched or conflicting event still answers 200 rather than making
+  // the provider redeliver a valid event forever.
+  if (result.refundSync) {
+    await persistRefundEvent(env.DB, paymentMethod, result.refundSync);
+    const outcome = await applyRefundEvent(env.DB, paymentMethod, result.refundSync);
+    if (outcome.status === 'processed') {
+      await sendRefundEmail(outcome.orderId, outcome.deltaCents, origin, paymentMethod);
+    }
+    return;
+  }
+
   if (!result.order) return;
 
   // Provider metadata carries only a compact reservation id. The authoritative
