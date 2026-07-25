@@ -96,13 +96,14 @@ const tools = [
     </div>
 
     <div class="mt-6 rounded-md border border-line">
-      {/* Write / Preview. Preview posts to the server renderer, so what shows
-          here is byte-for-byte what the storefront will render. */}
-      <div class="flex items-center gap-1 border-b border-line px-2 py-2">
+      {/* Source and preview sit side by side from lg up. Below that there isn't
+          room for two readable columns, so the tabs switch between them —
+          they're hidden at lg where both panes are visible anyway. */}
+      <div class="flex items-center gap-1 border-b border-line px-2 py-2 lg:hidden">
         <button
           type="button"
           data-tab="write"
-          class="rounded px-3 py-1.5 text-xs uppercase tracking-widest text-gray-700"
+          class="rounded bg-gray-100 px-3 py-1.5 text-xs uppercase tracking-widest text-gray-700"
           aria-pressed="true"
         >
           Write
@@ -117,34 +118,55 @@ const tools = [
         </button>
       </div>
 
-      <div data-toolbar class="flex flex-wrap items-center gap-1 border-b border-line px-2 py-2">
-        {
-          tools.map((tool) => (
-            <button
-              type="button"
-              data-tool={tool.action}
-              data-value={tool.value}
-              title={tool.title}
-              class="rounded px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 hover:text-brand"
-            >
-              {tool.label}
-            </button>
-          ))
-        }
-        <span class="ml-1"><MediaPicker id="page-body" label="Insert image" /></span>
+      <div class="lg:grid lg:grid-cols-2 lg:divide-x lg:divide-line">
+        {/* lg:block so the tab toggle's `hidden` can never win at lg — otherwise
+            switching to Preview on a phone and then widening the window would
+            leave the editor hidden on desktop. */}
+        <div data-pane="write" class="min-w-0 lg:block">
+          <div
+            data-toolbar
+            class="flex flex-wrap items-center gap-1 border-b border-line px-2 py-2"
+          >
+            {
+              tools.map((tool) => (
+                <button
+                  type="button"
+                  data-tool={tool.action}
+                  data-value={tool.value}
+                  title={tool.title}
+                  class="rounded px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 hover:text-brand"
+                >
+                  {tool.label}
+                </button>
+              ))
+            }
+            <span class="ml-1"><MediaPicker id="page-body" label="Insert image" /></span>
+          </div>
+
+          <textarea
+            name="body_markdown"
+            data-editor
+            rows="24"
+            spellcheck="true"
+            class="block h-full w-full resize-y border-0 px-4 py-3 font-mono text-sm leading-relaxed focus:outline-none"
+            >{page.body_markdown}</textarea
+          >
+        </div>
+
+        <div data-pane="preview" class="hidden min-w-0 lg:block">
+          <div
+            class="flex items-center justify-between border-b border-line px-4 py-2 text-xs uppercase tracking-widest text-gray-400"
+          >
+            <span>Preview</span>
+            {/* Reserved space, so the row doesn't reflow each time it renders. */}
+            <span data-preview-status class="text-gray-300"></span>
+          </div>
+          {/* Server-rendered by the same renderer the storefront uses. The
+              endpoint supplies .markdown-content and the layout variables, so
+              this pane shows the real measure and title alignment. */}
+          <div data-preview class="overflow-x-auto px-4 py-3"></div>
+        </div>
       </div>
-
-      <textarea
-        name="body_markdown"
-        data-editor
-        rows="20"
-        spellcheck="true"
-        class="block w-full resize-y border-0 px-4 py-3 font-mono text-sm leading-relaxed focus:outline-none"
-        >{page.body_markdown}</textarea
-      >
-
-      {/* Populated by the preview endpoint; same class the storefront uses. */}
-      <div data-preview class="hidden px-4 py-3"></div>
     </div>
 
     {/* Options are generated from features/pages/layouts.ts — adding a preset
@@ -241,44 +263,99 @@ const tools = [
       replaceSelection(md, 2, 2 + alt.length);
     });
 
-    const tabs = form.querySelectorAll<HTMLButtonElement>('[data-tab]');
-    const setTab = async (name: string) => {
-      const isPreview = name === 'preview';
-      tabs.forEach((tab) => {
-        const active = tab.dataset.tab === name;
-        tab.setAttribute('aria-pressed', String(active));
-        tab.classList.toggle('bg-gray-100', active);
-        tab.classList.toggle('text-gray-700', active);
-        tab.classList.toggle('text-gray-500', !active);
-      });
-      editor.classList.toggle('hidden', isPreview);
-      preview.classList.toggle('hidden', !isPreview);
-      if (!isPreview) return;
+    const status = form.querySelector<HTMLElement>('[data-preview-status]');
+    const previewPane = form.querySelector<HTMLElement>('[data-pane="preview"]');
+    const writePane = form.querySelector<HTMLElement>('[data-pane="write"]');
+    // Cast rather than parameterise: the Workers `Element` type in scope here
+    // doesn't satisfy querySelector's generic constraint for HTMLSelectElement.
+    const layoutSelect = form.querySelector('[data-layout-select]') as HTMLSelectElement | null;
+    const titleInput = form.querySelector<HTMLInputElement>('input[name="title"]');
 
-      preview.textContent = 'Rendering…';
+    let inFlight: AbortController | null = null;
+    let lastRendered: string | null = null;
+    let timer: number | undefined;
+
+    /** offsetParent is null while a pane is display:none — no point rendering. */
+    const previewVisible = () => !!previewPane?.offsetParent;
+
+    const render = async () => {
+      if (!previewVisible()) return;
+      const markdown = editor.value;
+      // Every input the preview depends on belongs in this key. Leave one
+      // out and a change to it looks identical to "nothing changed", so the
+      // render is skipped — exactly what happened when only the title moved.
+      const key = `${layoutSelect?.value ?? ''} ${titleInput?.value ?? ''} ${markdown}`;
+      if (key === lastRendered) return; // nothing changed since the last render
+
+      // Supersede any request still in flight: with fast typing the responses
+      // can otherwise land out of order and leave stale HTML in the pane.
+      inFlight?.abort();
+      const controller = new AbortController();
+      inFlight = controller;
+      if (status) status.textContent = 'Rendering…';
+
       const body = new FormData();
-      body.append('body_markdown', editor.value);
+      body.append('body_markdown', markdown);
       // Send the chosen layout so the preview uses the same measure and title
       // alignment the storefront will.
-      // Cast rather than parameterise: the Workers `Element` type in scope here
-      // doesn't satisfy querySelector's generic constraint for HTMLSelectElement.
-      const layoutSelect = form.querySelector('[data-layout-select]') as HTMLSelectElement | null;
       if (layoutSelect) body.append('layout', layoutSelect.value);
+      // The storefront prints the title above the body; send it so the panes match.
+      if (titleInput) body.append('title', titleInput.value);
       try {
-        const res = await fetch('/api/admin/pages/preview', { method: 'POST', body });
+        const res = await fetch('/api/admin/pages/preview', {
+          method: 'POST',
+          body,
+          signal: controller.signal,
+        });
         if (!res.ok) throw new Error(`Preview failed (${res.status})`);
         // Server-rendered by the same renderer the storefront uses, with raw
         // HTML disabled, so this is the storefront's own escaped output.
         preview.innerHTML = await res.text();
+        lastRendered = key;
+        if (status) status.textContent = '';
       } catch (err) {
+        if (controller.signal.aborted) return; // superseded, not a failure
+        if (status) status.textContent = '';
         preview.textContent = err instanceof Error ? err.message : 'Preview failed.';
+      } finally {
+        if (inFlight === controller) inFlight = null;
       }
     };
-    tabs.forEach((tab) => tab.addEventListener('click', () => setTab(tab.dataset.tab!)));
+
+    /** Trailing debounce: render once typing pauses, not on every keystroke. */
+    const scheduleRender = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(render, 350);
+    };
+
+    editor.addEventListener('input', scheduleRender);
+    titleInput?.addEventListener('input', scheduleRender);
+    layoutSelect?.addEventListener('change', scheduleRender);
+    render(); // first paint, so the pane isn't empty on load
+
+    // Below lg only one pane fits, so the tabs swap them. At lg both are visible
+    // and the tab bar is hidden, which is why this only toggles the panes.
+    const tabs = form.querySelectorAll<HTMLButtonElement>('[data-tab]');
+    tabs.forEach((tab) =>
+      tab.addEventListener('click', () => {
+        const name = tab.dataset.tab;
+        tabs.forEach((other) => {
+          const active = other === tab;
+          other.setAttribute('aria-pressed', String(active));
+          other.classList.toggle('bg-gray-100', active);
+          other.classList.toggle('text-gray-700', active);
+          other.classList.toggle('text-gray-500', !active);
+        });
+        writePane?.classList.toggle('hidden', name !== 'write');
+        previewPane?.classList.toggle('hidden', name !== 'preview');
+        // The pane was hidden while edits happened, so refresh on reveal.
+        if (name === 'preview') render();
+      }),
+    );
 
     // Keep the hint in step with the dropdown. Hints are read from the rendered
     // options' data attributes, so this needs no per-preset code either.
-    const layoutSelect = form.querySelector('[data-layout-select]') as HTMLSelectElement | null;
+    // (layoutSelect is declared above, next to the preview renderer.)
     const layoutHint = form.querySelector<HTMLElement>('[data-layout-hint]');
     layoutSelect?.addEventListener('change', () => {
       const hint = layoutSelect.selectedOptions[0]?.dataset.hint;
