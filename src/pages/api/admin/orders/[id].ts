@@ -11,7 +11,9 @@ import {
   voidRecordedRefund,
   acknowledgeRefundReview,
   refundableCents,
+  openReviewIfOverRefunded,
 } from '../../../../features/refunds/db';
+import { sendRefundNotice } from '../../../../features/refunds/notify';
 import { getEmailProvider } from '../../../../features/email';
 import {
   orderShippedEmail,
@@ -23,32 +25,6 @@ import { formatPrice, getConfig } from '../../../../config';
 import { getSetting } from '../../../../features/settings/db';
 
 export const prerender = false;
-
-/**
- * Tell the customer about a refund just recorded here. Mirrors the webhook
- * path's rules: only the newly recognised amount, never for demo orders, and a
- * failure is logged rather than unwinding accounting that already committed.
- */
-async function sendRefundNotice(
-  orderId: number,
-  deltaCents: number,
-  origin: string,
-): Promise<void> {
-  if (deltaCents <= 0) return;
-  const order = await getOrder(env.DB, orderId);
-  if (!order?.email) return;
-  if (!shouldSendCustomerOrderEmail(order.payment_method)) return;
-  const emailer = await getEmailProvider();
-  if (!emailer) return;
-  try {
-    const storeName = (await getSetting(env.DB, 'store_name')) || getConfig().storeName;
-    await emailer.send(
-      orderRefundedEmail(order, deltaCents, order.refunded_cents, origin, storeName),
-    );
-  } catch (err) {
-    console.error('Refund email failed:', err);
-  }
-}
 
 // POST /api/admin/orders/:id — fulfill, unfulfill, or refund.
 export const POST: APIRoute = async ({ request, params, redirect }) => {
@@ -99,8 +75,11 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     if (refundableCents(order) <= 0) return fail('This order is already fully refunded.');
 
     try {
+      // NULL predates payment_method and was always Stripe. Falling through to
+      // the store's CURRENT default would send a legacy card refund at whatever
+      // rail happens to be configured now.
       const provider = await getPaymentProvider(
-        (order.payment_method ?? undefined) as PaymentMethod | undefined,
+        (order.payment_method ?? 'stripe') as PaymentMethod,
       );
       if (!provider.refund) {
         return fail(
@@ -164,10 +143,8 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
       if (result.reason === 'invalid_amount') return fail('Enter a refund amount above zero.');
       return fail('This order cannot be refunded.');
     }
-    // Demo orders never took money, so they never tell a customer about it.
-    if (order.payment_method !== 'demo') {
-      await sendRefundNotice(id, amount, new URL(request.url).origin);
-    }
+    // sendRefundNotice applies the demo rule itself, so demo orders stay silent.
+    await sendRefundNotice(id, amount, new URL(request.url).origin);
     return back;
   }
 
@@ -196,7 +173,17 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     if (!result.advanced) {
       return fail('That total is already recorded — nothing was changed.');
     }
+    // The provider total can be individually valid yet exceed the order once
+    // added to what was recorded by hand. The generated aggregate clamps, so
+    // without this the conflict would be absorbed silently — the webhook path
+    // has always checked, and this path must too.
+    const conflict = await openReviewIfOverRefunded(env.DB, id);
     await sendRefundNotice(id, result.deltaCents, new URL(request.url).origin);
+    if (conflict) {
+      return fail(
+        'Recorded, but the provider total plus refunds recorded here now exceeds the order total. Review the refunds on this order.',
+      );
+    }
     return back;
   }
 

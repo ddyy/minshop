@@ -517,6 +517,36 @@ export async function openRefundReview(
     .run();
 }
 
+/**
+ * Open a reconciliation review when the two components together exceed the
+ * order total — the provider's own number and a hand-recorded one are each
+ * plausible, so neither is discarded and a human decides which is wrong.
+ *
+ * Reads current state rather than taking a caller's snapshot, so every path
+ * that can move a total (webhook, admin sync, manual record) gets the same
+ * answer. The generated aggregate is already clamped; this is what makes the
+ * conflict visible instead of silently absorbed.
+ *
+ * Returns the review reason when one was opened, otherwise null.
+ */
+export async function openReviewIfOverRefunded(
+  db: D1Database,
+  orderId: number,
+): Promise<string | null> {
+  const over = await db
+    .prepare(
+      `SELECT id FROM orders
+        WHERE id = ?
+          AND provider_refunded_cents + external_refunded_cents > amount_total_cents`,
+    )
+    .bind(orderId)
+    .first<{ id: number }>();
+  if (!over) return null;
+  const reason = 'exceeds_order_total';
+  await openRefundReview(db, orderId, reason);
+  return reason;
+}
+
 export async function acknowledgeRefundReview(
   db: D1Database,
   orderId: number,
@@ -544,6 +574,8 @@ export interface RefundSyncEvent {
   last_error: string | null;
   created_at: string;
   processed_at: string | null;
+  /** Joined: the order claiming this payment, when one does. */
+  order_id?: number | null;
 }
 
 /**
@@ -555,15 +587,48 @@ export async function listUnmatchedRefundEvents(
   db: D1Database,
   limit = 20,
 ): Promise<RefundSyncEvent[]> {
+  // The join separates the two very different cases sharing this queue:
+  // `unmatched` (no order claims the payment — Retry can still correlate it)
+  // from `failed` (the order was found but the event contradicts it, e.g. a
+  // currency mismatch — retrying just reproduces it, so it needs a human).
   const { results } = await db
     .prepare(
-      `SELECT * FROM refund_sync_events
-        WHERE status IN ('unmatched', 'failed')
-        ORDER BY created_at DESC LIMIT ?`,
+      `SELECT e.*, o.id AS order_id
+         FROM refund_sync_events e
+         LEFT JOIN orders o ON o.provider_payment_id = e.provider_payment_id
+        WHERE e.status IN ('unmatched', 'failed')
+        ORDER BY e.created_at DESC LIMIT ?`,
     )
     .bind(limit)
     .all<RefundSyncEvent>();
   return results ?? [];
+}
+
+/**
+ * Close out a refund event a human has dealt with.
+ *
+ * For conflicts there is nothing to re-apply — the merchant resolves the
+ * discrepancy at the provider or by correcting the order — so the event needs a
+ * terminal state, otherwise the reconciliation queue never empties and starts
+ * being ignored. Records who dismissed it rather than deleting the row.
+ */
+export async function dismissRefundEvent(
+  db: D1Database,
+  eventId: string,
+  dismissedBy: string | null,
+): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `UPDATE refund_sync_events
+          SET status = 'dismissed',
+              processed_at = datetime('now'),
+              last_error = ?
+        WHERE provider_event_id = ? AND status IN ('unmatched', 'failed')
+        RETURNING provider_event_id`,
+    )
+    .bind(dismissedBy ? `Dismissed by ${dismissedBy}` : 'Dismissed', eventId)
+    .first();
+  return !!row;
 }
 
 /** Orders flagged for refund reconciliation and not yet acknowledged. */

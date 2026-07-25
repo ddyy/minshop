@@ -8,6 +8,9 @@ import {
   reversedRefundIds,
   openRefundReview,
   acknowledgeRefundReview,
+  openReviewIfOverRefunded,
+  dismissRefundEvent,
+  listUnmatchedRefundEvents,
 } from '../src/features/refunds/db.ts';
 import { persistRefundEvent, applyRefundEvent } from '../src/features/refunds/sync.ts';
 
@@ -590,6 +593,95 @@ try {
     assert.equal(t.p, 8000);
     assert.equal(t.e, 6000);
     assert.equal(t.r, 10000);
+  });
+
+  console.log('conflict review across every path');
+
+  const reviewOf = (id) =>
+    db
+      .prepare('SELECT refund_review_reason rr, refund_reviewed_at ra FROM orders WHERE id = ?')
+      .bind(id)
+      .first();
+
+  await check('a manual provider sync over the total opens a review', async () => {
+    // $60 recorded by hand, then an $80 provider total on a $100 order: each
+    // number is plausible alone, together they exceed the order.
+    const id = await newOrder({ method: 'stripe' });
+    await recordExternalRefund(db, { orderId: id, amountCents: 6000, idempotencyKey: 'sync-conf' });
+    const res = await syncProviderRefund(db, {
+      orderId: id,
+      cumulativeRefundedCents: 8000,
+      provider: 'stripe',
+      idempotencyKey: 'admin:sync:conf',
+    });
+    assert.equal(res.advanced, true);
+    const conflict = await openReviewIfOverRefunded(db, id);
+    assert.equal(conflict, 'exceeds_order_total', 'the manual sync path must flag this');
+    const t = await totals(id);
+    assert.equal(t.r, 10000, 'aggregate clamps');
+    assert.equal(t.p + t.e, 14000, 'but both components are preserved');
+    assert.equal((await reviewOf(id)).rr, 'exceeds_order_total');
+  });
+
+  await check('a total that fits opens no review', async () => {
+    const id = await newOrder({ method: 'stripe' });
+    await recordExternalRefund(db, { orderId: id, amountCents: 3000, idempotencyKey: 'sync-ok' });
+    await syncProviderRefund(db, {
+      orderId: id,
+      cumulativeRefundedCents: 4000,
+      provider: 'stripe',
+      idempotencyKey: 'admin:sync:ok',
+    });
+    assert.equal(await openReviewIfOverRefunded(db, id), null);
+    assert.equal((await reviewOf(id)).rr, null);
+  });
+
+  console.log('reconciliation queue');
+
+  await check('a conflicting event can be dismissed and leaves the queue', async () => {
+    const id = await withPi('pi_dismiss');
+    const input = evt({
+      eventId: 'ev_dismiss',
+      providerPaymentId: 'pi_dismiss',
+      cumulativeRefundedCents: 5000,
+      currency: 'eur', // mismatches the order's usd
+    });
+    await persistRefundEvent(db, 'stripe', input);
+    assert.equal((await applyRefundEvent(db, 'stripe', input)).status, 'review');
+
+    let queue = await listUnmatchedRefundEvents(db);
+    const queued = queue.find((e) => e.provider_event_id === 'ev_dismiss');
+    assert.ok(queued, 'a conflicting event belongs in the queue');
+    assert.equal(queued.order_id, id, 'and is reported against the order it conflicts with');
+
+    assert.equal(await dismissRefundEvent(db, 'ev_dismiss', 'admin'), true);
+    queue = await listUnmatchedRefundEvents(db);
+    assert.ok(
+      !queue.some((e) => e.provider_event_id === 'ev_dismiss'),
+      'dismissing must clear it from the queue',
+    );
+    assert.equal((await eventStatus('ev_dismiss')).status, 'dismissed');
+    // Totals were never touched by the mismatch, and stay untouched.
+    assert.equal((await totals(id)).p, 0);
+  });
+
+  await check('dismissing twice reports nothing left to do', async () => {
+    assert.equal(await dismissRefundEvent(db, 'ev_dismiss', 'admin'), false);
+  });
+
+  await check('an uncorrelated event reports no order, so it offers Retry', async () => {
+    const input = evt({
+      eventId: 'ev_noorder',
+      providerPaymentId: 'pi_nobody',
+      cumulativeRefundedCents: 700,
+    });
+    await persistRefundEvent(db, 'stripe', input);
+    await applyRefundEvent(db, 'stripe', input);
+    const queued = (await listUnmatchedRefundEvents(db)).find(
+      (e) => e.provider_event_id === 'ev_noorder',
+    );
+    assert.ok(queued);
+    assert.equal(queued.order_id, null, 'no order → the banner offers Retry, not Dismiss');
   });
 
   console.log('invariants');

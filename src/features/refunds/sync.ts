@@ -11,7 +11,7 @@ import type { RefundSyncInput } from '../payments/provider';
 // scripts/test-refunds.mjs under node's type stripping, which does not resolve
 // extensionless relative paths. allowImportingTsExtensions is on, so Vite and
 // astro check both accept it.
-import { syncProviderRefund, openRefundReview } from './db.ts';
+import { syncProviderRefund, openRefundReview, openReviewIfOverRefunded } from './db.ts';
 
 export type SyncOutcome =
   /** Applied; `deltaCents` is how much the provider total advanced by. */
@@ -177,17 +177,8 @@ export async function applyRefundEvent(
 
   await markEvent(db, input.eventId, 'processed');
 
-  // The provider's own total plus what we recorded by hand exceeds the order.
-  // Both numbers are individually plausible, so neither is discarded — the
-  // aggregate is clamped by the generated column and a human decides.
-  const totalAfter =
-    Math.max(order.provider_refunded_cents, input.cumulativeRefundedCents) +
-    order.external_refunded_cents;
-  if (totalAfter > order.amount_total_cents) {
-    const reason = 'exceeds_order_total';
-    await openRefundReview(db, order.id, reason);
-    return { status: 'review', orderId: order.id, reason };
-  }
+  const conflict = await openReviewIfOverRefunded(db, order.id);
+  if (conflict) return { status: 'review', orderId: order.id, reason: conflict };
 
   if (!result.advanced) return { status: 'no_change', orderId: order.id };
   return {

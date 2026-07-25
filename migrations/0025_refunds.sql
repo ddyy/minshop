@@ -135,7 +135,9 @@ CREATE TABLE IF NOT EXISTS refund_sync_events (
   -- The provider's ABSOLUTE cumulative refunded total for that charge.
   cumulative_refunded_cents INTEGER NOT NULL,
   currency                  TEXT,
-  -- pending → processed | unmatched | failed
+  -- pending → processed | unmatched | failed | dismissed
+  -- `dismissed` is the terminal state for a conflict a human resolved out of
+  -- band; without it the reconciliation queue could never empty.
   status                    TEXT    NOT NULL DEFAULT 'pending',
   attempts                  INTEGER NOT NULL DEFAULT 0,
   last_error                TEXT,

@@ -46,12 +46,11 @@ const listError = Astro.url.searchParams.get('error');
     unmatched.length > 0 && (
       <section class="mb-8 rounded-lg border border-amber-200 bg-amber-50 px-5 py-4">
         <h2 class="text-sm font-medium text-amber-900">
-          {unmatched.length} refund{unmatched.length === 1 ? '' : 's'} could not be matched to an order
+          {unmatched.length} refund{unmatched.length === 1 ? '' : 's'} need{unmatched.length === 1 ? 's' : ''} attention
         </h2>
         <p class="mt-1 text-xs text-amber-800">
-          Your payment provider reported these refunds, but no order here records that payment —
-          usually an order placed before minshop started storing payment IDs. Nothing was counted
-          against your revenue yet.
+          Your payment provider reported these refunds but they could not be applied. Nothing was
+          counted against your revenue yet.
         </p>
         <ul class="mt-3 space-y-2">
           {unmatched.map((e) => (
@@ -61,17 +60,45 @@ const listError = Astro.url.searchParams.get('error');
                 {formatPrice(e.cumulative_refunded_cents, e.currency ?? undefined)}
               </span>
               <span>{formatDate(e.created_at, undefined, timeZone)}</span>
-              {e.last_error && <span>{e.last_error}</span>}
-              <form method="POST" action="/api/admin/refunds">
-                <input type="hidden" name="_action" value="retry_refund_event" />
-                <input type="hidden" name="event_id" value={e.provider_event_id} />
-                <button
-                  type="submit"
-                  class="rounded-md border border-amber-300 bg-white px-3 py-1 font-medium uppercase tracking-wider hover:bg-amber-100"
-                >
-                  Retry
-                </button>
-              </form>
+              {/* Two different problems wear the same badge otherwise. An
+                  uncorrelated event can still be matched, so it gets Retry. A
+                  conflicting one already found its order, so retrying would
+                  only reproduce the conflict — it needs a person. */}
+              {e.order_id ? (
+                <Fragment>
+                  <span>
+                    Conflicts with{' '}
+                    <a href={`/admin/orders/${e.order_id}`} class="underline">
+                      order #{orderNumber(e.order_id, onCfg)}
+                    </a>
+                    {e.last_error ? ` — ${e.last_error.replace(/_/g, ' ')}` : ''}
+                  </span>
+                  <form method="POST" action="/api/admin/refunds">
+                    <input type="hidden" name="_action" value="dismiss_refund_event" />
+                    <input type="hidden" name="event_id" value={e.provider_event_id} />
+                    <button
+                      type="submit"
+                      class="rounded-md border border-amber-300 bg-white px-3 py-1 font-medium uppercase tracking-wider hover:bg-amber-100"
+                    >
+                      Dismiss
+                    </button>
+                  </form>
+                </Fragment>
+              ) : (
+                <Fragment>
+                  <span>No order records this payment</span>
+                  <form method="POST" action="/api/admin/refunds">
+                    <input type="hidden" name="_action" value="retry_refund_event" />
+                    <input type="hidden" name="event_id" value={e.provider_event_id} />
+                    <button
+                      type="submit"
+                      class="rounded-md border border-amber-300 bg-white px-3 py-1 font-medium uppercase tracking-wider hover:bg-amber-100"
+                    >
+                      Retry
+                    </button>
+                  </form>
+                </Fragment>
+              )}
             </li>
           ))}
         </ul>

@@ -1,7 +1,8 @@
 import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 import { applyRefundEvent } from '../../../features/refunds/sync';
-import { listUnmatchedRefundEvents } from '../../../features/refunds/db';
+import { listUnmatchedRefundEvents, dismissRefundEvent } from '../../../features/refunds/db';
+import { sendRefundNotice } from '../../../features/refunds/notify';
 import { getPaymentProvider, type PaymentMethod } from '../../../features/payments';
 
 export const prerender = false;
@@ -57,7 +58,31 @@ export const POST: APIRoute = async ({ request, redirect }) => {
     if (outcome.status === 'review') {
       return redirect(`/admin/orders/${outcome.orderId}`, 303);
     }
+    // A retry that finally applies the refund is the moment the money is first
+    // recognised, so this is the path that owes the customer the notice — the
+    // original webhook could not send one because it never matched an order.
+    if (outcome.status === 'processed') {
+      await sendRefundNotice(
+        outcome.orderId,
+        outcome.deltaCents,
+        new URL(request.url).origin,
+      );
+    }
     return redirect(`/admin/orders/${outcome.orderId}`, 303);
+  }
+
+  // Close out an event a human has resolved. Retrying a conflicting event only
+  // reproduces the conflict, so without this the queue never empties.
+  if (action === 'dismiss_refund_event') {
+    const eventId = String(form.get('event_id') ?? '').trim();
+    if (!eventId) return fail('Missing event.');
+    const dismissed = await dismissRefundEvent(
+      env.DB,
+      eventId,
+      String(form.get('_admin') ?? '') || null,
+    );
+    if (!dismissed) return fail('That event is no longer waiting to be reconciled.');
+    return back;
   }
 
   return back;
