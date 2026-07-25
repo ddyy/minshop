@@ -1,6 +1,7 @@
 ---
 import { getConfig } from '../config';
 import { normalizeSearchQuery } from '../features/search/query';
+import { mediaUrl } from '../features/media/url';
 import '../styles/global.css';
 
 interface Props {
@@ -15,6 +16,10 @@ const config = getConfig();
 const { features } = config;
 // Runtime override (set by the setup wizard) wins over the build-time default.
 const storeName = Astro.locals.settings?.storeName ?? config.storeName;
+// Optional header logo. Falls back to the text store name whenever unset, so
+// the header can never end up empty.
+const logoImageKey = Astro.locals.settings?.logoImageKey ?? null;
+const logoUrl = logoImageKey ? mediaUrl(logoImageKey, config.images.baseUrl) : null;
 // Cart can be switched off at runtime → browse-only catalog (hide the cart link).
 const cartEnabled = Astro.locals.settings?.cartEnabled ?? true;
 // Accounts nav link: the runtime toggle wins over the build-time default.
@@ -97,7 +102,18 @@ const ogImage = image ? new URL(image, Astro.url.origin).href : undefined;
 
     <header class="sticky top-0 z-20 border-b border-line bg-paper/85 backdrop-blur">
       <div class="mx-auto flex max-w-6xl items-center gap-6 px-6 py-5">
-        <a href="/" class="font-serif text-2xl tracking-tight">{storeName}</a>
+        <a href="/" aria-label={storeName} class="font-serif text-2xl tracking-tight">
+          {
+            logoUrl ? (
+              /* Not lazy: the header logo is above the fold on every page. The
+                 store name stays the alt text, so the header still reads the
+                 same to a screen reader or when the image fails. */
+              <img src={logoUrl} alt={storeName} class="h-8 max-w-48 object-contain sm:h-10" />
+            ) : (
+              <span>{storeName}</span>
+            )
+          }
+        </a>
         <form
           method="GET"
           action="/search"

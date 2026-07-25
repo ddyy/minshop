@@ -89,7 +89,13 @@ const major = (cents: number) => toMajorUnits(cents, product.currency);
       class="mb-6 flex flex-wrap items-center gap-3"
     >
       <input type="hidden" name="_action" value="add" />
-      <input type="file" name="images" accept="image/*" multiple class="block text-sm" />
+      <input
+        type="file"
+        name="images"
+        accept="image/*"
+        multiple
+        class="block w-full text-sm text-gray-600 file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-brand file:px-4 file:py-2 file:text-xs file:font-medium file:uppercase file:tracking-wider file:text-white hover:file:bg-brand-hover sm:w-auto"
+      />
       <button
         type="submit"
         class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand hover:text-brand"

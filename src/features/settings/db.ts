@@ -29,6 +29,7 @@ export type SettingKey =
   // live encrypted in the vault — see features/secrets/store.ts).
   | 'email_enabled' // '0' = order/login email off; absent = on
   | 'email_provider' // 'resend' | 'cloudflare'; absent = resend
+  | 'logo_image_key' // media image_key shown instead of the text store name; absent = text
   | 'announcement' // storefront announcement bar text; absent/empty = bar hidden
   | 'announcement_href' // optional link for the announcement bar
   | 'email_from' // sender address; absent = build-time default
@@ -72,6 +73,10 @@ export interface StoreSettings {
   /** Email backend: 'resend' (free) or 'cloudflare' (paid send_email binding). */
   emailProvider: 'resend' | 'cloudflare';
   /** Sender address / display name, or null to use the build-time defaults. */
+  /** Header logo object key, or null to render the store name as text. Stores the
+   *  immutable key rather than a media id so the layout renders it without a
+   *  second D1 lookup. */
+  logoImageKey: string | null;
   /** Announcement bar message, or null to hide the bar entirely. The message IS
    *  the on/off switch — an empty value deletes the row, so there is no separate
    *  enabled flag to fall out of sync with it. */
@@ -158,6 +163,7 @@ export async function getStoreSettings(db: D1Database): Promise<StoreSettings> {
       .map((r) => r.key.slice(4)),
     emailEnabled: map.get('email_enabled') !== '0',
     emailProvider: map.get('email_provider') === 'cloudflare' ? 'cloudflare' : 'resend',
+    logoImageKey: map.get('logo_image_key') ?? null,
     announcement: map.get('announcement') ?? null,
     announcementHref: map.get('announcement_href') ?? null,
     emailFrom: map.get('email_from') ?? null,
