@@ -81,7 +81,20 @@ export const POST: APIRoute = async ({ request, redirect }) => {
       eventId,
       String(form.get('_admin') ?? '') || null,
     );
-    if (!dismissed) return fail('That event is no longer waiting to be reconciled.');
+    if (!dismissed) {
+      // Two very different reasons for the same empty result: the event was
+      // already handled, or it is an uncorrelated refund that must never be
+      // dismissed. Saying "no longer waiting" for the second would be a lie —
+      // it is still queued, and still needs to be matched to an order.
+      const stillQueued = (await listUnmatchedRefundEvents(env.DB)).find(
+        (e) => e.provider_event_id === eventId,
+      );
+      return fail(
+        stillQueued
+          ? 'This refund has not been matched to an order yet, so it can’t be dismissed — that would hide money that really moved. Use Retry once the order’s payment ID exists.'
+          : 'That event is no longer waiting to be reconciled.',
+      );
+    }
     return back;
   }
 

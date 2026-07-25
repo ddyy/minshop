@@ -669,6 +669,43 @@ try {
     assert.equal(await dismissRefundEvent(db, 'ev_dismiss', 'admin'), false);
   });
 
+  await check('dismissal preserves the original conflict reason', async () => {
+    const e = await db
+      .prepare('SELECT last_error le FROM refund_sync_events WHERE provider_event_id = ?')
+      .bind('ev_dismiss')
+      .first();
+    assert.ok(
+      e.le.includes('currency_mismatch'),
+      `audit record lost the reason: ${e.le}`,
+    );
+    assert.ok(e.le.includes('admin'), 'and should record who dismissed it');
+  });
+
+  await check('an UNMATCHED event cannot be dismissed', async () => {
+    // A refund that really happened but has no order yet. Hiding it would
+    // bury real money, so the guard lives in the data layer — not in whichever
+    // button the UI happens to render.
+    const input = evt({
+      eventId: 'ev_nohide',
+      providerPaymentId: 'pi_nohide',
+      cumulativeRefundedCents: 4200,
+    });
+    await persistRefundEvent(db, 'stripe', input);
+    await applyRefundEvent(db, 'stripe', input);
+    assert.equal((await eventStatus('ev_nohide')).status, 'unmatched');
+
+    assert.equal(
+      await dismissRefundEvent(db, 'ev_nohide', 'admin'),
+      false,
+      'a direct POST must not be able to hide an uncorrelated refund',
+    );
+    assert.equal((await eventStatus('ev_nohide')).status, 'unmatched', 'must stay queued');
+    assert.ok(
+      (await listUnmatchedRefundEvents(db)).some((e) => e.provider_event_id === 'ev_nohide'),
+      'and must remain visible for reconciliation',
+    );
+  });
+
   await check('an uncorrelated event reports no order, so it offers Retry', async () => {
     const input = evt({
       eventId: 'ev_noorder',

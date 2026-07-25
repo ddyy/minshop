@@ -15,10 +15,7 @@ import {
 } from '../../../../features/refunds/db';
 import { sendRefundNotice } from '../../../../features/refunds/notify';
 import { getEmailProvider } from '../../../../features/email';
-import {
-  orderShippedEmail,
-  orderRefundedEmail,
-} from '../../../../features/email/orderConfirmation';
+import { orderShippedEmail } from '../../../../features/email/orderConfirmation';
 import { shouldSendCustomerOrderEmail } from '../../../../features/email/orderPolicy';
 import { getPaymentProvider, type PaymentMethod } from '../../../../features/payments';
 import { formatPrice, getConfig } from '../../../../config';

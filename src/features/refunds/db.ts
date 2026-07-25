@@ -605,12 +605,19 @@ export async function listUnmatchedRefundEvents(
 }
 
 /**
- * Close out a refund event a human has dealt with.
+ * Close out a CONFLICTING refund event a human has resolved out of band.
  *
- * For conflicts there is nothing to re-apply — the merchant resolves the
- * discrepancy at the provider or by correcting the order — so the event needs a
- * terminal state, otherwise the reconciliation queue never empties and starts
- * being ignored. Records who dismissed it rather than deleting the row.
+ * Restricted to `failed` on purpose. A `failed` event was matched to an order
+ * and contradicts it (a currency mismatch, say): there is nothing left to
+ * re-apply, so it needs a terminal state or the queue never empties and starts
+ * being ignored. An `unmatched` event is the opposite — a refund that really
+ * happened and has NO order yet — and dismissing one would permanently hide
+ * real money from reconciliation. Those are only ever resolved by correlating
+ * them, so the guard lives here rather than in the UI that happens to offer the
+ * right button today.
+ *
+ * The original failure reason is kept and the dismissal appended, so the audit
+ * record still says what the conflict actually was.
  */
 export async function dismissRefundEvent(
   db: D1Database,
@@ -622,11 +629,11 @@ export async function dismissRefundEvent(
       `UPDATE refund_sync_events
           SET status = 'dismissed',
               processed_at = datetime('now'),
-              last_error = ?
-        WHERE provider_event_id = ? AND status IN ('unmatched', 'failed')
+              last_error = COALESCE(last_error, 'conflict') || ?
+        WHERE provider_event_id = ? AND status = 'failed'
         RETURNING provider_event_id`,
     )
-    .bind(dismissedBy ? `Dismissed by ${dismissedBy}` : 'Dismissed', eventId)
+    .bind(dismissedBy ? ` — dismissed by ${dismissedBy}` : ' — dismissed', eventId)
     .first();
   return !!row;
 }
