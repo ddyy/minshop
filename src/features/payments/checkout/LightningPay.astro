@@ -27,7 +27,7 @@ const expiresAtMs = pending.expires_at ? Date.parse(pending.expires_at) : null;
 {
   expired ? (
     <div class="mx-auto max-w-md text-center">
-      <h1 class="mb-2 text-2xl font-bold">Invoice expired</h1>
+      <h1 class="mb-2 font-serif text-3xl tracking-tight sm:text-4xl">Invoice expired</h1>
       <p class="mb-6 text-sm text-gray-500">
         This Lightning invoice is no longer payable and you weren't charged. Start a new
         checkout to try again.
@@ -42,7 +42,7 @@ const expiresAtMs = pending.expires_at ? Date.parse(pending.expires_at) : null;
   ) : (
     <Fragment>
       <div class="mx-auto max-w-md text-center">
-        <h1 class="mb-1 text-2xl font-bold">Pay with Lightning</h1>
+        <h1 class="mb-1 font-serif text-3xl tracking-tight sm:text-4xl">Pay with Lightning</h1>
         <p class="mb-1 text-3xl font-bold tabular-nums">{sats} sats</p>
         <p class="mb-6 text-sm text-gray-500">{fiat} · scan or tap to pay</p>
 

@@ -30,7 +30,7 @@ const paymentLabel = order?.payment_method ? PAYMENT_LABELS[order.payment_method
   {
     order ? (
       <Fragment>
-        <h1 class="mb-2 text-2xl font-bold">Thank you! Your order is confirmed.</h1>
+        <h1 class="mb-2 font-serif text-3xl tracking-tight sm:text-4xl">Thank you! Your order is confirmed.</h1>
         <p class="mb-6 text-sm text-gray-500">
           Order #{orderNumber(order.id, getConfig().orderNumber)}
           {order.email && <Fragment> · a receipt is on its way to {order.email}</Fragment>}
@@ -73,7 +73,7 @@ const paymentLabel = order?.payment_method ? PAYMENT_LABELS[order.payment_method
       <Fragment>
         {/* Order not recorded yet — poll until the webhook lands (no JS). */}
         <meta http-equiv="refresh" content="3" />
-        <h1 class="mb-2 text-2xl font-bold">Confirming your order…</h1>
+        <h1 class="mb-2 font-serif text-3xl tracking-tight sm:text-4xl">Confirming your order…</h1>
         <p class="text-gray-600">
           Your payment went through and we're recording your order. This page
           refreshes automatically — it usually takes just a few seconds.
