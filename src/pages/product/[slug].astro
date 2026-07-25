@@ -268,9 +268,9 @@ const jsonLdStr = JSON.stringify(jsonLd).replace(/</g, '\\u003c');
         (cartEnabled || showBuyNow) &&
         (hasOptions ? (
           // Variants/extras: one form holds the selectors so both buttons share the
-          // chosen options. Add-to-cart opens the drawer; Buy now (data-fullpage)
-          // adds then routes to /cart, where the buyer confirms the selection and
-          // (when several rails are enabled) picks a payment method.
+          // chosen options. Add-to-cart keeps the form's POST; Buy now overrides it
+          // to a GET so /express is a safe history entry (Back never asks to
+          // resubmit the option form).
           <form method="POST" action="/api/cart" class="mt-8 max-w-sm" data-options-form>
             <input type="hidden" name="_action" value="add" />
             <input type="hidden" name="product_id" value={product.id} />
@@ -358,6 +358,7 @@ const jsonLdStr = JSON.stringify(jsonLd).replace(/</g, '\\u003c');
                   <button
                     type="submit"
                     formaction="/express"
+                    formmethod="GET"
                     data-fullpage
                     class="rounded-md bg-brand px-8 py-3 text-sm font-medium uppercase tracking-wider text-white transition hover:bg-brand-hover"
                   >
@@ -389,7 +390,7 @@ const jsonLdStr = JSON.stringify(jsonLd).replace(/</g, '\\u003c');
             {!soldOut && showBuyNow && (
               // Express checkout step (skips the cart, so it works with the cart off).
               // The buyer picks a payment method there; first listed = the default.
-              <form method="POST" action="/express">
+              <form method="GET" action="/express">
                 <input type="hidden" name="product_id" value={product.id} />
                 <button
                   type="submit"
