@@ -23,6 +23,7 @@ import {
   fulfillOrder,
   listOrderItems,
 } from '../../src/features/orders/db';
+import { listRefunds } from '../../src/features/refunds/db';
 
 async function secureEqual(provided: string, expected: string): Promise<boolean> {
   const encoder = new TextEncoder();
@@ -105,11 +106,23 @@ export class StoreMcp extends McpAgent<Env, Record<string, never>, Record<string
 
     this.server.registerTool(
       'get_order',
-      { description: 'Get an order plus its line items, by id.', inputSchema: { id: z.number().int().positive() } },
+      {
+        description:
+          'Get an order plus its line items and refund history, by id. Refunds are read-only: ' +
+          'order.provider_refunded_cents is the total the payment provider confirmed and ' +
+          'order.external_refunded_cents is what was recorded by hand; order.refunded_cents is ' +
+          'their sum, capped at the order total. Each refund amount_cents is a delta, not a ' +
+          'running total, and is negative for a correction.',
+        inputSchema: { id: z.number().int().positive() },
+      },
       async ({ id }) => {
         const order = await getOrder(db, id);
         if (!order) return result(`No order with id ${id}.`);
-        return result({ order, items: await listOrderItems(db, id) });
+        return result({
+          order,
+          items: await listOrderItems(db, id),
+          refunds: await listRefunds(db, id),
+        });
       },
     );
 
