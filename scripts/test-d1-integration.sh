@@ -94,6 +94,24 @@ node -e '
   }
 ' "$sample_page"
 
+# The media library must exist and already contain every product image key, so
+# existing uploads are manageable without moving a single R2 object.
+media_rows="$(npx wrangler d1 execute DB --local --persist-to "$state_dir" \
+  --command "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('media','pages','page_media') ORDER BY name;")"
+for table in media page_media pages; do
+  if [[ "$media_rows" != *"$table"* ]]; then
+    echo "D1 integration failed: missing table $table" >&2
+    exit 1
+  fi
+done
+
+backfill="$(npx wrangler d1 execute DB --local --persist-to "$state_dir" \
+  --command "SELECT COUNT(*) AS missing FROM (SELECT image_key FROM product_images UNION SELECT image_key FROM products WHERE image_key IS NOT NULL AND image_key != '') refs LEFT JOIN media m ON m.image_key = refs.image_key WHERE m.id IS NULL;")"
+if [[ "$backfill" != *"0"* ]]; then
+  echo "D1 integration failed: product image keys missing from media" >&2
+  exit 1
+fi
+
 # The public catalog routes are plural, and the retired singular URLs keep
 # permanently redirecting so previously indexed links and sitemaps survive.
 for pair in "product/sample-tee:/products/sample-tee" "category/apparel:/categories/apparel"; do

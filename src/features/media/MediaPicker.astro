@@ -1,0 +1,245 @@
+---
+/**
+ * Reusable "choose an image from the library" dialog.
+ *
+ * Deliberately contains NO <form>: it is embedded inside product, page, and
+ * settings forms, and a nested form is invalid HTML that browsers silently
+ * restructure. Everything here — paging and uploading — goes through fetch()
+ * against /api/admin/media, which the admin middleware already protects.
+ *
+ * On selection it dispatches a `media:selected` CustomEvent on the dialog with
+ * { id, imageKey, url, originalName }, so each host page decides what to do
+ * with the choice (attach to a gallery, set the logo, insert Markdown).
+ *
+ * Without JavaScript the dialog never opens; the trigger falls back to a plain
+ * link to /admin/media.
+ */
+interface Props {
+  /** Unique per page — lets a page host more than one picker. */
+  id: string;
+  /** Trigger button label. */
+  label?: string;
+  /** Allow uploading a new file from inside the dialog. */
+  allowUpload?: boolean;
+}
+
+const { id, label = 'Choose from Media', allowUpload = true } = Astro.props;
+---
+
+<div class="inline-flex" data-media-picker={id}>
+  <button
+    type="button"
+    data-picker-open
+    hidden
+    class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand hover:text-brand"
+  >
+    {label}
+  </button>
+  {/* No-JS fallback: manage files on the Media page instead. */}
+  <a
+    data-picker-fallback
+    href="/admin/media"
+    class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand hover:text-brand"
+  >
+    {label}
+  </a>
+
+  <dialog
+    data-picker-dialog
+    aria-label="Choose an image"
+    class="w-[min(56rem,92vw)] rounded-md border border-line p-0 backdrop:bg-black/40"
+  >
+    <div class="flex items-center justify-between border-b border-line px-5 py-4">
+      <h2 class="font-serif text-xl tracking-tight">Choose an image</h2>
+      <button
+        type="button"
+        data-picker-close
+        aria-label="Close"
+        class="text-2xl leading-none text-gray-400 hover:text-brand"
+      >
+        &times;
+      </button>
+    </div>
+
+    {
+      allowUpload && (
+        <div class="flex flex-wrap items-center gap-3 border-b border-line px-5 py-3">
+          <input
+            type="file"
+            data-picker-file
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            class="text-sm"
+          />
+          <button
+            type="button"
+            data-picker-upload
+            class="rounded-md bg-brand px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover"
+          >
+            Upload
+          </button>
+        </div>
+      )
+    }
+
+    <p data-picker-error class="hidden px-5 pt-3 text-sm text-red-700"></p>
+
+    <div data-picker-grid class="grid max-h-[60vh] grid-cols-3 gap-4 overflow-y-auto p-5 sm:grid-cols-4">
+      <p class="col-span-full py-8 text-center text-sm text-gray-500">Loading…</p>
+    </div>
+
+    <div class="flex items-center justify-between border-t border-line px-5 py-3 text-xs">
+      <span data-picker-count class="text-gray-500"></span>
+      <span class="flex gap-2">
+        <button
+          type="button"
+          data-picker-prev
+          class="rounded-md border border-line px-3 py-1.5 uppercase tracking-widest text-gray-600 disabled:opacity-40"
+        >
+          Previous
+        </button>
+        <button
+          type="button"
+          data-picker-next
+          class="rounded-md border border-line px-3 py-1.5 uppercase tracking-widest text-gray-600 disabled:opacity-40"
+        >
+          Next
+        </button>
+      </span>
+    </div>
+  </dialog>
+</div>
+
+<script>
+  const PAGE_SIZE = 48;
+
+  /** Mirrors the GET /api/admin/media response — res.json() is `unknown`. */
+  interface PickerItem {
+    id: number;
+    imageKey: string;
+    url: string;
+    originalName: string;
+    inUse: boolean;
+  }
+  interface PickerPage {
+    media: PickerItem[];
+    total: number;
+    limit: number;
+    offset: number;
+  }
+
+  document.querySelectorAll<HTMLElement>('[data-media-picker]').forEach((root) => {
+    const dialog = root.querySelector<HTMLDialogElement>('[data-picker-dialog]')!;
+    const grid = root.querySelector<HTMLElement>('[data-picker-grid]')!;
+    const errorEl = root.querySelector<HTMLElement>('[data-picker-error]')!;
+    const countEl = root.querySelector<HTMLElement>('[data-picker-count]')!;
+    const prev = root.querySelector<HTMLButtonElement>('[data-picker-prev]')!;
+    const next = root.querySelector<HTMLButtonElement>('[data-picker-next]')!;
+    const openBtn = root.querySelector<HTMLButtonElement>('[data-picker-open]')!;
+    const fallback = root.querySelector<HTMLElement>('[data-picker-fallback]')!;
+
+    // JS is available, so swap the plain link for the dialog trigger.
+    openBtn.hidden = false;
+    fallback.hidden = true;
+
+    let offset = 0;
+    let total = 0;
+
+    const showError = (message: string) => {
+      errorEl.textContent = message;
+      errorEl.classList.remove('hidden');
+    };
+    const clearError = () => errorEl.classList.add('hidden');
+
+    async function load() {
+      clearError();
+      grid.innerHTML = '<p class="col-span-full py-8 text-center text-sm text-gray-500">Loading…</p>';
+      let payload: PickerPage;
+      try {
+        const res = await fetch(`/api/admin/media?limit=${PAGE_SIZE}&offset=${offset}`, {
+          headers: { accept: 'application/json' },
+        });
+        if (!res.ok) throw new Error(`Media list failed (${res.status})`);
+        payload = (await res.json()) as PickerPage;
+      } catch (err) {
+        grid.innerHTML = '';
+        showError(err instanceof Error ? err.message : 'Could not load media.');
+        return;
+      }
+
+      total = payload.total;
+      grid.innerHTML = '';
+      if (payload.media.length === 0) {
+        grid.innerHTML =
+          '<p class="col-span-full py-8 text-center text-sm text-gray-500">No images yet.</p>';
+      }
+      for (const item of payload.media) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className =
+          'group flex flex-col gap-1 rounded-md border border-line p-2 text-left hover:border-brand';
+        button.innerHTML = `
+          <span class="block aspect-square overflow-hidden rounded bg-gray-50">
+            <img src="${item.url}" alt="" loading="lazy" decoding="async"
+                 class="h-full w-full object-contain" />
+          </span>
+          <span class="truncate text-xs"></span>`;
+        // Filenames are user-supplied: set as text, never interpolated as HTML.
+        button.querySelector('span:last-child')!.textContent = item.originalName;
+        button.addEventListener('click', () => {
+          dialog.dispatchEvent(
+            new CustomEvent('media:selected', { detail: item, bubbles: true }),
+          );
+          dialog.close();
+        });
+        grid.appendChild(button);
+      }
+
+      const from = total === 0 ? 0 : offset + 1;
+      countEl.textContent = `${from}–${offset + payload.media.length} of ${total}`;
+      prev.disabled = offset === 0;
+      next.disabled = offset + PAGE_SIZE >= total;
+    }
+
+    openBtn.addEventListener('click', () => {
+      offset = 0;
+      dialog.showModal();
+      load();
+    });
+    root.querySelector('[data-picker-close]')!.addEventListener('click', () => dialog.close());
+    prev.addEventListener('click', () => {
+      offset = Math.max(0, offset - PAGE_SIZE);
+      load();
+    });
+    next.addEventListener('click', () => {
+      offset += PAGE_SIZE;
+      load();
+    });
+
+    const uploadBtn = root.querySelector<HTMLButtonElement>('[data-picker-upload]');
+    uploadBtn?.addEventListener('click', async () => {
+      const input = root.querySelector<HTMLInputElement>('[data-picker-file]')!;
+      const file = input.files?.[0];
+      if (!file) return showError('Choose a file first.');
+      clearError();
+      uploadBtn.disabled = true;
+      try {
+        const body = new FormData();
+        body.append('files', file);
+        const res = await fetch('/api/admin/media', {
+          method: 'POST',
+          headers: { accept: 'application/json' },
+          body,
+        });
+        const payload = (await res.json()) as { error?: string };
+        if (!res.ok) throw new Error(payload.error ?? 'Upload failed.');
+        input.value = '';
+        offset = 0; // newest first, so the upload lands on page one
+        await load();
+      } catch (err) {
+        showError(err instanceof Error ? err.message : 'Upload failed.');
+      } finally {
+        uploadBtn.disabled = false;
+      }
+    });
+  });
+</script>

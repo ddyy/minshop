@@ -1,0 +1,77 @@
+import type { D1Database } from '@cloudflare/workers-types';
+import type { StorageProvider } from '../storage';
+// Explicit .ts: scripts/test-media.mjs loads this module through Node's type
+// stripping, which does not resolve extensionless relative imports.
+import { createMediaRecord, type Media } from './db.ts';
+
+const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
+
+/**
+ * SVG is deliberately absent: uploaded objects are served from the store's own
+ * origin, and an SVG is a script-execution vector there.
+ */
+const ALLOWED = new Map([
+  ['image/jpeg', 'jpg'],
+  ['image/png', 'png'],
+  ['image/webp', 'webp'],
+  ['image/gif', 'gif'],
+]);
+
+/** Returns a user-facing error string if the upload is invalid, else null. */
+export function validateUpload(file: File): string | null {
+  if (!ALLOWED.has(file.type)) {
+    return 'Image must be JPEG, PNG, WebP, or GIF.';
+  }
+  if (file.size > MAX_BYTES) {
+    return 'Image must be 5 MB or smaller.';
+  }
+  return null;
+}
+
+/** Immutable per-upload key. Never reuse one: /images/* is served immutable. */
+export function mediaKeyFor(file: File): string {
+  const ext = ALLOWED.get(file.type) ?? 'bin';
+  return `media/${crypto.randomUUID()}.${ext}`;
+}
+
+/**
+ * Store a (pre-validated) file and record it in the library.
+ *
+ * The object is written before the row so a failure never leaves a row pointing
+ * at a missing object — the reverse order would show a broken image everywhere
+ * the media was used. If the insert then fails we delete the object we just
+ * wrote, so the failure costs an orphan at worst. `originalName` is passed in
+ * because the optimizer replaces the File and its name.
+ */
+export async function uploadMedia(
+  db: D1Database,
+  storage: StorageProvider,
+  file: File,
+  originalName: string,
+): Promise<Media> {
+  const key = mediaKeyFor(file);
+  await storage.put(key, await file.arrayBuffer(), file.type);
+  try {
+    return await createMediaRecord(db, {
+      image_key: key,
+      original_name: originalName,
+      mime_type: file.type,
+      size_bytes: file.size,
+    });
+  } catch (err) {
+    try {
+      await storage.delete(key);
+    } catch (cleanupErr) {
+      // The row never existed, so nothing references this object; log the key
+      // so it can be swept manually rather than failing the request twice.
+      console.error(
+        JSON.stringify({
+          event: 'media_orphan_after_failed_insert',
+          key,
+          message: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+        }),
+      );
+    }
+    throw err;
+  }
+}

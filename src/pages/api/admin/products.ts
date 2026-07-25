@@ -1,12 +1,14 @@
 import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
-import { createProduct, addProductImage, getProduct } from '../../../features/products/db';
+import { createProduct, getProduct } from '../../../features/products/db';
 import { setProductCategories } from '../../../features/categories/db';
 import { indexProduct } from '../../../features/search';
 import { parseProductForm } from '../../../features/products/form';
 import { uniqueSlug } from '../../../features/products/slug';
-import { validateImage, uploadProductImage } from '../../../features/products/image';
+import { validateImage } from '../../../features/products/image';
 import { optimizeUpload } from '../../../features/products/imageOptimize';
+import { uploadMedia } from '../../../features/media/upload';
+import { attachMediaToProduct } from '../../../features/media/db';
 import { getStorage } from '../../../features/storage';
 
 export const prerender = false;
@@ -19,12 +21,16 @@ export const POST: APIRoute = async ({ request, redirect }) => {
   const parsed = parseProductForm(form);
   if ('error' in parsed) return redirect(fail(parsed.error), 303);
 
+  let mediaId: number | null = null;
   let image_key: string | null = null;
   const file = form.get('image');
   if (file instanceof File && file.size > 0) {
     const imgErr = validateImage(file);
     if (imgErr) return redirect(fail(imgErr), 303);
-    image_key = await uploadProductImage(getStorage(), await optimizeUpload(file));
+    // Every upload becomes a library item, whichever screen it came from.
+    const media = await uploadMedia(env.DB, getStorage(), await optimizeUpload(file), file.name);
+    mediaId = media.id;
+    image_key = media.image_key;
   }
 
   // Slug from the optional slug field, else the name; made unique.
@@ -33,7 +39,12 @@ export const POST: APIRoute = async ({ request, redirect }) => {
 
   const productId = await createProduct(env.DB, { ...parsed.data, image_key, slug });
   // Seed the gallery with the primary image so the product page can show it.
-  if (image_key) await addProductImage(env.DB, productId, image_key);
+  // Guarded on the media row: it is unreferenced — and so deletable from the
+  // library — right up until this association lands.
+  if (mediaId !== null) {
+    const attached = await attachMediaToProduct(env.DB, productId, mediaId);
+    if (!attached.ok) return redirect(fail(attached.error), 303);
+  }
 
   const categoryIds = form
     .getAll('category')

@@ -3,7 +3,14 @@ import { getConfig } from '../config';
 import { paymentsInDemoMode } from '../features/payments';
 import '../styles/global.css';
 
-type Section = 'dashboard' | 'products' | 'orders' | 'customers' | 'categories' | 'settings';
+type Section =
+  | 'dashboard'
+  | 'products'
+  | 'orders'
+  | 'customers'
+  | 'categories'
+  | 'media'
+  | 'settings';
 
 interface Props {
   title?: string;
@@ -27,6 +34,7 @@ const nav: { key: Section; label: string; href: string }[] = [
   { key: 'orders', label: 'Orders', href: '/admin/orders' },
   { key: 'customers', label: 'Customers', href: '/admin/customers' },
   { key: 'categories', label: 'Categories', href: '/admin/categories' },
+  { key: 'media', label: 'Media', href: '/admin/media' },
   { key: 'settings', label: 'Settings', href: '/admin/settings' },
 ];
 // Label of the section we're on — shown in the collapsed mobile disclosure.

@@ -1,12 +1,5 @@
-import type { StorageProvider } from '../storage';
-
-const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
-const ALLOWED = new Map([
-  ['image/jpeg', 'jpg'],
-  ['image/png', 'png'],
-  ['image/webp', 'webp'],
-  ['image/gif', 'gif'],
-]);
+import { mediaUrl } from '../media/url';
+import { validateUpload } from '../media/upload';
 
 export type ImageDelivery = 'original' | 'cloudflare';
 export type ProductImageUsage = 'card' | 'detail' | 'thumbnail';
@@ -63,7 +56,7 @@ export function onDemandImageDeliveryAvailable(baseUrl: string): boolean {
  */
 export function productImageUrl(imageKey: string | null, baseUrl = ''): string {
   if (!imageKey) return '/placeholder.png';
-  return baseUrl ? `${baseUrl}/${imageKey}` : `/images/${imageKey}`;
+  return mediaUrl(imageKey, baseUrl);
 }
 
 function versionedTransformSource(imageKey: string, baseUrl: string): string | null {
@@ -175,24 +168,9 @@ export function productEmailImageUrl(
   );
 }
 
-/** Returns a user-facing error string if the upload is invalid, else null. */
-export function validateImage(file: File): string | null {
-  if (!ALLOWED.has(file.type)) {
-    return 'Image must be JPEG, PNG, WebP, or GIF.';
-  }
-  if (file.size > MAX_BYTES) {
-    return 'Image must be 5 MB or smaller.';
-  }
-  return null;
-}
-
-/** Uploads a (pre-validated) image to storage and returns its object key. */
-export async function uploadProductImage(
-  storage: StorageProvider,
-  file: File,
-): Promise<string> {
-  const ext = ALLOWED.get(file.type) ?? 'bin';
-  const key = `products/${crypto.randomUUID()}.${ext}`;
-  await storage.put(key, await file.arrayBuffer(), file.type);
-  return key;
-}
+/**
+ * Upload validation now lives in the shared media feature — the rules are about
+ * stored files, not about products. Re-exported so existing product call sites
+ * and tests keep one import.
+ */
+export const validateImage = validateUpload;

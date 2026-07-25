@@ -1,0 +1,161 @@
+---
+import { env } from 'cloudflare:workers';
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import Pagination from '../../../components/Pagination.astro';
+import { MEDIA_PAGE_SIZE, countMedia } from '../../../features/media/db';
+import { isUnused, describeUsage } from '../../../features/media/usage';
+import { mediaUrl } from '../../../features/media/url';
+import { loadMediaPage } from '../../api/admin/media';
+import { paginate, queryHref } from '../../../pagination';
+
+const error = Astro.url.searchParams.get('error');
+
+// Count first so paginate() clamps an out-of-range ?page= to the last real page
+// instead of querying past the end and rendering an empty grid.
+const total = await countMedia(env.DB);
+const { page, offset, totalPages } = paginate(Astro.url.searchParams, total, MEDIA_PAGE_SIZE);
+const { items, usage, baseUrl } = await loadMediaPage(MEDIA_PAGE_SIZE, offset);
+const hrefFor = (p: number) => queryHref('/admin/media', { page: p > 1 ? p : undefined });
+
+const dateFmt = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' });
+const formatDate = (iso: string) => dateFmt.format(new Date(`${iso.replace(' ', 'T')}Z`));
+
+/** Legacy rows backfilled from R2 have no size — show nothing, not "0 B". */
+function formatSize(bytes: number | null): string | null {
+  if (bytes == null) return null;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+---
+
+<AdminLayout title="Media" active="media">
+  <div class="mb-8 flex flex-wrap items-center justify-between gap-4">
+    <div>
+      <h1 class="font-serif text-3xl tracking-tight">Media</h1>
+      <p class="mt-1 text-sm text-gray-500">
+        {total} file{total === 1 ? '' : 's'}. Deleting here removes the file everywhere —
+        it is refused while anything still uses it.
+      </p>
+    </div>
+  </div>
+
+  {
+    error && (
+      <p class="mb-6 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        {error}
+      </p>
+    )
+  }
+
+  <form
+    method="post"
+    action="/api/admin/media"
+    enctype="multipart/form-data"
+    class="mb-8 flex flex-wrap items-center gap-3 rounded-md border border-line p-4"
+  >
+    <input
+      type="file"
+      name="files"
+      accept="image/jpeg,image/png,image/webp,image/gif"
+      multiple
+      required
+      class="text-sm"
+    />
+    <button
+      type="submit"
+      class="rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover"
+    >
+      Upload
+    </button>
+    <span class="text-xs text-gray-500">JPEG, PNG, WebP, or GIF. Max 5 MB each.</span>
+  </form>
+
+  {
+    items.length === 0 ? (
+      <p class="py-12 text-center text-sm text-gray-500">
+        No files yet. Upload one above, or add a product image — every upload lands here.
+      </p>
+    ) : (
+      <ul class="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-4">
+        {items.map((m) => {
+          const entry = usage.get(m.id);
+          const unused = !!entry && isUnused(entry);
+          const size = formatSize(m.size_bytes);
+          const url = mediaUrl(m.image_key, baseUrl);
+          return (
+            <li class="flex flex-col gap-2">
+              <div class="aspect-square overflow-hidden rounded-md border border-line bg-gray-50">
+                <img
+                  src={url}
+                  alt={m.original_name}
+                  loading="lazy"
+                  decoding="async"
+                  class="h-full w-full object-contain"
+                />
+              </div>
+              <p class="truncate text-sm" title={m.original_name}>
+                {m.original_name}
+              </p>
+              <p class="text-xs text-gray-500">
+                {formatDate(m.created_at)}
+                {size ? ` · ${size}` : ''}
+                {!m.mime_type && !size ? ' · Legacy image' : ''}
+              </p>
+              <p class="text-xs">
+                {unused ? (
+                  <span class="text-gray-400">Unused</span>
+                ) : (
+                  <span class="text-gray-600">Used by {describeUsage(entry!)}</span>
+                )}
+              </p>
+              <div class="mt-auto flex items-center gap-3 pt-1">
+                <button
+                  type="button"
+                  data-copy-url={url}
+                  class="text-xs uppercase tracking-widest text-gray-500 hover:text-brand"
+                >
+                  Copy URL
+                </button>
+                {unused && (
+                  <form method="post" action={`/api/admin/media/${m.id}`}>
+                    <input type="hidden" name="_action" value="delete" />
+                    <button
+                      type="submit"
+                      class="text-xs uppercase tracking-widest text-red-600 hover:text-red-700"
+                    >
+                      Delete
+                    </button>
+                  </form>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    )
+  }
+
+  <Pagination page={page} totalPages={totalPages} hrefFor={hrefFor} />
+</AdminLayout>
+
+<script>
+  // Copy-to-clipboard needs JS by nature; everything else on this page is plain
+  // forms, so the grid still works with scripting off.
+  document.addEventListener('click', async (event) => {
+    const button = (event.target as HTMLElement)?.closest<HTMLElement>('[data-copy-url]');
+    if (!button) return;
+    const url = new URL(button.dataset.copyUrl!, location.origin).href;
+    try {
+      await navigator.clipboard.writeText(url);
+      const original = button.textContent;
+      button.textContent = 'Copied';
+      setTimeout(() => {
+        button.textContent = original;
+      }, 1200);
+    } catch {
+      // Clipboard blocked (insecure context or denied permission) — leave the
+      // label alone rather than claiming a copy that didn't happen.
+    }
+  });
+</script>

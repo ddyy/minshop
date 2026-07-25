@@ -1,6 +1,7 @@
 ---
 import { env } from 'cloudflare:workers';
 import AdminLayout from '../../../../layouts/AdminLayout.astro';
+import MediaPicker from '../../../../features/media/MediaPicker.astro';
 import ProductForm from '../../../../features/products/ProductForm.astro';
 import { getProduct, listProductImages } from '../../../../features/products/db';
 import { listVariants, listExtras } from '../../../../features/products/variants';
@@ -96,6 +97,22 @@ const major = (cents: number) => toMajorUnits(cents, product.currency);
         Add images
       </button>
     </form>
+
+    {/* Reuse a file already in the library. The picker is outside the upload
+        form above — it posts its own attach request, and a nested form would be
+        invalid HTML. */}
+    <div class="mb-6">
+      <MediaPicker id="product-gallery" label="Choose from Media" />
+      <form
+        method="POST"
+        action={`/api/admin/products/${product.id}/images`}
+        data-attach-form
+        class="hidden"
+      >
+        <input type="hidden" name="_action" value="attach" />
+        <input type="hidden" name="media_id" data-attach-media-id />
+      </form>
+    </div>
 
     {
       images.length > 0 && (
@@ -657,3 +674,17 @@ const major = (cents: number) => toMajorUnits(cents, product.currency);
     });
   </script>
 </AdminLayout>
+
+<script>
+  // Picker selection → submit the hidden attach form. Kept out of MediaPicker
+  // itself so the same dialog can serve the logo and the Markdown editor, which
+  // do something different with the same event.
+  document.addEventListener('media:selected', (event) => {
+    const detail = (event as CustomEvent).detail as { id: number };
+    const form = document.querySelector<HTMLFormElement>('[data-attach-form]');
+    const field = form?.querySelector<HTMLInputElement>('[data-attach-media-id]');
+    if (!form || !field) return;
+    field.value = String(detail.id);
+    form.submit();
+  });
+</script>

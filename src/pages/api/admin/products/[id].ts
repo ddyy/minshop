@@ -2,7 +2,6 @@ import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 import {
   getProduct,
-  listProductImages,
   replaceProductImageKey,
   updateProduct,
   deleteProduct,
@@ -11,8 +10,9 @@ import { parseProductForm } from '../../../../features/products/form';
 import { uniqueSlug } from '../../../../features/products/slug';
 import { setProductCategories } from '../../../../features/categories/db';
 import { applyVariantForm } from '../../../../features/products/variants';
-import { validateImage, uploadProductImage } from '../../../../features/products/image';
+import { validateImage } from '../../../../features/products/image';
 import { optimizeUpload } from '../../../../features/products/imageOptimize';
+import { uploadMedia } from '../../../../features/media/upload';
 import { getStorage } from '../../../../features/storage';
 import { indexProduct, unindexProduct } from '../../../../features/search';
 
@@ -31,26 +31,10 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
   const existing = await getProduct(env.DB, id);
 
   if (String(form.get('_action')) === 'delete') {
-    const gallery = await listProductImages(env.DB, id);
-    const imageKeys = new Set([
-      ...gallery.map((image) => image.image_key),
-      ...(existing?.image_key ? [existing.image_key] : []),
-    ]);
+    // Removes the product and its image ASSOCIATIONS. The files stay in the
+    // media library — they may be used by other products or pages, and the
+    // library is the only place an object is deleted.
     await deleteProduct(env.DB, id);
-    for (const key of imageKeys) {
-      try {
-        await storage.delete(key);
-      } catch (err) {
-        console.error(
-          JSON.stringify({
-            event: 'product_image_delete_failed',
-            productId: id,
-            key,
-            message: err instanceof Error ? err.message : String(err),
-          }),
-        );
-      }
-    }
     try {
       await unindexProduct(id); // no-op unless vector search is on
     } catch (err) {
@@ -71,7 +55,8 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
   if (file instanceof File && file.size > 0) {
     const imgErr = validateImage(file);
     if (imgErr) return fail(imgErr);
-    image_key = await uploadProductImage(storage, await optimizeUpload(file));
+    const media = await uploadMedia(env.DB, storage, await optimizeUpload(file), file.name);
+    image_key = media.image_key;
     replacedImageKey = existing?.image_key ?? null;
   }
 
@@ -82,9 +67,10 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
 
   await updateProduct(env.DB, id, { ...parsed.data, image_key, slug });
   if (replacedImageKey && image_key) {
+    // Repoint the gallery row at the new key. The replaced object is NOT
+    // deleted: it stays in the media library, where it may be reused or removed
+    // deliberately once nothing references it.
     await replaceProductImageKey(env.DB, id, replacedImageKey, image_key);
-    // Switch every database reference before removing the old immutable object.
-    await storage.delete(replacedImageKey);
   }
 
   // Replace category links (empty set clears them).

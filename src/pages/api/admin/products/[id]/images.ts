@@ -2,7 +2,6 @@ import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 import {
   getProduct,
-  addProductImage,
   getProductImage,
   deleteProductImageRow,
   setProductImageAlt,
@@ -12,8 +11,10 @@ import {
   syncPrimaryImage,
 } from '../../../../../features/products/db';
 import { clearVariantImage } from '../../../../../features/products/variants';
-import { validateImage, uploadProductImage } from '../../../../../features/products/image';
+import { validateImage } from '../../../../../features/products/image';
 import { optimizeUpload } from '../../../../../features/products/imageOptimize';
+import { uploadMedia } from '../../../../../features/media/upload';
+import { attachMediaToProduct } from '../../../../../features/media/db';
 import { getStorage } from '../../../../../features/storage';
 
 export const prerender = false;
@@ -50,10 +51,22 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
       if (imgErr) return back(imgErr);
     }
     for (const file of files) {
-      const key = await uploadProductImage(storage, await optimizeUpload(file));
-      await addProductImage(env.DB, id, key);
+      const media = await uploadMedia(env.DB, storage, await optimizeUpload(file), file.name);
+      const attached = await attachMediaToProduct(env.DB, id, media.id);
+      if (!attached.ok) return back(attached.error);
     }
     await syncPrimaryImage(env.DB, id); // first image stays primary
+    return back();
+  }
+
+  // Reuse a file already in the library. Same guarded insert as the upload path,
+  // so a stale picker selection can't attach media that has since been deleted.
+  if (action === 'attach') {
+    const mediaId = Number(form.get('media_id'));
+    if (!Number.isInteger(mediaId)) return back('Choose an image.');
+    const attached = await attachMediaToProduct(env.DB, id, mediaId);
+    if (!attached.ok) return back(attached.error);
+    await syncPrimaryImage(env.DB, id);
     return back();
   }
 
@@ -90,9 +103,12 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
   }
 
   if (action === 'delete') {
+    // Drops the ASSOCIATION only. The file stays in the media library, where it
+    // may still be used by another product, a page, or the logo — and where it
+    // is deleted explicitly. Removing an image from one product must never
+    // break it somewhere else.
     await deleteProductImageRow(env.DB, imageId);
     await clearVariantImage(env.DB, imageId); // drop dangling variant references
-    await storage.delete(img.image_key);
     await syncPrimaryImage(env.DB, id); // promotes the new first image (or null)
     return back();
   }
