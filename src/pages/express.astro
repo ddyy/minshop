@@ -72,6 +72,21 @@ if (isBuyNow) {
 } else {
   const { lines: cartLines } = await resolveCart(env.DB, readCart(Astro.cookies));
   if (cartLines.length === 0) return Astro.redirect('/cart', 303);
+  // Stock can drop between adding to the cart and checking out. Bounce to the cart
+  // rather than rendering a total the shopper can't actually buy: this page has no
+  // quantity or remove controls, and /cart already flags the offending line
+  // ("Only N available"). reserveInventory is still the real guarantee — it catches
+  // the race after this check — but that fires only once they've entered an address
+  // and picked shipping, which is a late, frustrating place to be told.
+  const short = cartLines.find((l) => l.qty > l.availableStock);
+  if (short) {
+    return Astro.redirect(
+      `/cart?error=${encodeURIComponent(
+        'Some items are no longer available in the quantity you selected. Please review your cart.',
+      )}`,
+      303,
+    );
+  }
   backHref = '/cart';
   lines = cartLines.map((l) => ({
     name:
