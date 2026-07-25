@@ -29,12 +29,14 @@ MCP dependencies. Use `--no-install` to only scaffold the files, or
 - **Cart** — HttpOnly cookie-based, with a progressively enhanced drawer plus no-JS form fallbacks
 - **Search** — FTS5 full-text (bm25, prefix match, typo-correct), no JS — or optional **semantic search** via Workers AI + Vectorize (see [Search](#search))
 - **Categories** — nested (arbitrary-depth tree), many-to-many with products; storefront category pages with breadcrumbs + sub-category drill-down (recursive descendant queries)
-- **Admin** — products, categories, orders, customers, fulfillment, CSV export, and runtime store settings
+- **Admin** — products, categories, pages, media, orders, customers, fulfillment, CSV export, and runtime store settings
 - **Payments** — Stripe Checkout, self-hosted Bitcoin Lightning (phoenixd or LNbits), hosted OpenNode, or a built-in demo rail; configure enabled methods and the default in Admin (see [Payments](#payments))
 - **Shipping** — configurable zones, flat rates, and free-over-threshold rules; supported checkout flows capture the address and shipping cost on the order
 - **Discount codes** — promo-code field enabled from Admin; codes are created/managed in the Stripe Dashboard, and the applied discount is captured onto the order
 - **Tax** — sales tax / VAT via Stripe Tax (off by default — **activate Stripe Tax in the Dashboard first**); computed from the customer address and captured onto the order
 - **Order email** — confirmation email behind an `EmailProvider` seam with two adapters: **Resend** (HTTPS API, works on the Workers free plan) or **Cloudflare Email** (binding, paid plan); configured in Admin and a safe no-op until a provider is ready
+- **Pages** — merchant-authored Markdown pages at `/pages/<slug>`, with a split-view editor, live preview, and layout presets (see [Pages](#pages))
+- **Media library** — one place that owns every uploaded file; products, pages, and the logo record how each is used (see [Media library](#media-library))
 - **Images** — uploaded to R2, served through the app (no public bucket required)
 - **Swappable seams** — payments and storage sit behind interfaces (see [Architecture](#architecture))
 
@@ -273,7 +275,7 @@ To optimize new uploads:
 
 ### Serving images off the Worker (R2 custom domain)
 
-By default product images are served through the Worker's `/images/<key>` route. That's zero-config, but every image request still invokes the Worker (the `caches.default` edge cache saves the R2 fetch, not the invocation). For higher traffic, serve images straight from R2 so they bypass the Worker entirely — Cloudflare CDN-caches them and your Worker request count drops to page + API traffic only.
+By default all uploads — product images, page images, and the logo — are served through the Worker's `/images/<key>` route. That's zero-config, but every image request still invokes the Worker (the `caches.default` edge cache saves the R2 fetch, not the invocation). For higher traffic, serve images straight from R2 so they bypass the Worker entirely — Cloudflare CDN-caches them and your Worker request count drops to page + API traffic only.
 
 1. Connect a [public custom domain](https://developers.cloudflare.com/r2/buckets/public-buckets/) to the bucket: Cloudflare dashboard → **R2 → your bucket → Settings → Public access → Connect a custom domain** (e.g. `images.example.com`, on a zone in your account). Set **Minimum TLS** to 1.2. This makes the bucket's objects **publicly readable** through that domain — fine for product images, but don't point it at a bucket holding anything private.
 2. Add the var to `wrangler.jsonc` (absolute, no trailing slash) and redeploy:
@@ -281,7 +283,7 @@ By default product images are served through the Worker's `/images/<key>` route.
    "vars": { "IMAGE_BASE_URL": "https://images.example.com" }
    ```
 
-Every product image URL — storefront, product galleries, `/api/products`, order emails, and Stripe line items — then points at that domain. Unset, images keep serving through the Worker route (nothing else changes).
+Every image URL — storefront, product galleries, `/api/products`, order emails, Stripe line items, page bodies, and the header logo — then points at that domain. Page bodies store the root-relative `/images/<key>` form and the origin is applied at render time, so changing `IMAGE_BASE_URL` never requires rewriting content. Unset, images keep serving through the Worker route (nothing else changes).
 
 **Caching:** uploads store a 1-year `immutable` `Cache-Control` (keys are unique per file), so the R2 domain serves them with that TTL. Objects uploaded before this change — or via `wrangler r2 object put` without `--cache-control` — keep R2's shorter default TTL until re-uploaded (e.g. `--cache-control 'public, max-age=31536000, immutable'`) or covered by a [Cache Rule](https://developers.cloudflare.com/cache/how-to/cache-rules/).
 
@@ -319,6 +321,40 @@ hardening for a high-traffic paid deployment.
 - **Email** — configured in **Admin → Settings → Email** (on/off, provider, from-address; the key in the encrypted vault). Unconfigured it's a safe no-op — checkout still succeeds. A **Send test email** button verifies real delivery. Two providers:
   - **Resend** (default, **works on the Workers free plan** — a plain HTTPS call): get a free key at [resend.com](https://resend.com), paste it in Settings → Email, and set the from-address (a Resend-verified domain, or `onboarding@resend.dev` to test to your own address).
   - **Cloudflare (Workers Paid plan)**: onboard a sender domain, add the commented `send_email` binding from `wrangler.jsonc`, redeploy, then pick Cloudflare in Settings → Email with a from-address on that domain. The section flags whether the binding is wired.
+
+## Media library
+
+Every upload lands in **Admin → Media**, whichever screen it came from — the product form, a product gallery, the page editor, or the logo picker. One file can then be reused anywhere without uploading it twice.
+
+The library **owns the files**. Products, pages, and the logo only record *how* a file is used:
+
+- Removing an image from a product gallery, deleting a product, replacing a photo, or deleting a page removes the **association only**. The file stays.
+- **Only Admin → Media deletes an object**, and it refuses while anything still references it — the grid links straight to the product, page, or Settings that is holding it.
+- That's why the file survives being removed from one product: it may be the logo, or in a page, or on another product.
+
+Uploads accept JPEG, PNG, WebP, and GIF up to 5 MB. **SVG is not accepted** — uploads are served from the store's own origin, where an SVG is a script-execution vector.
+
+Existing product images are adopted into the library by migration `0026` **without moving or renaming a single R2 object**. Those rows predate the library, so they carry no file type or size and the grid shows them as *Legacy image*; everything else about them works normally.
+
+Deleting a file is the one action with no undo. If you remove an image from a product and then delete it from Media within the same minute, a cached storefront page can briefly show a broken image (see the 60-second note under [Pages](#pages)).
+
+## Pages
+
+Merchant-authored content — About, Shipping, Returns, Privacy — written in Markdown at **Admin → Pages** and served at `/pages/<slug>`. The prefix keeps page slugs in their own namespace, so a page can never collide with a storefront route.
+
+Nothing to enable: an empty table means the feature is simply unused, and no page links appear anywhere.
+
+**Editing.** The editor has three views — *Markdown*, *Split*, *Preview* — remembered between pages. Split shows the source beside a live preview that renders through the **same server-side renderer the storefront uses**, so what you see is what will ship rather than an approximation. Clicking anywhere in the preview selects the word that produced it in the source; clicking an image selects its whole `![alt](src)` span. A toolbar inserts headings, bold, italic, links, lists, quotes, code, and images chosen from the media library.
+
+**Safety.** Raw HTML in a page body is **escaped, not parsed** (`html: false`). A page cannot inject a `<script>`, an iframe, or an event handler — not even from a compromised admin session — and markdown-it refuses `javascript:` and `vbscript:` link targets. This is a property of the parser, not a filter that has to be kept correct.
+
+**Layout presets.** Each page picks *Standard* (narrow, left title), *Editorial* (narrow, centred title), or *Wide* (full width, for size charts and image grids). Adding a preset is one entry in `src/features/pages/layouts.ts` — the dropdown, validation, storefront, and preview all derive from it, and no CSS is needed.
+
+**Drafts and publishing.** A page is a draft until published. Drafts 404 on the storefront. Published pages appear in the footer (up to 50, ordered by title), the sitemap, and `llms.txt`.
+
+**Missing images.** Your text always saves. What is blocked is a *draft going live* with images that would render broken — the save is kept and publishing is refused with a warning naming the count. An already-published page is never silently unpublished over a missing image; it stays live and the warning tells you to fix it.
+
+**Caching.** Storefront HTML is cached at the edge for 60 seconds, so a published edit — like any settings or catalog change — can take up to a minute to appear. Draft and missing pages send `no-store`, so publishing is visible immediately even to someone who hit the URL beforehand.
 
 ## Theming
 
