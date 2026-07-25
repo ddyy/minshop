@@ -118,6 +118,23 @@ if (Astro.request.method === 'POST') {
     } else {
       validationError = 'Enter a valid IANA time zone, such as UTC or America/New_York.';
     }
+  } else if (action === 'save_announcement') {
+    // The message doubles as the on/off switch: empty deletes the row (setSetting
+    // treats '' as a delete), so there's no enabled flag to drift out of sync.
+    const message = String(form.get('announcement') ?? '').trim().slice(0, 200);
+    const href = String(form.get('announcement_href') ?? '').trim();
+    // The href is rendered into an <a>, so only allow a same-site path or an
+    // http(s) URL — never a javascript:/data: scheme, even from an admin.
+    const safeHref =
+      !href ||
+      (href.startsWith('/') && !href.startsWith('//')) ||
+      /^https?:\/\//i.test(href);
+    if (!safeHref) {
+      validationError = 'The announcement link must be a path like /sale or an http(s) URL.';
+    } else {
+      await setSetting(env.DB, 'announcement', message);
+      await setSetting(env.DB, 'announcement_href', message ? href : '');
+    }
   } else if (action === 'set_image_delivery') {
     const delivery = String(form.get('image_delivery') ?? '');
     if (delivery === 'cloudflare') {
@@ -257,6 +274,8 @@ const disabledSet = new Set(settings.disabledPaymentMethods);
 // Store name is a runtime overlay (this field / the setup wizard) over STORE_NAME.
 const storeName = settings.storeName ?? cfg.storeName;
 const timeZone = settings.timeZone ?? cfg.timeZone;
+const announcement = settings.announcement ?? '';
+const announcementHref = settings.announcementHref ?? '';
 const timeZones = allTimeZones();
 
 // Search backend: runtime overlay (toggle below) over the build-time default.
@@ -474,6 +493,44 @@ const sections = [
       <p class="mt-3 text-xs text-gray-400">
         The time zone controls stored UTC date display. Use an IANA name such as
         <code>UTC</code> or <code>America/New_York</code>.
+      </p>
+    </form>
+
+    <form method="POST" class="mb-4 rounded-lg border border-gray-200 bg-white p-4">
+      <input type="hidden" name="_action" value="save_announcement" />
+      <div class="flex flex-wrap items-end gap-3">
+        <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-gray-400">
+          Announcement bar
+          <input
+            type="text"
+            name="announcement"
+            value={announcement}
+            maxlength="200"
+            placeholder="Free shipping on orders over $50"
+            class="w-80 max-w-full rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none"
+          />
+        </label>
+        <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-gray-400">
+          Link (optional)
+          <input
+            type="text"
+            name="announcement_href"
+            value={announcementHref}
+            placeholder="/category/sale"
+            class="w-56 max-w-full rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none"
+          />
+        </label>
+        <button
+          type="submit"
+          class="rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover"
+        >
+          Save
+        </button>
+      </div>
+      <p class="mt-3 text-xs text-gray-400">
+        Shown above the header on every storefront page. Leave the message empty to hide the
+        bar. Storefront pages are cached briefly, so a change can take about a minute to
+        appear everywhere.
       </p>
     </form>
 

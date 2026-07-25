@@ -19,6 +19,10 @@ const storeName = Astro.locals.settings?.storeName ?? config.storeName;
 const cartEnabled = Astro.locals.settings?.cartEnabled ?? true;
 // Accounts nav link: the runtime toggle wins over the build-time default.
 const accountsOn = Astro.locals.settings?.accountsEnabled ?? features.accounts;
+// Announcement bar: the message is its own on/off switch (empty = hidden). Astro
+// escapes both values on render, so admin-entered text can't inject markup.
+const announcement = Astro.locals.settings?.announcement ?? '';
+const announcementHref = Astro.locals.settings?.announcementHref ?? '';
 const pageTitle = title ? `${title} — ${storeName}` : storeName;
 const query =
   Astro.url.pathname === '/search'
@@ -54,6 +58,26 @@ const ogImage = image ? new URL(image, Astro.url.origin).href : undefined;
     {ogImage && <meta name="twitter:image" content={ogImage} />}
   </head>
   <body class="flex min-h-screen flex-col bg-paper text-gray-900 antialiased">
+    {/* Announcement bar. Deliberately NOT fixed: the header below is sticky, so a
+        fixed bar would need the header offset by the bar's height — which varies
+        as the message wraps on narrow screens. Static means it's seen on load,
+        scrolls away, and costs no vertical space on mobile. */}
+    {
+      announcement && (
+        <div class="bg-brand text-white">
+          <div class="mx-auto max-w-6xl px-6 py-2 text-center text-xs tracking-wide">
+            {announcementHref ? (
+              <a href={announcementHref} class="underline-offset-2 hover:underline">
+                {announcement}
+              </a>
+            ) : (
+              announcement
+            )}
+          </div>
+        </div>
+      )
+    }
+
     <header class="sticky top-0 z-20 border-b border-line bg-paper/85 backdrop-blur">
       <div class="mx-auto flex max-w-6xl items-center gap-6 px-6 py-5">
         <a href="/" class="font-serif text-2xl tracking-tight">{storeName}</a>
