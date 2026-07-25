@@ -109,8 +109,8 @@ describe('renderMarkdown — source map', () => {
 
   it('stamps the start line on block elements when enabled', () => {
     const html = renderMarkdown('# Title\n\nSecond block.', { sourceMap: true });
-    expect(html).toContain('<h1 data-source-line="1">');
-    expect(html).toContain('<p data-source-line="3">');
+    expect(html).toMatch(/<h1 [^>]*data-source-line="1"/);
+    expect(html).toMatch(/<p [^>]*data-source-line="3"/);
   });
 
   it('numbers lines from 1, matching what an editor shows', () => {
@@ -120,14 +120,14 @@ describe('renderMarkdown — source map', () => {
 
   it('maps list items so a click inside a list still resolves', () => {
     const html = renderMarkdown('- one\n- two', { sourceMap: true });
-    expect(html).toContain('<li data-source-line="1">');
-    expect(html).toContain('<li data-source-line="2">');
+    expect(html).toMatch(/<li [^>]*data-source-line="1"/);
+    expect(html).toMatch(/<li [^>]*data-source-line="2"/);
   });
 
   it('does not change the rendered content itself', () => {
     const plain = renderMarkdown('## Heading\n\n**bold**');
     const mapped = renderMarkdown('## Heading\n\n**bold**', { sourceMap: true });
-    expect(mapped.replace(/ data-source-line="\d+"/g, '')).toBe(plain);
+    expect(mapped.replace(/ data-source-(line|end)="\d+"/g, '')).toBe(plain);
   });
 });
 
@@ -182,5 +182,15 @@ describe('markdownExcerpt', () => {
 
   it('returns an empty string for an empty body', () => {
     expect(markdownExcerpt('')).toBe('');
+  });
+});
+
+describe('renderMarkdown — block extent', () => {
+  it('stamps an exclusive end line so a block’s source range is known', () => {
+    // The editor needs the range, not just the start, to map a click inside the
+    // text to a character offset instead of selecting the whole line.
+    const html = renderMarkdown('Alpha\nstill alpha\n\nBeta.', { sourceMap: true });
+    expect(html).toMatch(/<p [^>]*data-source-line="1"[^>]*data-source-end="3"/);
+    expect(html).toMatch(/<p [^>]*data-source-line="4"[^>]*data-source-end="5"/);
   });
 });

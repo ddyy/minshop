@@ -92,6 +92,10 @@ export function renderMarkdown(markdown: string, options: RenderOptions = {}): s
       const token = tokens[idx];
       if (token.map && token.nesting !== -1) {
         token.attrSet('data-source-line', String(token.map[0] + 1));
+        // Exclusive end line, so the editor knows the block's source extent and
+        // can map a click INSIDE the text to a character offset rather than
+        // selecting the whole line.
+        token.attrSet('data-source-end', String(token.map[1] + 1));
       }
       return renderToken(tokens, idx, opts);
     };

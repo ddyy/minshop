@@ -433,21 +433,154 @@ const tools = [
       return offset;
     };
 
+    /**
+     * Vertical offset of a character within the field, in pixels.
+     *
+     * Counting newlines is not enough: the textarea soft-wraps, so one source
+     * line can occupy many visual rows and a paragraph-based estimate drifts
+     * further the longer the document gets. This mirrors the text into a hidden
+     * div with the same width, font, and padding, so the browser reproduces the
+     * exact wrapping and the marker's offsetTop is the real position.
+     */
+    const caretTopWithin = (offset: number): number => {
+      const cs = getComputedStyle(editor);
+      const mirror = document.createElement('div');
+      for (const prop of [
+        'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'letterSpacing',
+        'lineHeight', 'textTransform', 'wordSpacing', 'textIndent', 'tabSize',
+        'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+        'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+        'boxSizing',
+      ] as const) {
+        mirror.style[prop] = cs[prop];
+      }
+      mirror.style.position = 'absolute';
+      mirror.style.visibility = 'hidden';
+      mirror.style.left = '-9999px';
+      mirror.style.top = '0';
+      mirror.style.height = 'auto';
+      mirror.style.whiteSpace = 'pre-wrap';
+      mirror.style.overflowWrap = 'break-word';
+      mirror.style.width = `${editor.getBoundingClientRect().width}px`;
+
+      const marker = document.createElement('span');
+      // A non-empty marker so it has a box even at the very end of the text.
+      marker.textContent = editor.value.slice(offset, offset + 1) || '.';
+      // appendChild, not append: the Workers types in scope here resolve
+      // `append` to a non-DOM signature.
+      mirror.appendChild(document.createTextNode(editor.value.slice(0, offset)));
+      mirror.appendChild(marker);
+      document.body.appendChild(mirror);
+      const top = marker.offsetTop;
+      mirror.remove();
+      return top;
+    };
+
     /** Select a range, focus the field, and bring it into view. */
     const selectRange = (start: number, end: number) => {
       editor.focus();
       editor.setSelectionRange(start, end);
+
       // The field never scrolls internally (it grows to fit), so scrolling the
-      // page to the selection is what actually reveals it.
-      const before = editor.value.slice(0, start).split('\n').length - 1;
+      // PAGE to the caret is what actually reveals it.
+      const caretTop = editor.getBoundingClientRect().top + window.scrollY + caretTopWithin(start);
       const lineHeight = parseFloat(getComputedStyle(editor).lineHeight) || 20;
-      const target = editor.getBoundingClientRect().top + window.scrollY + before * lineHeight;
-      window.scrollTo({ top: Math.max(0, target - window.innerHeight / 3), behavior: 'smooth' });
+      const viewTop = window.scrollY;
+      const viewBottom = viewTop + window.innerHeight;
+      // Leave it alone when it is already comfortably on screen — scrolling on
+      // every click would yank the page around for no reason.
+      if (caretTop > viewTop + lineHeight * 2 && caretTop < viewBottom - lineHeight * 3) return;
+      window.scrollTo({
+        top: Math.max(0, caretTop - window.innerHeight / 3),
+        behavior: 'smooth',
+      });
+    };
+
+    /**
+     * Word boundaries around an offset, roughly as a double-click would pick
+     * them. Letters and digits from any script, plus the apostrophes and hyphens
+     * that sit inside words ("don't", "size-chart"). Clicking whitespace or
+     * punctuation returns a collapsed range, so the caret just lands there.
+     */
+    const WORD_CHAR = /[\p{L}\p{N}_'’-]/u;
+    const wordAround = (text: string, offset: number): [number, number] => {
+      const onWord = WORD_CHAR.test(text[offset] ?? '');
+      // Clicking immediately after a word still selects that word.
+      const anchor = onWord ? offset : WORD_CHAR.test(text[offset - 1] ?? '') ? offset - 1 : -1;
+      if (anchor < 0) return [offset, offset];
+      let start = anchor;
+      let end = anchor;
+      while (start > 0 && WORD_CHAR.test(text[start - 1])) start--;
+      while (end < text.length && WORD_CHAR.test(text[end])) end++;
+      return [start, end];
+    };
+
+    /** Rendered-text offset of a click, measured within `block`. */
+    const renderedOffsetAt = (block: HTMLElement, x: number, y: number): number | null => {
+      // caretPositionFromPoint is the standard; WebKit still ships the older
+      // caretRangeFromPoint. Without either we fall back to the whole line.
+      // Cast through unknown rather than intersecting with Document: the lib
+      // declaration marks caretRangeFromPoint deprecated, and it is still the
+      // only one WebKit implements, so intersecting would flag every use.
+      const doc = document as unknown as {
+        caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+        caretRangeFromPoint?: (x: number, y: number) => Range | null;
+      };
+      let node: Node | null = null;
+      let offset = 0;
+      const pos = doc.caretPositionFromPoint?.(x, y);
+      if (pos) {
+        node = pos.offsetNode;
+        offset = pos.offset;
+      } else {
+        const range = doc.caretRangeFromPoint?.(x, y);
+        if (!range) return null;
+        node = range.startContainer;
+        offset = range.startOffset;
+      }
+      if (!node || !block.contains(node)) return null;
+
+      // Sum the text preceding the clicked node inside this block.
+      const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+      let total = 0;
+      let current: Node | null;
+      while ((current = walker.nextNode())) {
+        if (current === node) return total + offset;
+        total += current.textContent?.length ?? 0;
+      }
+      return null;
+    };
+
+    /**
+     * Map an offset in a block's RENDERED text to an offset in its SOURCE.
+     *
+     * Rendered text is the source with the syntax taken out, so walking both and
+     * advancing the rendered pointer only on a match lands on the right
+     * character: `**bold**` skips the asterisks, `- item` skips the marker, and
+     * `[label](url)` matches the label then skips the target.
+     *
+     * It can drift inside an unusual construct, and then the caret is a few
+     * characters off. The BLOCK is still right, because that comes from the
+     * parser's own source map rather than from this heuristic.
+     */
+    const mapRenderedToSource = (
+      source: string,
+      renderedText: string,
+      renderedOffset: number,
+    ): number => {
+      const target = Math.min(renderedOffset, renderedText.length);
+      let si = 0;
+      let ri = 0;
+      while (ri < target && si < source.length) {
+        if (source[si] === renderedText[ri]) ri++;
+        si++;
+      }
+      return si;
     };
 
     // Click anywhere in the preview to land on the source that produced it.
-    // Block elements carry data-source-line from the renderer; an image also
-    // selects its whole ![alt](src) span so it can be edited or replaced.
+    // Blocks carry their source line range; an image selects its whole
+    // ![alt](src) span so it can be edited or replaced wholesale.
     preview.addEventListener('click', (event) => {
       const target = event.target as HTMLElement;
       const block = target.closest<HTMLElement>('[data-source-line]');
@@ -455,9 +588,25 @@ const tools = [
       const line = Number(block.dataset.sourceLine);
       if (!Number.isFinite(line)) return;
 
+      // Measure the click BEFORE anything can change the layout: switching mode
+      // hides this pane, and once it is out of the layout there is no caret
+      // position to read from those coordinates.
+      const blockText = block.textContent ?? '';
+      const renderedOffset = renderedOffsetAt(
+        block,
+        (event as MouseEvent).clientX,
+        (event as MouseEvent).clientY,
+      );
+
+      // In Preview-only mode the editor is hidden, so there is nowhere to put
+      // the caret. Switch to the source view — the click is a request to go and
+      // edit this, and making the user switch manually would lose the spot they
+      // picked. Measuring the caret's position also needs the field visible.
+      if (writePane?.hidden) setMode('write');
+
       const lineStart = offsetOfLine(line);
 
-      if (target.tagName === 'IMAGE' || target.tagName === 'IMG') {
+      if (target.tagName === 'IMG') {
         // Inline tokens have no source map, so find the image syntax at or after
         // the block's first line. Images are inserted on their own line, so this
         // is exact for anything the editor wrote.
@@ -469,7 +618,28 @@ const tools = [
         }
       }
 
-      // Otherwise select the whole line, which reads as "here is this bit".
+      const endLine = Number(block.dataset.sourceEnd);
+      const blockEnd = Number.isFinite(endLine)
+        ? offsetOfLine(endLine)
+        : (editor.value.indexOf('\n', lineStart) + 1 || editor.value.length);
+
+      if (renderedOffset !== null) {
+        const caret =
+          lineStart +
+          mapRenderedToSource(
+            editor.value.slice(lineStart, blockEnd),
+            blockText,
+            renderedOffset,
+          );
+        // Select the word under the click. Highlighting it makes the landing
+        // spot visible — a bare caret in a wall of monospace is easy to lose —
+        // and it is immediately replaceable by typing.
+        const [start, end] = wordAround(editor.value, caret);
+        selectRange(start, end);
+        return;
+      }
+
+      // No caret API — select the line so the click still does something useful.
       const lineEnd = editor.value.indexOf('\n', lineStart);
       selectRange(lineStart, lineEnd === -1 ? editor.value.length : lineEnd);
     });
