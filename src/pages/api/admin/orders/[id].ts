@@ -114,7 +114,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     // Absolute, not additive: the provider now holds the full total. The
     // charge.refunded webhook that follows reports the same number and is
     // therefore a no-op rather than a second refund.
-    await syncProviderRefund(env.DB, {
+    const synced = await syncProviderRefund(env.DB, {
       orderId: id,
       cumulativeRefundedCents: order.amount_total_cents,
       provider: order.payment_method ?? 'stripe',
@@ -122,6 +122,12 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
       reason: reason ?? 'Full refund issued from minshop',
       createdBy: admin,
     });
+    // Precisely because that webhook is a no-op, it will not mail the customer
+    // either — so this path has to. Whichever of the two recognises the money
+    // first sends exactly one notice.
+    if (synced.ok && synced.advanced) {
+      await sendRefundNotice(id, synced.deltaCents, new URL(request.url).origin);
+    }
     return back;
   }
 

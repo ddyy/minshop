@@ -41,6 +41,7 @@ try {
     `CREATE TABLE orders (
        id INTEGER PRIMARY KEY AUTOINCREMENT,
        public_id TEXT UNIQUE,
+       provider_session_id TEXT UNIQUE,
        amount_total_cents INTEGER NOT NULL,
        currency TEXT NOT NULL DEFAULT 'usd',
        status TEXT NOT NULL DEFAULT 'pending',
@@ -87,6 +88,8 @@ try {
        created_at TEXT NOT NULL DEFAULT (datetime('now')),
        processed_at TEXT
      )`,
+    `CREATE UNIQUE INDEX refunds_provider_refund ON refunds (provider, provider_refund_id) WHERE provider_refund_id IS NOT NULL`,
+    `CREATE UNIQUE INDEX refunds_provider_event ON refunds (provider, provider_event_id) WHERE provider_event_id IS NOT NULL`,
   ]) {
     // D1's exec() splits on newlines, so the schema has to arrive as one line.
     await db.exec(sql.replace(/\s+/g, ' ').trim());
@@ -447,6 +450,33 @@ try {
     assert.equal(n.n, 1, 'a retry must not add a second ledger row');
   });
 
+  await check('two partial refunds on the SAME charge both apply', async () => {
+    // Every charge.refunded for one charge repeats the same charge id. If that
+    // id is written to the ledger's provider_refund_id, the second partial
+    // violates the unique index, the batch throws, and Stripe retries forever.
+    const id = await withPi('pi_two');
+    const first = evt({
+      eventId: 'ev_two_a',
+      providerPaymentId: 'pi_two',
+      providerChargeId: 'ch_same',
+      cumulativeRefundedCents: 2000,
+    });
+    await persistRefundEvent(db, 'stripe', first);
+    assert.equal((await applyRefundEvent(db, 'stripe', first)).status, 'processed');
+
+    const second = evt({
+      eventId: 'ev_two_b',
+      providerPaymentId: 'pi_two',
+      providerChargeId: 'ch_same', // same charge, second partial
+      cumulativeRefundedCents: 5000,
+    });
+    await persistRefundEvent(db, 'stripe', second);
+    const out = await applyRefundEvent(db, 'stripe', second);
+    assert.equal(out.status, 'processed', 'second partial on the same charge must apply');
+    assert.equal(out.deltaCents, 3000);
+    assert.equal((await totals(id)).p, 5000);
+  });
+
   await check('an event for an unknown payment is kept, not lost', async () => {
     const input = evt({ eventId: 'ev_unk', providerPaymentId: 'pi_missing', cumulativeRefundedCents: 900 });
     await persistRefundEvent(db, 'stripe', input);
@@ -463,6 +493,67 @@ try {
     const out = await applyRefundEvent(db, 'stripe', input);
     assert.equal(out.status, 'processed');
     assert.equal((await totals(id)).p, 1500);
+  });
+
+  await check('a legacy order is correlated via the provider session lookup', async () => {
+    // Settled before payment ids were stored: session id only.
+    const id = await newOrder({ method: 'stripe' });
+    await db
+      .prepare('UPDATE orders SET provider_session_id = ? WHERE id = ?')
+      .bind('cs_legacy', id)
+      .run();
+    const input = evt({
+      eventId: 'ev_corr',
+      providerPaymentId: 'pi_legacy',
+      cumulativeRefundedCents: 3000,
+    });
+    await persistRefundEvent(db, 'stripe', input);
+    const out = await applyRefundEvent(db, 'stripe', input, {
+      findSessionIdForPayment: async (pi) => (pi === 'pi_legacy' ? 'cs_legacy' : null),
+    });
+    assert.equal(out.status, 'processed', 'lookup should have correlated it');
+    assert.equal((await totals(id)).p, 3000);
+    const o = await db
+      .prepare('SELECT provider_payment_id p FROM orders WHERE id = ?')
+      .bind(id)
+      .first();
+    assert.equal(o.p, 'pi_legacy', 'payment id must be backfilled');
+  });
+
+  await check('a failing lookup keeps the event queued instead of throwing', async () => {
+    const input = evt({
+      eventId: 'ev_lookup_down',
+      providerPaymentId: 'pi_down',
+      cumulativeRefundedCents: 1000,
+    });
+    await persistRefundEvent(db, 'stripe', input);
+    const out = await applyRefundEvent(db, 'stripe', input, {
+      findSessionIdForPayment: async () => {
+        throw new Error('provider unavailable');
+      },
+    });
+    assert.equal(out.status, 'unmatched');
+    assert.equal((await eventStatus('ev_lookup_down')).status, 'unmatched');
+  });
+
+  await check('correlation never steals a session already claimed', async () => {
+    const owner = await newOrder({ method: 'stripe' });
+    await db
+      .prepare("UPDATE orders SET provider_session_id = 'cs_taken', provider_payment_id = 'pi_owner' WHERE id = ?")
+      .bind(owner)
+      .run();
+    const input = evt({
+      eventId: 'ev_steal',
+      providerPaymentId: 'pi_other',
+      cumulativeRefundedCents: 500,
+    });
+    await persistRefundEvent(db, 'stripe', input);
+    const out = await applyRefundEvent(db, 'stripe', input, {
+      findSessionIdForPayment: async () => 'cs_taken',
+    });
+    assert.equal(out.status, 'unmatched');
+    const o = await db.prepare('SELECT provider_payment_id p FROM orders WHERE id = ?').bind(owner).first();
+    assert.equal(o.p, 'pi_owner', 'existing payment id must not be overwritten');
   });
 
   await check('a currency mismatch opens a review and moves no money', async () => {

@@ -268,26 +268,28 @@ export function orderRefundedEmail(
       ? 'Card refunds usually appear within 5-10 business days, depending on your bank.'
       : 'The refund was sent back over the same payment method you used.';
 
+  // Prices in the ORDER's currency, not the store's current one — an order
+  // placed before a currency change must still read back in what was charged.
+  const money = (cents: number) => formatPrice(cents, order.currency);
+
   const priorLine =
-    refundedCents > refundCents
-      ? `Total refunded so far: ${formatPrice(refundedCents)}`
-      : null;
+    refundedCents > refundCents ? `Total refunded so far: ${money(refundedCents)}` : null;
 
   const text = [
     full ? `Your order #${num} has been refunded.` : `A refund was issued for order #${num}.`,
     ``,
-    `Refunded: ${formatPrice(refundCents)}`,
+    `Refunded: ${money(refundCents)}`,
     ...(priorLine ? [priorLine] : []),
-    ...(full ? [] : [`Still paid: ${formatPrice(remaining)}`]),
+    ...(full ? [] : [`Still paid: ${money(remaining)}`]),
     ``,
     timing,
     ...(orderUrl ? [``, `View your order: ${orderUrl}`] : []),
   ].join('\n');
 
   const rows: TotalRow[] = [
-    { label: 'Refunded', amount: formatPrice(refundCents), strong: true },
-    ...(priorLine ? [{ label: 'Total refunded', amount: formatPrice(refundedCents) }] : []),
-    ...(full ? [] : [{ label: 'Still paid', amount: formatPrice(remaining) }]),
+    { label: 'Refunded', amount: money(refundCents), strong: true },
+    ...(priorLine ? [{ label: 'Total refunded', amount: money(refundedCents) }] : []),
+    ...(full ? [] : [{ label: 'Still paid', amount: money(remaining) }]),
   ];
 
   const html = emailShell({

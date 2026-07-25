@@ -245,5 +245,17 @@ export function createStripeProvider(
       }
       await stripe.refunds.create({ payment_intent: pi });
     },
+
+    // Orders settled before minshop stored the PaymentIntent have only a
+    // session id, so a charge.refunded naming that payment can't find them.
+    // Stripe can map one to the other, which is what makes those historical
+    // orders reconcilable instead of needing a hand-edit of the database.
+    async findSessionIdForPayment(providerPaymentId: string): Promise<string | null> {
+      const sessions = await stripe.checkout.sessions.list({
+        payment_intent: providerPaymentId,
+        limit: 1,
+      });
+      return sessions.data[0]?.id ?? null;
+    },
   };
 }

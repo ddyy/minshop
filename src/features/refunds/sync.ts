@@ -84,27 +84,63 @@ export async function applyRefundEvent(
   db: D1Database,
   provider: string,
   input: RefundSyncInput,
+  opts: {
+    /**
+     * Maps a provider payment id back to the checkout session that produced it,
+     * for orders settled before the payment id was stored. Passed in rather
+     * than imported so this module stays free of provider/runtime bindings.
+     */
+    findSessionIdForPayment?: (providerPaymentId: string) => Promise<string | null>;
+  } = {},
 ): Promise<SyncOutcome> {
-  const order = await db
-    .prepare(
-      `SELECT id, currency, payment_method, amount_total_cents,
+  const selectOrder = `SELECT id, currency, payment_method, amount_total_cents,
               provider_refunded_cents, external_refunded_cents
-         FROM orders WHERE provider_payment_id = ?`,
-    )
+         FROM orders`;
+  type OrderRow = {
+    id: number;
+    currency: string;
+    payment_method: string | null;
+    amount_total_cents: number;
+    provider_refunded_cents: number;
+    external_refunded_cents: number;
+  };
+
+  let order = await db
+    .prepare(`${selectOrder} WHERE provider_payment_id = ?`)
     .bind(input.providerPaymentId)
-    .first<{
-      id: number;
-      currency: string;
-      payment_method: string | null;
-      amount_total_cents: number;
-      provider_refunded_cents: number;
-      external_refunded_cents: number;
-    }>();
+    .first<OrderRow>();
+
+  // Orders settled before minshop stored payment ids have only a session id, so
+  // the lookup above finds nothing. Ask the provider which session produced this
+  // payment, then backfill — otherwise these orders can never be reconciled
+  // without hand-editing the database.
+  if (!order && opts.findSessionIdForPayment) {
+    try {
+      const sessionId = await opts.findSessionIdForPayment(input.providerPaymentId);
+      if (sessionId) {
+        // Guarded so a session already claimed by another payment is never
+        // overwritten; the correlation only fills a genuine gap.
+        await db
+          .prepare(
+            `UPDATE orders SET provider_payment_id = ?
+              WHERE provider_session_id = ? AND provider_payment_id IS NULL`,
+          )
+          .bind(input.providerPaymentId, sessionId)
+          .run();
+        order = await db
+          .prepare(`${selectOrder} WHERE provider_payment_id = ?`)
+          .bind(input.providerPaymentId)
+          .first<OrderRow>();
+      }
+    } catch (err) {
+      // A provider outage must not lose the event. It stays queued for Retry.
+      console.error('Refund correlation lookup failed:', err);
+    }
+  }
 
   if (!order) {
-    // Legacy orders settled before the PaymentIntent was stored land here. The
-    // event stays queued for the admin reconciliation panel, which can retry it
-    // after backfilling the id rather than losing the refund entirely.
+    // Still uncorrelated: keep the event for the admin reconciliation queue
+    // rather than losing a refund that really happened.
     await markEvent(db, input.eventId, 'unmatched');
     return { status: 'unmatched' };
   }
@@ -124,7 +160,12 @@ export async function applyRefundEvent(
     cumulativeRefundedCents: input.cumulativeRefundedCents,
     provider,
     idempotencyKey: `${provider}:event:${input.eventId}`,
-    providerRefundId: input.providerChargeId ?? null,
+    // Deliberately NOT the charge id. provider_refund_id carries a unique
+    // index, and every charge.refunded for one charge repeats the same charge
+    // id — so writing it here makes the SECOND partial refund violate that
+    // index, throw out of the batch, and leave the provider retrying forever.
+    // The event id is the idempotency boundary; the charge is already recorded
+    // on the refund_sync_events row.
     providerEventId: input.eventId,
     reason: 'Synchronised from a provider refund event',
   });

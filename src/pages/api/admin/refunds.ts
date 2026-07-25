@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 import { applyRefundEvent } from '../../../features/refunds/sync';
 import { listUnmatchedRefundEvents } from '../../../features/refunds/db';
+import { getPaymentProvider, type PaymentMethod } from '../../../features/payments';
 
 export const prerender = false;
 
@@ -24,13 +25,29 @@ export const POST: APIRoute = async ({ request, redirect }) => {
     const stored = events.find((e) => e.provider_event_id === eventId);
     if (!stored) return fail('That event is no longer waiting to be reconciled.');
 
-    const outcome = await applyRefundEvent(env.DB, stored.provider, {
-      eventId: stored.provider_event_id,
-      providerPaymentId: stored.provider_payment_id ?? '',
-      providerChargeId: stored.provider_charge_id,
-      cumulativeRefundedCents: stored.cumulative_refunded_cents,
-      currency: stored.currency,
-    });
+    // Retry runs the same correlation the webhook did, including the provider
+    // session lookup — so a merchant clicking Retry after a transient provider
+    // failure gets the automatic backfill rather than having to edit the database.
+    let findSessionIdForPayment;
+    try {
+      const provider = await getPaymentProvider(stored.provider as PaymentMethod);
+      findSessionIdForPayment = provider.findSessionIdForPayment?.bind(provider);
+    } catch {
+      // Rail no longer configured — correlate against what's already stored.
+    }
+
+    const outcome = await applyRefundEvent(
+      env.DB,
+      stored.provider,
+      {
+        eventId: stored.provider_event_id,
+        providerPaymentId: stored.provider_payment_id ?? '',
+        providerChargeId: stored.provider_charge_id,
+        cumulativeRefundedCents: stored.cumulative_refunded_cents,
+        currency: stored.currency,
+      },
+      { findSessionIdForPayment },
+    );
 
     if (outcome.status === 'unmatched') {
       return fail(

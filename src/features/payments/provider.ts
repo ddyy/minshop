@@ -109,4 +109,12 @@ export interface PaymentProvider {
    * the buyer), so those adapters omit it; callers must handle its absence.
    */
   refund?(providerSessionId: string): Promise<void>;
+  /**
+   * Find the checkout session that produced a payment, so an order stored only
+   * by session id can be correlated to a refund event that names the payment.
+   *
+   * OPTIONAL — only rails whose refund events identify a payment rather than a
+   * session need it. Returns null when the provider knows of no such session.
+   */
+  findSessionIdForPayment?(providerPaymentId: string): Promise<string | null>;
 }

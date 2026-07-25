@@ -201,14 +201,17 @@ const dollars = (cents: number) => (cents / 100).toFixed(2);
           <form
             method="POST"
             action={`/api/admin/orders/${order.id}`}
-            onsubmit="return confirm('Refund this order in full through the payment provider? This sends money back to the customer.')"
+            onsubmit={`return confirm('Refund ${formatPrice(remaining, order.currency)} through the payment provider? This sends money back to the customer.')`}
           >
             <input type="hidden" name="_action" value="refund" />
+            {/* `remaining`, not the order total: the provider refunds only what
+                is left, so after a partial refund made at the provider the
+                original total would overstate what this button actually sends. */}
             <button
               type="submit"
               class="rounded-md bg-red-600 px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-red-700"
             >
-              Refund {formatPrice(order.amount_total_cents, order.currency)} through provider
+              Refund {formatPrice(remaining, order.currency)} through provider
             </button>
             <p class="mt-2 text-xs text-gray-500">
               Sends the money back. For a partial refund, use your provider’s dashboard — it

@@ -13,6 +13,7 @@ import {
   orderRefundedEmail,
 } from '../email/orderConfirmation';
 import { persistRefundEvent, applyRefundEvent } from '../refunds/sync';
+import { getPaymentProvider, type PaymentMethod } from '../payments';
 import { shouldSendCustomerOrderEmail } from '../email/orderPolicy';
 import { getConfig } from '../../config';
 import { getSetting } from '../settings/db';
@@ -85,7 +86,19 @@ export async function recordPaidWebhookOrder(
   // the provider redeliver a valid event forever.
   if (result.refundSync) {
     await persistRefundEvent(env.DB, paymentMethod, result.refundSync);
-    const outcome = await applyRefundEvent(env.DB, paymentMethod, result.refundSync);
+    // Building the client throws if the rail isn't fully configured. That must
+    // not turn a valid, already-persisted event into a 500 and an endless
+    // provider retry — without the lookup the event simply stays queued.
+    let findSessionIdForPayment;
+    try {
+      const provider = await getPaymentProvider(paymentMethod as PaymentMethod);
+      findSessionIdForPayment = provider.findSessionIdForPayment?.bind(provider);
+    } catch (err) {
+      console.error('Refund correlation provider unavailable:', err);
+    }
+    const outcome = await applyRefundEvent(env.DB, paymentMethod, result.refundSync, {
+      findSessionIdForPayment,
+    });
     if (outcome.status === 'processed') {
       await sendRefundEmail(outcome.orderId, outcome.deltaCents, origin, paymentMethod);
     }
