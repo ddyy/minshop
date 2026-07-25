@@ -8,9 +8,12 @@ import {
   listMedia,
   countMedia,
   findMediaByKeys,
+  setLogoFromMedia,
+  replaceProductImageFromMedia,
 } from '../src/features/media/db.ts';
 import { mediaUsage, mediaUsageForIds, isUnused } from '../src/features/media/usage.ts';
 import { uploadMedia } from '../src/features/media/upload.ts';
+import { savePageBody } from '../src/features/pages/save.ts';
 
 // Media lifecycle against a real D1. The properties under test are the ones a
 // mocked database cannot show: that the guarded DELETE and the guarded
@@ -89,8 +92,11 @@ try {
        id INTEGER PRIMARY KEY AUTOINCREMENT,
        title TEXT NOT NULL,
        slug TEXT NOT NULL UNIQUE,
+       body_markdown TEXT NOT NULL DEFAULT '',
        published INTEGER NOT NULL DEFAULT 0,
-       layout TEXT NOT NULL DEFAULT 'standard')`,
+       layout TEXT NOT NULL DEFAULT 'standard',
+       created_at TEXT NOT NULL DEFAULT (datetime('now')),
+       updated_at TEXT NOT NULL DEFAULT (datetime('now')))`,
     `CREATE TABLE page_media (
        page_id INTEGER NOT NULL,
        media_id INTEGER NOT NULL,
@@ -300,6 +306,132 @@ try {
     await syncPageMedia(db, 3, [gone.id]);
     const rows = await db.prepare('SELECT COUNT(*) c FROM page_media WHERE page_id = 3').first();
     assert.equal(rows.c, 0, 'a dangling page association was created');
+  });
+
+  console.log('\nconcurrency guards');
+
+  await check('logo is stored only while its media row exists', async () => {
+    const m = await newMedia('media/logo-guard.png');
+    assert.equal(await setLogoFromMedia(db, m.image_key), true, 'valid key was refused');
+    const row = await db.prepare("SELECT value FROM settings WHERE key='logo_image_key'").first();
+    assert.equal(row.value, m.image_key);
+    // A key that is not in the library must not be stored, even as an upsert.
+    assert.equal(await setLogoFromMedia(db, 'media/never-existed.png'), false);
+    const after = await db.prepare("SELECT value FROM settings WHERE key='logo_image_key'").first();
+    assert.equal(after.value, m.image_key, 'a missing key overwrote a good logo');
+    await db.prepare("DELETE FROM settings WHERE key='logo_image_key'").run();
+  });
+
+  await check('product image replacement is guarded on the media row', async () => {
+    const original = await newMedia('media/replace-from.png');
+    const replacement = await newMedia('media/replace-to.png');
+    await db.prepare("INSERT INTO products (id, name) VALUES (910, 'Replaceable')").run();
+    await attachMediaToProduct(db, 910, original.id);
+
+    assert.equal(
+      await replaceProductImageFromMedia(db, 910, original.image_key, replacement.id),
+      true,
+    );
+    const row = await db
+      .prepare('SELECT image_key FROM product_images WHERE product_id = 910')
+      .first();
+    assert.equal(row.image_key, replacement.image_key);
+
+    // Media deleted before the replacement lands: refuse, leave the gallery alone.
+    const doomed = await newMedia('media/replace-doomed.png');
+    await deleteMediaRecord(db, doomed.id);
+    assert.equal(
+      await replaceProductImageFromMedia(db, 910, replacement.image_key, doomed.id),
+      false,
+      'replacement accepted a deleted media row',
+    );
+    const unchanged = await db
+      .prepare('SELECT image_key FROM product_images WHERE product_id = 910')
+      .first();
+    assert.equal(unchanged.image_key, replacement.image_key, 'gallery was left dangling');
+  });
+
+  const seedPage = async (id, slug, published = 0) => {
+    await db
+      .prepare('INSERT INTO pages (id, title, slug, published) VALUES (?, ?, ?, ?)')
+      .bind(id, `Page ${id}`, slug, published)
+      .run();
+    return { id, title: `Page ${id}`, slug, body_markdown: '', published, layout: 'standard' };
+  };
+  const fieldsFor = (page, body, published) => ({
+    title: page.title,
+    slug: page.slug,
+    body_markdown: body,
+    published,
+    layout: 'standard',
+  });
+
+  await check('publishing a draft with resolvable media succeeds', async () => {
+    const m = await newMedia('media/atomic-ok.png');
+    const page = await seedPage(21, 'atomic-ok');
+    const body = `![x](/images/${m.image_key})`;
+    const result = await savePageBody(db, page, fieldsFor(page, body, 1));
+    assert.equal(result.published, 1, 'a fully claimed page failed to publish');
+    assert.equal(result.publishRefused, false);
+    const claims = await db.prepare('SELECT COUNT(*) c FROM page_media WHERE page_id = 21').first();
+    assert.equal(claims.c, 1, 'association was not recorded');
+  });
+
+  await check('page save refuses to publish when a claim loses to a delete', async () => {
+    const m = await newMedia('media/atomic-race.png');
+    const page = await seedPage(20, 'atomic-race');
+    const body = `![x](/images/${m.image_key})`;
+
+    // The real race: the media row is resolved, then deleted before the claims
+    // land. Injected by deleting inside the db wrapper at the moment the batch
+    // runs, so this exercises savePageBody itself rather than a copy of its SQL.
+    const racingDb = {
+      prepare: (sql) => db.prepare(sql),
+      batch: async (statements) => {
+        await db.prepare('DELETE FROM media WHERE id = ?').bind(m.id).run();
+        return db.batch(statements);
+      },
+    };
+
+    const result = await savePageBody(racingDb, page, fieldsFor(page, body, 1));
+    assert.equal(result.published, 0, 'page went live despite a failed media claim');
+    assert.equal(result.publishRefused, true, 'the refusal was not reported');
+    const saved = await db.prepare('SELECT published, body_markdown FROM pages WHERE id = 20').first();
+    assert.equal(saved.published, 0, 'stored state disagrees with the result');
+    assert.equal(saved.body_markdown, body, 'the author lost their text');
+  });
+
+  await check('an already-published page stays live when a claim fails', async () => {
+    const m = await newMedia('media/atomic-live.png');
+    const page = await seedPage(22, 'atomic-live', 1);
+    const body = `![x](/images/${m.image_key})`;
+    const racingDb = {
+      prepare: (sql) => db.prepare(sql),
+      batch: async (statements) => {
+        await db.prepare('DELETE FROM media WHERE id = ?').bind(m.id).run();
+        return db.batch(statements);
+      },
+    };
+    const result = await savePageBody(racingDb, page, fieldsFor(page, body, 1));
+    // Never silently unpublish a live page over one missing image.
+    assert.equal(result.published, 1, 'a live page was demoted by a lost claim');
+  });
+
+  await check('an explicit unpublish is still honoured', async () => {
+    const page = await seedPage(23, 'atomic-unpublish', 1);
+    const result = await savePageBody(db, page, fieldsFor(page, 'no images', 0));
+    assert.equal(result.published, 0, 'unpublish was ignored');
+  });
+
+  await check('media lookup chunks past D1’s 100-parameter limit', async () => {
+    // D1 rejects >100 bound parameters per statement; a page body can reference
+    // any number of images, so the lookup must chunk rather than assume.
+    const keys = [];
+    for (let i = 0; i < 130; i++) {
+      keys.push((await newMedia(`media/bulk-key-${i}.png`)).image_key);
+    }
+    const found = await findMediaByKeys(db, keys);
+    assert.equal(found.length, 130, `expected 130 rows, got ${found.length}`);
   });
 
   console.log('\nbulk usage');

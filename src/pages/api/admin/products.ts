@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
-import { createProduct, getProduct } from '../../../features/products/db';
+import { createProduct, getProduct, syncPrimaryImage } from '../../../features/products/db';
 import { setProductCategories } from '../../../features/categories/db';
 import { indexProduct } from '../../../features/search';
 import { parseProductForm } from '../../../features/products/form';
@@ -22,7 +22,6 @@ export const POST: APIRoute = async ({ request, redirect }) => {
   if ('error' in parsed) return redirect(fail(parsed.error), 303);
 
   let mediaId: number | null = null;
-  let image_key: string | null = null;
   const file = form.get('image');
   if (file instanceof File && file.size > 0) {
     const imgErr = validateImage(file);
@@ -30,20 +29,21 @@ export const POST: APIRoute = async ({ request, redirect }) => {
     // Every upload becomes a library item, whichever screen it came from.
     const media = await uploadMedia(env.DB, getStorage(), await optimizeUpload(file), file.name);
     mediaId = media.id;
-    image_key = media.image_key;
   }
 
   // Slug from the optional slug field, else the name; made unique.
   const slugBase = String(form.get('slug') ?? '').trim() || parsed.data.name;
   const slug = await uniqueSlug(env.DB, slugBase);
 
-  const productId = await createProduct(env.DB, { ...parsed.data, image_key, slug });
-  // Seed the gallery with the primary image so the product page can show it.
-  // Guarded on the media row: it is unreferenced — and so deletable from the
-  // library — right up until this association lands.
+  // image_key starts null and is derived from the gallery by syncPrimaryImage.
+  // Writing the uploaded key here directly would be an UNGUARDED reference: the
+  // media row is unreferenced until the attach lands, so a concurrent library
+  // delete could leave the product pointing at an object that no longer exists.
+  const productId = await createProduct(env.DB, { ...parsed.data, image_key: null, slug });
   if (mediaId !== null) {
     const attached = await attachMediaToProduct(env.DB, productId, mediaId);
     if (!attached.ok) return redirect(fail(attached.error), 303);
+    await syncPrimaryImage(env.DB, productId); // promotes it to products.image_key
   }
 
   const categoryIds = form

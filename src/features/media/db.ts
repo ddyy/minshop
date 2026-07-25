@@ -38,15 +38,27 @@ export async function countMedia(db: D1Database): Promise<number> {
   return row?.c ?? 0;
 }
 
+/**
+ * D1 rejects a statement with more than 100 bound parameters ("too many SQL
+ * variables"), so anything driven by user content — a page body can reference
+ * any number of images — has to be chunked rather than trusted to be small.
+ */
+const MAX_BOUND_PARAMS = 90; // headroom under D1's hard limit of 100
+
 /** Resolve media rows for a set of keys (used when parsing Markdown bodies). */
 export async function findMediaByKeys(db: D1Database, keys: string[]): Promise<Media[]> {
   if (keys.length === 0) return [];
-  const placeholders = keys.map(() => '?').join(', ');
-  const { results } = await db
-    .prepare(`SELECT * FROM media WHERE image_key IN (${placeholders})`)
-    .bind(...keys)
-    .all<Media>();
-  return results ?? [];
+  const found: Media[] = [];
+  for (let i = 0; i < keys.length; i += MAX_BOUND_PARAMS) {
+    const chunk = keys.slice(i, i + MAX_BOUND_PARAMS);
+    const placeholders = chunk.map(() => '?').join(', ');
+    const { results } = await db
+      .prepare(`SELECT * FROM media WHERE image_key IN (${placeholders})`)
+      .bind(...chunk)
+      .all<Media>();
+    if (results) found.push(...results);
+  }
+  return found;
 }
 
 export async function createMediaRecord(
@@ -156,13 +168,19 @@ export async function attachMediaToProduct(
     : { ok: false, error: 'That image is no longer in the media library.' };
 }
 
-/** Replace a page's media associations with exactly `mediaIds`. */
-export async function syncPageMedia(
+/**
+ * Statements that replace a page's media associations. Returned rather than
+ * executed so the caller can put them in the SAME batch as the page update:
+ * D1 batches are atomic, so the claims and the publish decision either both
+ * land or neither does. Executing them separately leaves a window where media
+ * is deleted after the claim check but before the page is published.
+ */
+export function pageMediaClaimStatements(
   db: D1Database,
   pageId: number,
   mediaIds: number[],
-): Promise<void> {
-  const statements = [
+): D1PreparedStatement[] {
+  return [
     db.prepare('DELETE FROM page_media WHERE page_id = ?').bind(pageId),
     // INSERT ... SELECT FROM media so a concurrently deleted row is skipped
     // rather than written as a dangling association.
@@ -175,5 +193,55 @@ export async function syncPageMedia(
         .bind(pageId, mediaId),
     ),
   ];
-  await db.batch(statements);
+}
+
+/** Replace a page's media associations with exactly `mediaIds`. */
+export async function syncPageMedia(
+  db: D1Database,
+  pageId: number,
+  mediaIds: number[],
+): Promise<void> {
+  await db.batch(pageMediaClaimStatements(db, pageId, mediaIds));
+}
+
+/**
+ * Point a product's gallery row at a different media item, guarded on that
+ * media still existing. Returns false when the media vanished (or the gallery
+ * row is gone), so the caller can refuse rather than write a dangling key.
+ */
+export async function replaceProductImageFromMedia(
+  db: D1Database,
+  productId: number,
+  oldKey: string,
+  mediaId: number,
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE product_images
+          SET image_key = (SELECT image_key FROM media WHERE id = ?3)
+        WHERE product_id = ?1
+          AND image_key = ?2
+          AND EXISTS (SELECT 1 FROM media WHERE id = ?3)`,
+    )
+    .bind(productId, oldKey, mediaId)
+    .run();
+  return (result.meta?.changes ?? 0) > 0;
+}
+
+/**
+ * Store the header logo, sourced from `media` in the same statement that writes
+ * it. A check-then-write leaves a window where the file is deleted between the
+ * two, persisting a key that renders a broken logo site-wide. Returns false if
+ * the media row is gone.
+ */
+export async function setLogoFromMedia(db: D1Database, imageKey: string): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `INSERT INTO settings (key, value)
+       SELECT 'logo_image_key', m.image_key FROM media m WHERE m.image_key = ?1
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+    )
+    .bind(imageKey)
+    .run();
+  return (result.meta?.changes ?? 0) > 0;
 }

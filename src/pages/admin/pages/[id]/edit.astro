@@ -315,9 +315,15 @@ const tools = [
     // rather than left empty: an unlabelled image is an accessibility failure,
     // and the filename is rarely a good description.
     document.addEventListener('media:selected', (event) => {
-      const detail = (event as CustomEvent).detail as { url: string; originalName: string };
-      const alt = window.prompt('Describe this image for screen readers:', '') ?? '';
-      const md = `![${alt}](${detail.url})`;
+      const detail = (event as CustomEvent).detail as { imageKey: string; url: string };
+      const raw = window.prompt('Describe this image for screen readers:', '') ?? '';
+      // ] and \ would terminate or escape the alt span and corrupt the link.
+      const alt = raw.replace(/([\\\]])/g, '\\$1');
+      // Root-relative, never detail.url: with IMAGE_BASE_URL set that is an
+      // absolute CDN address, which would be baked into the stored body. The
+      // renderer applies the origin at render time and extractMediaKeys matches
+      // this form, so changing IMAGE_BASE_URL never requires rewriting content.
+      const md = `![${alt}](/images/${detail.imageKey})`;
       replaceSelection(md, 2, 2 + alt.length);
     });
 

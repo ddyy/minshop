@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 import {
   getProduct,
-  replaceProductImageKey,
+  syncPrimaryImage,
   updateProduct,
   deleteProduct,
 } from '../../../../features/products/db';
@@ -13,6 +13,10 @@ import { applyVariantForm } from '../../../../features/products/variants';
 import { validateImage } from '../../../../features/products/image';
 import { optimizeUpload } from '../../../../features/products/imageOptimize';
 import { uploadMedia } from '../../../../features/media/upload';
+import {
+  attachMediaToProduct,
+  replaceProductImageFromMedia,
+} from '../../../../features/media/db';
 import { getStorage } from '../../../../features/storage';
 import { indexProduct, unindexProduct } from '../../../../features/search';
 
@@ -49,15 +53,18 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
   const parsed = parseProductForm(form);
   if ('error' in parsed) return fail(parsed.error);
 
-  let image_key = existing?.image_key ?? null;
-  let replacedImageKey: string | null = null;
+  // The uploaded key is NOT written to products.image_key here: that reference
+  // would be unguarded, and the media row is deletable until something claims
+  // it. The gallery claim below is guarded, and syncPrimaryImage then derives
+  // products.image_key from it.
+  const image_key = existing?.image_key ?? null;
+  let uploadedMediaId: number | null = null;
   const file = form.get('image');
   if (file instanceof File && file.size > 0) {
     const imgErr = validateImage(file);
     if (imgErr) return fail(imgErr);
     const media = await uploadMedia(env.DB, storage, await optimizeUpload(file), file.name);
-    image_key = media.image_key;
-    replacedImageKey = existing?.image_key ?? null;
+    uploadedMediaId = media.id;
   }
 
   // Keep the slug stable on rename: use the form's slug field (pre-filled with
@@ -66,11 +73,20 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
   const slug = await uniqueSlug(env.DB, slugBase, id);
 
   await updateProduct(env.DB, id, { ...parsed.data, image_key, slug });
-  if (replacedImageKey && image_key) {
-    // Repoint the gallery row at the new key. The replaced object is NOT
-    // deleted: it stays in the media library, where it may be reused or removed
-    // deliberately once nothing references it.
-    await replaceProductImageKey(env.DB, id, replacedImageKey, image_key);
+  if (uploadedMediaId !== null) {
+    // Repoint the gallery row at the new media, guarded on that row still
+    // existing. The replaced object is NOT deleted: it stays in the library,
+    // where it may be reused or removed deliberately once nothing uses it.
+    const claimed = image_key
+      ? await replaceProductImageFromMedia(env.DB, id, image_key, uploadedMediaId)
+      : false;
+    if (!claimed) {
+      // Either the product had no gallery row to repoint, or it did and the
+      // media vanished. Attaching distinguishes the two and reports properly.
+      const attached = await attachMediaToProduct(env.DB, id, uploadedMediaId);
+      if (!attached.ok) return fail(attached.error);
+    }
+    await syncPrimaryImage(env.DB, id); // products.image_key follows the gallery
   }
 
   // Replace category links (empty set clears them).

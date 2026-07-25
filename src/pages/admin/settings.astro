@@ -2,7 +2,7 @@
 import { env } from 'cloudflare:workers';
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import MediaPicker from '../../features/media/MediaPicker.astro';
-import { getMediaByKey } from '../../features/media/db';
+import { setLogoFromMedia } from '../../features/media/db';
 import { mediaUrl } from '../../features/media/url';
 import { getConfig, formatPrice } from '../../config';
 import {
@@ -126,12 +126,10 @@ if (Astro.request.method === 'POST') {
     if (!key) {
       // Empty → setSetting deletes the row → the header falls back to text.
       await setSetting(env.DB, 'logo_image_key', '');
-    } else if (await getMediaByKey(env.DB, key)) {
-      // Store the immutable key, not the media id, so Layout.astro renders the
-      // logo from locals without a second D1 lookup on every page.
-      await setSetting(env.DB, 'logo_image_key', key);
-    } else {
-      // The picker could have been left open while the file was deleted.
+    } else if (!(await setLogoFromMedia(env.DB, key))) {
+      // One guarded statement, sourced from `media`: checking first and writing
+      // second leaves a window where the file is deleted between the two, which
+      // would persist a key that renders a broken logo on every page.
       validationError = 'That image is no longer in the media library.';
     }
   } else if (action === 'save_announcement') {
