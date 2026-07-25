@@ -291,10 +291,17 @@ async function route(context: APIContext, next: MiddlewareNext): Promise<Respons
   // Store anonymous storefront/catalog responses with a short shared TTL so
   // repeat hits within the window skip the origin. Cache API does not implement
   // stale-while-revalidate, so the directive is intentionally a plain 60s TTL.
+  // A route that set its OWN directive is opting out — except when the directive
+  // is the one this block writes. That happens when `/` rewrites to a page or a
+  // product: the nested middleware pass caches the target and stamps the header,
+  // and the response then bubbles back here. Refusing it left `/` with no entry
+  // of its own, so every homepage request re-ran the settings/footer batch and
+  // the home lookup before the nested pass could serve its cached copy.
+  const directive = response.headers.get('cache-control');
   if (
     cache &&
     response.status === 200 &&
-    !response.headers.has('cache-control') &&
+    (directive === null || directive === PUBLIC_CACHE_CONTROL) &&
     !response.headers.has('set-cookie')
   ) {
     const headers = new Headers(response.headers);

@@ -5,7 +5,7 @@ import MediaPicker from '../../features/media/MediaPicker.astro';
 import { setLogoFromMedia } from '../../features/media/db';
 import { homeTargetIsValid } from '../../features/settings/home';
 import { listPublishedPageOptions } from '../../features/pages/db';
-import { listProducts } from '../../features/products/db';
+import { listProducts, getProduct } from '../../features/products/db';
 import { mediaUrl } from '../../features/media/url';
 import { getConfig, formatPrice } from '../../config';
 import {
@@ -309,6 +309,15 @@ const HOME_PRODUCT_CHOICES = 100;
 const homePages = await listPublishedPageOptions(env.DB);
 const homeProducts = await listProducts(env.DB, HOME_PRODUCT_CHOICES, 0, 'name COLLATE NOCASE');
 const homeChoice = settings.homePage ?? '';
+// The list is bounded, so a store with more products than that could render a
+// selector with NO option matching the current choice. The browser would then
+// show the first option — "Product list (default)" — and saving the form would
+// silently clear a perfectly valid setting. Pull the chosen one in explicitly.
+const chosenProductId = homeChoice.startsWith('product:') ? Number(homeChoice.slice(8)) : null;
+if (chosenProductId && !homeProducts.some((p) => p.id === chosenProductId)) {
+  const chosen = await getProduct(env.DB, chosenProductId);
+  if (chosen) homeProducts.unshift(chosen);
+}
 const timeZone = settings.timeZone ?? cfg.timeZone;
 const announcement = settings.announcement ?? '';
 const announcementHref = settings.announcementHref ?? '';
