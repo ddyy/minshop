@@ -17,6 +17,27 @@ const warning = Astro.url.searchParams.get('warning');
 const saved = Astro.url.searchParams.has('saved');
 const currentLayout = normalizePageLayout(page.layout);
 
+// Shown only while the body is empty. Doubles as the Markdown cheat sheet for a
+// merchant who has never written any — it covers exactly what the toolbar above
+// can insert, so the buttons and the hint teach the same syntax.
+const PLACEHOLDER = `## A section heading
+
+Write your page in Markdown. Blank lines separate paragraphs.
+
+**bold**  _italic_  \`code\`
+
+- a bulleted list
+- another item
+
+1. a numbered list
+2. another item
+
+> a quotation
+
+[a link](https://example.com)
+
+![describe the image](/images/media/photo.webp)`;
+
 // Toolbar buttons are declarative: each carries the syntax to wrap or insert,
 // so the script stays one generic selection handler rather than nine.
 const tools = [
@@ -95,7 +116,9 @@ const tools = [
       </label>
     </div>
 
-    <div class="mt-6 rounded-md border border-line">
+    {/* overflow-hidden so pane edges and inner scrollbars are clipped by the
+        radius instead of painting over the border corners. */}
+    <div class="mt-6 overflow-hidden rounded-md border border-line">
       {/* Markdown / Split / Preview. Rendered hidden and revealed by the script,
           because without JavaScript there is nothing to switch between — the
           textarea is the whole editor and the preview never populates. */}
@@ -136,10 +159,12 @@ const tools = [
           measures; below lg it stacks, so the mode still means something on a
           phone instead of disappearing from the control. */}
       <div data-panes class="lg:divide-x lg:divide-line">
-        <div data-pane="write" class="min-w-0">
+        {/* flex column so the textarea can fill the leftover height rather than
+            claiming 100% of a parent that also contains the toolbar. */}
+        <div data-pane="write" class="flex min-w-0 flex-col">
           <div
             data-toolbar
-            class="flex flex-wrap items-center gap-1 border-b border-line px-2 py-2"
+            class="flex min-h-11 flex-wrap items-center gap-1 border-b border-line px-2 py-1"
           >
             {
               tools.map((tool) => (
@@ -154,15 +179,31 @@ const tools = [
                 </button>
               ))
             }
-            <span class="ml-1"><MediaPicker id="page-body" label="Insert image" /></span>
+            {/* Compact trigger so the toolbar stays one row. At the default
+                size it is 34px against the 24px tool buttons, which wrapped the
+                toolbar onto a second line and pushed the editor 46px below the
+                preview in split view. */}
+            <MediaPicker
+              id="page-body"
+              label="Image"
+              buttonClass="rounded px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 hover:text-brand"
+            />
           </div>
 
+          {/* Never h-full: that resolves to 100% of the pane, and the pane is
+              toolbar + textarea, so the textarea overshot by the toolbar's
+              height and hung past the container's rounded border.
+              The script sets min-height to the content height, so the field
+              grows with the text and never scrolls on its own — the page
+              scrolls instead. flex-1 still lets it stretch to fill the pane
+              when the preview is the taller column. */}
           <textarea
             name="body_markdown"
             data-editor
             rows="24"
             spellcheck="true"
-            class="block h-full w-full resize-y border-0 px-4 py-3 font-mono text-sm leading-relaxed focus:outline-none"
+            placeholder={PLACEHOLDER}
+            class="block w-full flex-1 resize-none overflow-hidden border-0 px-4 py-3 font-mono text-sm leading-relaxed focus:outline-none"
             >{page.body_markdown}</textarea
           >
         </div>
@@ -172,7 +213,7 @@ const tools = [
             hidden so a no-JS editor shows the textarea alone. */}
         <div data-pane="preview" hidden class="min-w-0 border-t border-line lg:border-t-0">
           <div
-            class="flex items-center justify-between border-b border-line px-4 py-2 text-xs uppercase tracking-widest text-gray-400"
+            class="flex h-11 items-center justify-between border-b border-line px-4 text-xs uppercase tracking-widest text-gray-400"
           >
             <span>Preview</span>
             {/* Reserved space, so the row doesn't reflow each time it renders. */}
@@ -339,14 +380,44 @@ const tools = [
       }
     };
 
+    /**
+     * Grow the field to its content so it never scrolls on its own — one page
+     * scrollbar instead of a nested one. min-height rather than height, so
+     * flex-1 can still stretch it to fill the pane when the preview is taller.
+     * Runs unthrottled: it is a layout read/write on one element, not a fetch.
+     */
+    /**
+     * Floor of `rows` lines. Without it an empty page collapses to a single
+     * line, which would clip the multi-line Markdown placeholder to its first
+     * row — exactly when a merchant most needs to read it.
+     */
+    const minRowsHeight = () => {
+      const cs = getComputedStyle(editor);
+      const line = parseFloat(cs.lineHeight) || 20;
+      const rows = Number(editor.rows) || 10;
+      return rows * line + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+    };
+
+    const autosize = () => {
+      // A hidden textarea reports scrollHeight 0; skip so it isn't collapsed.
+      if (!editor.offsetParent) return;
+      editor.style.minHeight = '0px';
+      editor.style.minHeight = `${Math.max(editor.scrollHeight, minRowsHeight())}px`;
+    };
+
     /** Trailing debounce: render once typing pauses, not on every keystroke. */
     const scheduleRender = () => {
       window.clearTimeout(timer);
       timer = window.setTimeout(render, 350);
     };
 
-    editor.addEventListener('input', scheduleRender);
+    editor.addEventListener('input', () => {
+      autosize();
+      scheduleRender();
+    });
     layoutSelect?.addEventListener('change', scheduleRender);
+    // Wrapping changes with the pane width, so the height has to be recomputed.
+    window.addEventListener('resize', autosize);
 
     // Markdown / Split / Preview. The control only exists with JavaScript, so
     // it is revealed here rather than rendered visible and then broken.
@@ -371,6 +442,9 @@ const tools = [
       }
       // The pane may have been hidden while edits happened, so catch it up.
       if (mode !== 'write') render();
+      // The field measures as 0 while hidden, so size it once it is on screen
+      // and after the column width has changed.
+      autosize();
     };
 
     modeButtons.forEach((button) =>

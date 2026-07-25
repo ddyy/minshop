@@ -21,9 +21,16 @@ interface Props {
   label?: string;
   /** Allow uploading a new file from inside the dialog. */
   allowUpload?: boolean;
+  /** Trigger styling. Override to sit inside a dense toolbar. */
+  buttonClass?: string;
 }
 
-const { id, label = 'Choose from Media', allowUpload = true } = Astro.props;
+const {
+  id,
+  label = 'Choose from Media',
+  allowUpload = true,
+  buttonClass = 'rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand hover:text-brand',
+} = Astro.props;
 ---
 
 <div class="inline-flex" data-media-picker={id}>
@@ -31,7 +38,7 @@ const { id, label = 'Choose from Media', allowUpload = true } = Astro.props;
     type="button"
     data-picker-open
     hidden
-    class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand hover:text-brand"
+    class={buttonClass}
   >
     {label}
   </button>
@@ -39,7 +46,7 @@ const { id, label = 'Choose from Media', allowUpload = true } = Astro.props;
   <a
     data-picker-fallback
     href="/admin/media"
-    class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand hover:text-brand"
+    class={buttonClass}
   >
     {label}
   </a>
