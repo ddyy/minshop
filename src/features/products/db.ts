@@ -224,6 +224,21 @@ export async function deleteProductImageRow(db: D1Database, imageId: number): Pr
   await db.prepare('DELETE FROM product_images WHERE id = ?').bind(imageId).run();
 }
 
+/** Keep gallery references valid when the legacy single-image update path replaces a key. */
+export async function replaceProductImageKey(
+  db: D1Database,
+  productId: number,
+  oldKey: string,
+  newKey: string,
+): Promise<void> {
+  await db
+    .prepare(
+      'UPDATE product_images SET image_key = ? WHERE product_id = ? AND image_key = ?',
+    )
+    .bind(newKey, productId, oldKey)
+    .run();
+}
+
 /** Set an image's alt text (empty string → null). */
 export async function setProductImageAlt(
   db: D1Database,
@@ -347,6 +362,7 @@ export async function deleteProduct(db: D1Database, id: number): Promise<void> {
   // Clear category links first (FKs aren't enforced on D1).
   await db.batch([
     db.prepare('DELETE FROM product_categories WHERE product_id = ?').bind(id),
+    db.prepare('DELETE FROM product_images WHERE product_id = ?').bind(id),
     db.prepare('DELETE FROM products WHERE id = ?').bind(id),
   ]);
 }

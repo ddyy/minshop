@@ -2,6 +2,8 @@ import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 import {
   getProduct,
+  listProductImages,
+  replaceProductImageKey,
   updateProduct,
   deleteProduct,
 } from '../../../../features/products/db';
@@ -29,8 +31,26 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
   const existing = await getProduct(env.DB, id);
 
   if (String(form.get('_action')) === 'delete') {
+    const gallery = await listProductImages(env.DB, id);
+    const imageKeys = new Set([
+      ...gallery.map((image) => image.image_key),
+      ...(existing?.image_key ? [existing.image_key] : []),
+    ]);
     await deleteProduct(env.DB, id);
-    if (existing?.image_key) await storage.delete(existing.image_key);
+    for (const key of imageKeys) {
+      try {
+        await storage.delete(key);
+      } catch (err) {
+        console.error(
+          JSON.stringify({
+            event: 'product_image_delete_failed',
+            productId: id,
+            key,
+            message: err instanceof Error ? err.message : String(err),
+          }),
+        );
+      }
+    }
     try {
       await unindexProduct(id); // no-op unless vector search is on
     } catch (err) {
@@ -46,13 +66,13 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
   if ('error' in parsed) return fail(parsed.error);
 
   let image_key = existing?.image_key ?? null;
+  let replacedImageKey: string | null = null;
   const file = form.get('image');
   if (file instanceof File && file.size > 0) {
     const imgErr = validateImage(file);
     if (imgErr) return fail(imgErr);
     image_key = await uploadProductImage(storage, await optimizeUpload(file));
-    // Drop the previous object so it doesn't orphan in the bucket.
-    if (existing?.image_key) await storage.delete(existing.image_key);
+    replacedImageKey = existing?.image_key ?? null;
   }
 
   // Keep the slug stable on rename: use the form's slug field (pre-filled with
@@ -61,6 +81,11 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
   const slug = await uniqueSlug(env.DB, slugBase, id);
 
   await updateProduct(env.DB, id, { ...parsed.data, image_key, slug });
+  if (replacedImageKey && image_key) {
+    await replaceProductImageKey(env.DB, id, replacedImageKey, image_key);
+    // Switch every database reference before removing the old immutable object.
+    await storage.delete(replacedImageKey);
+  }
 
   // Replace category links (empty set clears them).
   const categoryIds = form

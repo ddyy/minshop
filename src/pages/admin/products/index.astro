@@ -74,7 +74,12 @@ const arrow = (col: string) => (sort === col ? (dir === 'asc' ? ' ↑' : ' ↓')
                 href={`/admin/products/${p.id}/edit`}
                 class="flex items-center gap-3 hover:text-brand"
               >
-                <ProductImage imageKey={p.image_key} alt="" class="h-10 w-10 rounded object-cover" />
+                <ProductImage
+                  imageKey={p.image_key}
+                  alt=""
+                  usage="thumbnail"
+                  class="h-10 w-10 rounded object-cover"
+                />
                 <span class="font-medium">{p.name}</span>
               </a>
             </td>

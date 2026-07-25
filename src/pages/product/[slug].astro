@@ -7,7 +7,7 @@ import { categoriesForProduct, relatedProducts } from '../../features/categories
 import { getRelatedStored, storeRelatedIds } from '../../features/search';
 import { enabledMethods } from '../../features/payments';
 import ProductImage from '../../features/products/ProductImage.astro';
-import { productImageUrl } from '../../features/products/image';
+import { productImageSources, productImageUrl } from '../../features/products/image';
 import { stockState } from '../../features/products/stock';
 import { formatPrice, toMajorUnits, currencyDecimals, getConfig } from '../../config';
 
@@ -90,6 +90,22 @@ const error = Astro.url.searchParams.get('error');
 // Serve every product image (main, gallery, thumbnails) from the configured
 // base (R2 custom domain) when set, else the /images Worker route.
 const imgBase = getConfig().images.baseUrl;
+const imageDelivery = Astro.locals.settings?.imageDelivery;
+const galleryImages = gallery.map((image) => ({
+  ...image,
+  hero: productImageSources(image.image_key, {
+    baseUrl: imgBase,
+    delivery: imageDelivery,
+    usage: 'detail',
+    sizes: '(min-width: 768px) 528px, calc(100vw - 48px)',
+  }),
+  thumbnail: productImageSources(image.image_key, {
+    baseUrl: imgBase,
+    delivery: imageDelivery,
+    usage: 'thumbnail',
+    sizes: '64px',
+  }),
+}));
 // SEO: absolute image URL for OpenGraph + JSON-LD.
 const imagePath = productImageUrl(product.image_key, imgBase);
 const imageAbs = new URL(imagePath, Astro.url.origin).href;
@@ -140,10 +156,12 @@ const jsonLdStr = JSON.stringify(jsonLd).replace(/</g, '\\u003c');
             data-hero-track
             class="no-scrollbar relative flex snap-x snap-mandatory overflow-x-auto scroll-smooth rounded-lg bg-white"
           >
-            {gallery.map((img, index) => (
+            {galleryImages.map((img, index) => (
               <img
                 id={`pi-${img.id}`}
-                src={productImageUrl(img.image_key, imgBase)}
+                src={img.hero.src}
+                srcset={img.hero.srcset}
+                sizes={img.hero.sizes}
                 alt={img.alt || product.name}
                 width="800"
                 height="800"
@@ -160,13 +178,15 @@ const jsonLdStr = JSON.stringify(jsonLd).replace(/</g, '\\u003c');
             )}
           </div>
           <div class="no-scrollbar mt-3 flex gap-2 overflow-x-auto">
-            {gallery.map((img) => (
+            {galleryImages.map((img) => (
               <a
                 href={`#pi-${img.id}`}
                 class="shrink-0 overflow-hidden rounded border border-line transition hover:border-brand"
               >
                 <img
-                  src={productImageUrl(img.image_key, imgBase)}
+                  src={img.thumbnail.src}
+                  srcset={img.thumbnail.srcset}
+                  sizes={img.thumbnail.sizes}
                   alt=""
                   width="64"
                   height="64"

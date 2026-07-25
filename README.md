@@ -236,7 +236,8 @@ npm run db:migrate:remote     # production
 Most settings are **runtime** — changed in **`/admin/settings`**, stored in a D1 `settings` table, applied instantly, no redeploy. Secret keys are stored in the same table **AES-256-GCM-encrypted** under the `SECRETS_KEK` Worker secret (write-only from the UI, never echoed back), which is what makes an instance fully configurable — and clonable — from the dashboard:
 
 - **General** — store name.
-- **Features** — cart/checkout, "Buy now", discounts, tax, customer accounts, shipping, and image optimization.
+- **Features** — cart/checkout, "Buy now", discounts, tax, customer accounts, shipping, and upload optimization.
+- **Images** — original delivery or responsive Cloudflare on-demand transformations.
 - **Payments** — one card per rail (Stripe / Lightning / OpenNode / Demo): its on/off toggle, config (node URLs, default rail), and keys.
 - **Email** — on/off, provider (Resend / Cloudflare), from-address, key, send-test button.
 - **Bot protection** — Turnstile toggle + sitekey + secret.
@@ -253,7 +254,7 @@ A few **data-coupled** settings stay build-time (change + `npm run deploy`):
 
 Change a value, then `npm run deploy`. Currency uses `Intl.NumberFormat`, so `usd → $`, `eur → €`, `gbp → £`, `jpy → ¥` (decimals handled per-currency).
 
-### Optional Cloudflare Images optimization
+### Optional upload optimization
 
 The default deployment stores original uploads in R2 and serves them through the Worker. Astro uses its `passthrough` image service, so deploying minshop does **not** automatically provision an `IMAGES` binding.
 
@@ -263,7 +264,7 @@ To optimize new uploads:
 2. Run `npm run deploy`.
 3. Enable **Optimize images on upload** in Admin → Settings. Optionally override `images.maxWidth` in `src/store.config.ts`.
 
-[Cloudflare Images transformations](https://developers.cloudflare.com/images/pricing/) are available on Free and Paid plans. The Free plan currently includes 5,000 unique transformations per month; when the binding is missing or a transformation fails, minshop stores the original upload instead. Existing R2 objects are not retroactively transformed.
+[Cloudflare Images transformations](https://developers.cloudflare.com/images/pricing/) are available on Free and Paid plans. The Free plan currently includes 5,000 unique transformations per month; when the binding is missing or a transformation fails, minshop stores the original upload instead. Existing R2 objects are not retroactively transformed by this upload-time option.
 
 ### Serving images off the Worker (R2 custom domain)
 
@@ -278,6 +279,34 @@ By default product images are served through the Worker's `/images/<key>` route.
 Every product image URL — storefront, product galleries, `/api/products`, order emails, and Stripe line items — then points at that domain. Unset, images keep serving through the Worker route (nothing else changes).
 
 **Caching:** uploads store a 1-year `immutable` `Cache-Control` (keys are unique per file), so the R2 domain serves them with that TTL. Objects uploaded before this change — or via `wrangler r2 object put` without `--cache-control` — keep R2's shorter default TTL until re-uploaded (e.g. `--cache-control 'public, max-age=31536000, immutable'`) or covered by a [Cache Rule](https://developers.cloudflare.com/cache/how-to/cache-rules/).
+
+### Responsive on-demand images
+
+With an R2 custom domain configured, the storefront can serve a responsive
+128/384/768/1024 width ladder through Cloudflare Image Transformations. The browser
+gets AVIF, WebP, or a standard format according to its `Accept` header; email
+receipts use one fixed 96px JPEG thumbnail URL. Originals remain in R2 and are the
+fallback if a transformation fails.
+
+1. In the Cloudflare dashboard, open **Images → Transformations**, select the
+   storefront zone, and enable transformations.
+2. Under **Sources**, allow the R2 image hostname configured by `IMAGE_BASE_URL`
+   (for example, `images.example.com`). Keep sources restricted rather than allowing
+   arbitrary origins.
+3. In **Admin → Settings → Images**, select **Cloudflare on-demand**.
+
+The URL interface does not require an `IMAGES` Worker binding. That binding is only
+needed for the separate **Optimize images on upload** feature. Existing product
+images work immediately without a backfill, including legacy slug-named objects;
+the generated transformation source includes a revision token to avoid reusing an
+older cached version. New uploads and replacements always receive unique object
+keys.
+
+Each source-and-parameter combination is a unique transformation. The application
+emits only its fixed width ladder and uses `onerror=redirect`, but `/cdn-cgi/image/`
+parameters remain public. Review [Cloudflare Images pricing](https://developers.cloudflare.com/images/pricing/)
+before enabling paid usage; a preset-only Worker route or WAF rules are reasonable
+hardening for a high-traffic paid deployment.
 
 ### Shipping and order email
 

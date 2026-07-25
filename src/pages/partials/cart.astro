@@ -3,6 +3,7 @@ import { env } from 'cloudflare:workers';
 import { formatPrice } from '../../config';
 import { readCart, resolveCart, cartCount } from '../../features/cart/cart';
 import ProductImage from '../../features/products/ProductImage.astro';
+import { getSetting } from '../../features/settings/db';
 
 // Astro partial: renders ONLY this fragment (no surrounding document), so the
 // cart drawer can fetch and inject it. Server-rendered, so pricing/stock still
@@ -11,7 +12,11 @@ export const partial = true;
 export const prerender = false;
 
 const cart = readCart(Astro.cookies);
-const { lines, subtotalCents } = await resolveCart(env.DB, cart);
+const [{ lines, subtotalCents }, imageDeliverySetting] = await Promise.all([
+  resolveCart(env.DB, cart),
+  getSetting(env.DB, 'image_delivery'),
+]);
+const imageDelivery = imageDeliverySetting === 'cloudflare' ? 'cloudflare' : 'original';
 const count = cartCount(cart);
 ---
 
@@ -31,6 +36,8 @@ const count = cartCount(cart);
                   imageKey={l.product.image_key}
                   alt=""
                   sizes="64px"
+                  usage="thumbnail"
+                  delivery={imageDelivery}
                   class="h-16 w-16 rounded object-cover"
                 />
               </a>

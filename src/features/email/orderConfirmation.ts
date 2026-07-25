@@ -1,7 +1,10 @@
 import { formatPrice, getConfig } from '../../config';
 import type { Order, OrderItemWithImage, ShippingAddress } from '../orders/db';
 import { orderNumber } from '../orders/number';
-import { productImageUrl } from '../products/image';
+import {
+  productEmailImageUrl,
+  type ImageDelivery,
+} from '../products/image';
 import { carrierName, trackingUrl } from '../orders/tracking';
 import type { EmailMessage } from './provider';
 import {
@@ -17,9 +20,18 @@ import {
 /** A 48px product thumbnail cell (absolute URL so email clients can fetch it).
  *  `new URL` resolves both an absolute image base (R2 domain) and the relative
  *  /images route against the site origin. */
-const thumbCell = (imageKey: string | null, baseUrl: string): string => {
-  const src = new URL(productImageUrl(imageKey, getConfig().images.baseUrl), baseUrl).href;
-  return `<td style="width:60px;padding:10px 0;border-bottom:1px solid ${PALETTE.line};"><img src="${src}" width="48" height="48" alt="" style="display:block;border-radius:4px;object-fit:cover;background:${PALETTE.paper};" /></td>`;
+const thumbCell = (
+  imageKey: string | null,
+  baseUrl: string,
+  imageDelivery: ImageDelivery,
+): string => {
+  const src = productEmailImageUrl(
+    imageKey,
+    baseUrl,
+    getConfig().images.baseUrl,
+    imageDelivery,
+  );
+  return `<td style="width:60px;padding:10px 0;border-bottom:1px solid ${PALETTE.line};"><img src="${escapeHtml(src)}" width="48" height="48" alt="" style="display:block;border-radius:4px;object-fit:cover;background:${PALETTE.paper};" /></td>`;
 };
 
 /** Shipping / discount / tax / total, in the order they appear on a receipt. */
@@ -58,6 +70,7 @@ export function orderConfirmationEmail(
   items: OrderItemWithImage[],
   baseUrl: string,
   storeName: string,
+  imageDelivery: ImageDelivery = 'original',
 ): EmailMessage {
   const cfg = getConfig();
   const num = orderNumber(order.id, cfg.orderNumber);
@@ -88,7 +101,7 @@ export function orderConfirmationEmail(
     body:
       emailItemsTable(
         items.map((it) => ({
-          thumb: thumbCell(it.image_key, baseUrl),
+          thumb: thumbCell(it.image_key, baseUrl, imageDelivery),
           name: it.name,
           quantity: it.quantity,
           amount: money(it.price_cents * it.quantity),
@@ -116,6 +129,7 @@ export function orderNotificationEmail(
   to: string,
   baseUrl: string,
   storeName: string,
+  imageDelivery: ImageDelivery = 'original',
 ): EmailMessage {
   const cfg = getConfig();
   const num = orderNumber(order.id, cfg.orderNumber);
@@ -153,7 +167,7 @@ export function orderNotificationEmail(
       `<p style="margin:0;font-size:14px;line-height:1.6;">${escapeHtml(shipText).replace(/\n/g, '<br>')}</p>` +
       emailItemsTable(
         items.map((it) => ({
-          thumb: thumbCell(it.image_key, baseUrl),
+          thumb: thumbCell(it.image_key, baseUrl, imageDelivery),
           name: it.name,
           quantity: it.quantity,
           amount: money(it.price_cents * it.quantity),

@@ -11,7 +11,7 @@ import {
   categoriesForProduct,
 } from '../../../../features/categories/db';
 import { toMajorUnits, minorUnitsPerMajor, getConfig } from '../../../../config';
-import { productImageUrl } from '../../../../features/products/image';
+import { productImageSources } from '../../../../features/products/image';
 
 const id = Number(Astro.params.id);
 const product = Number.isFinite(id) ? await getProduct(env.DB, id) : null;
@@ -28,12 +28,24 @@ const error = Astro.url.searchParams.get('error');
 // Variants + extras (show all, including any inactive, so the admin sees everything).
 const variants = await listVariants(env.DB, product.id, true);
 const extras = await listExtras(env.DB, product.id, true);
-// Look up a gallery image by id (to render a variant's currently-chosen photo).
-const imageById = new Map(images.map((i) => [i.id, i]));
 // The product's main photo — a variant with no specific image falls back to this
 // (so new variants default to showing it rather than an empty box).
 const imgBase = getConfig().images.baseUrl;
-const mainPhoto = product.image_key ? productImageUrl(product.image_key, imgBase) : null;
+const imageDelivery = Astro.locals.settings?.imageDelivery;
+const thumbnailSources = (imageKey: string | null, sizes = '64px') =>
+  productImageSources(imageKey, {
+    baseUrl: imgBase,
+    delivery: imageDelivery,
+    usage: 'thumbnail',
+    sizes,
+  });
+const imageViews = images.map((image) => ({
+  ...image,
+  sources: thumbnailSources(image.image_key, '56px'),
+}));
+// Look up a gallery image by id (to render a variant's currently-chosen photo).
+const imageById = new Map(imageViews.map((image) => [image.id, image]));
+const mainPhoto = product.image_key ? thumbnailSources(product.image_key).src : null;
 // Price inputs are major units; step to the currency's smallest unit (0.01 USD, 1 JPY).
 const priceStep = 1 / minorUnitsPerMajor(product.currency);
 const major = (cents: number) => toMajorUnits(cents, product.currency);
@@ -88,7 +100,7 @@ const major = (cents: number) => toMajorUnits(cents, product.currency);
     {
       images.length > 0 && (
         <ul data-gallery data-action={`/api/admin/products/${product.id}/images`} class="mb-6">
-          {images.map((img) => (
+          {imageViews.map((img) => (
             <li data-image-id={img.id} class="flex items-center gap-4 py-3">
               {/* Drag handle — the grip icon + grab cursor signal the row is draggable. */}
               <span
@@ -131,7 +143,9 @@ const major = (cents: number) => toMajorUnits(cents, product.currency);
                   the alt fields out of horizontal alignment. */}
               <div class="relative shrink-0">
                 <img
-                  src={productImageUrl(img.image_key, imgBase)}
+                  src={img.sources.src}
+                  srcset={img.sources.srcset}
+                  sizes={img.sources.sizes}
                   alt={img.alt ?? ''}
                   class="h-14 w-14 rounded object-cover"
                 />
@@ -241,7 +255,7 @@ const major = (cents: number) => toMajorUnits(cents, product.currency);
                   >
                     <img
                       data-photo-preview
-                      src={sel ? productImageUrl(sel.image_key, imgBase) : (mainPhoto ?? undefined)}
+                      src={sel ? sel.sources.src : (mainPhoto ?? undefined)}
                       alt=""
                       class:list={['h-full w-full object-cover', !sel && !mainPhoto && 'hidden']}
                     />
@@ -277,11 +291,11 @@ const major = (cents: number) => toMajorUnits(cents, product.currency);
                         ) : null}
                         <span class="absolute inset-0 flex items-center justify-center bg-white/60">Main</span>
                       </button>
-                      {images.map((img, idx) => (
+                      {imageViews.map((img, idx) => (
                         <button
                           type="button"
                           data-thumb={img.id}
-                          data-src={productImageUrl(img.image_key, imgBase)}
+                          data-src={img.sources.src}
                           aria-pressed={!!v && img.id === v.image_id ? 'true' : 'false'}
                           title={img.alt?.trim() || `Image ${idx + 1}`}
                           class:list={[
@@ -289,7 +303,7 @@ const major = (cents: number) => toMajorUnits(cents, product.currency);
                             !!v && img.id === v.image_id && 'ring-2 ring-brand',
                           ]}
                         >
-                          <img src={productImageUrl(img.image_key, imgBase)} alt="" class="h-full w-full object-cover" />
+                          <img src={img.sources.src} alt="" class="h-full w-full object-cover" />
                         </button>
                       ))}
                       {images.length === 0 && (

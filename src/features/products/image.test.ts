@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { validateImage, productImageUrl } from './image';
+import {
+  onDemandImageDeliveryAvailable,
+  productEmailImageUrl,
+  productImageSources,
+  productImageUrl,
+  validateImage,
+} from './image';
 
 describe('productImageUrl', () => {
   it('points at the R2-served object when there is a key', () => {
@@ -14,6 +20,85 @@ describe('productImageUrl', () => {
     expect(productImageUrl('products/abc.png', 'https://images.example.com')).toBe(
       'https://images.example.com/products/abc.png',
     );
+  });
+});
+
+describe('productImageSources', () => {
+  it('keeps original delivery byte-for-byte compatible', () => {
+    expect(
+      productImageSources('products/abc.png', {
+        baseUrl: 'https://images.example.com',
+        delivery: 'original',
+        usage: 'detail',
+      }),
+    ).toEqual({ src: 'https://images.example.com/products/abc.png' });
+  });
+
+  it('builds the bounded responsive ladder with a legacy cache revision', () => {
+    const sources = productImageSources('products/brass-pen.jpg', {
+      baseUrl: 'https://images.example.com',
+      delivery: 'cloudflare',
+      usage: 'card',
+    });
+
+    expect(sources.src).toContain('/cdn-cgi/image/width=384,');
+    expect(sources.src).toContain(
+      'https://images.example.com/products/brass-pen.jpg?v=1',
+    );
+    expect(sources.src).toContain('fit=scale-down,format=auto,quality=82,onerror=redirect');
+    expect(sources.srcset?.split(', /cdn-cgi/image/')).toHaveLength(4);
+    for (const width of [128, 384, 768, 1024]) {
+      expect(sources.srcset).toContain(`width=${width},`);
+      expect(sources.srcset).toContain(`${width}w`);
+    }
+    expect(sources.sizes).toContain('384px');
+  });
+
+  it('uses detail and thumbnail fallbacks appropriate to their usage', () => {
+    const detail = productImageSources('products/abc.png', {
+      baseUrl: 'https://images.example.com',
+      delivery: 'cloudflare',
+      usage: 'detail',
+    });
+    const thumbnail = productImageSources('products/abc.png', {
+      baseUrl: 'https://images.example.com',
+      delivery: 'cloudflare',
+      usage: 'thumbnail',
+      sizes: '64px',
+    });
+
+    expect(detail.src).toContain('width=768');
+    expect(thumbnail.src).toContain('width=128');
+    expect(thumbnail.sizes).toBe('64px');
+  });
+
+  it('falls back instead of transforming untrusted or path-traversing keys', () => {
+    for (const key of ['https://evil.example/a.jpg', 'products/../private/a.jpg']) {
+      expect(
+        productImageSources(key, {
+          baseUrl: 'https://images.example.com',
+          delivery: 'cloudflare',
+        }),
+      ).toEqual({ src: `https://images.example.com/${key}` });
+    }
+  });
+
+  it('requires an HTTPS image base before the dashboard can offer on-demand delivery', () => {
+    expect(onDemandImageDeliveryAvailable('https://images.example.com')).toBe(true);
+    expect(onDemandImageDeliveryAvailable('http://images.example.com')).toBe(false);
+    expect(onDemandImageDeliveryAvailable('not a url')).toBe(false);
+  });
+
+  it('builds an absolute square JPEG thumbnail for email', () => {
+    const url = productEmailImageUrl(
+      'products/abc.png',
+      'https://shop.example.com',
+      'https://images.example.com',
+      'cloudflare',
+    );
+    expect(url).toContain('https://shop.example.com/cdn-cgi/image/');
+    expect(url).toContain('width=96,height=96,fit=cover,format=jpeg,quality=80');
+    expect(url).toContain('https://images.example.com/products/abc.png?v=1');
   });
 });
 

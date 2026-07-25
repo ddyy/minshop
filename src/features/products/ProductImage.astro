@@ -1,5 +1,9 @@
 ---
-import { productImageUrl } from './image';
+import {
+  productImageSources,
+  type ImageDelivery,
+  type ProductImageUsage,
+} from './image';
 import { getConfig } from '../../config';
 
 interface Props {
@@ -9,6 +13,9 @@ interface Props {
   /** Reserve eager/high-priority loading for the page's likely LCP image. */
   priority?: boolean;
   sizes?: string;
+  usage?: ProductImageUsage;
+  /** Explicit mode for fragments that do not load the full settings overlay. */
+  delivery?: ImageDelivery;
 }
 
 // Renders a product image, or the shared placeholder when there's none — so
@@ -20,14 +27,23 @@ const {
   class: className = '',
   priority = false,
   sizes,
+  usage = priority ? 'detail' : 'card',
+  delivery,
 } = Astro.props;
+const sources = productImageSources(imageKey, {
+  baseUrl: getConfig().images.baseUrl,
+  delivery: delivery ?? Astro.locals.settings?.imageDelivery,
+  usage,
+  sizes,
+});
 ---
 
 {/* width/height are a square (1:1) aspect hint to reserve space (no CLS) — the
     actual display size comes from `class`. All product images + the placeholder
     are square; object-cover crops anything that isn't. */}
 <img
-  src={productImageUrl(imageKey, getConfig().images.baseUrl)}
+  src={sources.src}
+  srcset={sources.srcset}
   alt={alt}
   class={className}
   width="600"
@@ -35,5 +51,5 @@ const {
   loading={priority ? 'eager' : 'lazy'}
   fetchpriority={priority ? 'high' : 'auto'}
   decoding="async"
-  sizes={sizes}
+  sizes={sources.sizes}
 />

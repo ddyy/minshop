@@ -80,14 +80,22 @@ export async function recordPaidWebhookOrder(
 
   const items = await listOrderItemsWithImages(env.DB, orderId);
   // Dashboard setting (Settings → Email) wins; falls back to store.config.ts notifyTo.
-  const notifyTo = (await getSetting(env.DB, 'email_notify_to')) || getConfig().email.notifyTo;
+  const [notifySetting, storeNameSetting, imageDeliverySetting] = await Promise.all([
+    getSetting(env.DB, 'email_notify_to'),
+    getSetting(env.DB, 'store_name'),
+    getSetting(env.DB, 'image_delivery'),
+  ]);
+  const notifyTo = notifySetting || getConfig().email.notifyTo;
   // Runtime store name (Settings) wins over the build-time default in email copy.
-  const storeName = (await getSetting(env.DB, 'store_name')) || getConfig().storeName;
+  const storeName = storeNameSetting || getConfig().storeName;
+  const imageDelivery = imageDeliverySetting === 'cloudflare' ? 'cloudflare' : 'original';
   const messages = [
     ...(order.email && shouldSendCustomerOrderEmail(paymentMethod)
-      ? [orderConfirmationEmail(order, items, origin, storeName)]
+      ? [orderConfirmationEmail(order, items, origin, storeName, imageDelivery)]
       : []),
-    ...(notifyTo ? [orderNotificationEmail(order, items, notifyTo, origin, storeName)] : []),
+    ...(notifyTo
+      ? [orderNotificationEmail(order, items, notifyTo, origin, storeName, imageDelivery)]
+      : []),
   ];
   for (const msg of messages) {
     try {

@@ -30,6 +30,7 @@ import { getEmailProvider } from '../../features/email';
 import { normalizeTimeZone, allTimeZones } from '../../features/settings/timeZone';
 import SecretField from '../../components/SecretField.astro';
 import MethodToggle from '../../components/MethodToggle.astro';
+import { onDemandImageDeliveryAvailable } from '../../features/products/image';
 
 const capabilities: RuntimeCapabilities = {
   vault: vaultReady(),
@@ -116,6 +117,20 @@ if (Astro.request.method === 'POST') {
       await setSetting(env.DB, 'time_zone', zone);
     } else {
       validationError = 'Enter a valid IANA time zone, such as UTC or America/New_York.';
+    }
+  } else if (action === 'set_image_delivery') {
+    const delivery = String(form.get('image_delivery') ?? '');
+    if (delivery === 'cloudflare') {
+      if (!onDemandImageDeliveryAvailable(getConfig().images.baseUrl)) {
+        validationError =
+          'Connect an HTTPS R2 custom domain and set IMAGE_BASE_URL before enabling on-demand images.';
+      } else {
+        await setSetting(env.DB, 'image_delivery', 'cloudflare');
+      }
+    } else if (delivery === 'original') {
+      await setSetting(env.DB, 'image_delivery', null);
+    } else {
+      validationError = 'Choose a valid image delivery method.';
     }
   } else if (action === 'set_search') {
     // Runtime search backend. 'vector' needs the AI + VECTORIZE bindings; the
@@ -249,6 +264,7 @@ const timeZones = allTimeZones();
 // disabled and search stays on keyword (FTS5).
 const searchProvider = settings.searchProvider ?? cfg.search.provider;
 const vectorBindingsReady = semanticSearchAvailable(capabilities);
+const onDemandImagesReady = onDemandImageDeliveryAvailable(cfg.images.baseUrl);
 const reindexCursorValue = Number(Astro.url.searchParams.get('reindex_cursor'));
 const reindexProcessedValue = Number(Astro.url.searchParams.get('reindex_processed'));
 const reindexCursor =
@@ -374,6 +390,7 @@ const turnstileReady =
 // Jump sub-nav targets.
 const sections = [
   { id: 'general', label: 'General' },
+  { id: 'images', label: 'Images' },
   { id: 'payments', label: 'Payments' },
   { id: 'email', label: 'Email' },
   { id: 'turnstile', label: 'Bot protection' },
@@ -502,6 +519,90 @@ const sections = [
         ))
       }
     </ul>
+  </section>
+
+  {/* ── Images (runtime delivery selector) ───────────────────────────────── */}
+  <section id="images" class="scroll-mt-16">
+    <h2 class="mb-2 text-lg font-bold">Images</h2>
+    <p class="mb-4 text-sm text-gray-500">
+      Choose how product images are delivered. This affects existing and new uploads without
+      changing the files stored in R2.
+    </p>
+
+    <form method="POST" class="mb-10 rounded-lg border border-gray-200 bg-white p-4">
+      <input type="hidden" name="_action" value="set_image_delivery" />
+      <fieldset class="space-y-3">
+        <legend class="sr-only">Image delivery</legend>
+        <label class="flex cursor-pointer items-start gap-3 rounded-md border border-line p-3">
+          <input
+            type="radio"
+            name="image_delivery"
+            value="original"
+            checked={settings.imageDelivery === 'original'}
+            class="mt-1 accent-brand"
+          />
+          <span>
+            <span class="block font-medium">Original images</span>
+            <span class="block text-xs text-gray-500">
+              Serve uploaded files unchanged. No transformation usage or additional setup.
+            </span>
+          </span>
+        </label>
+
+        <label
+          class:list={[
+            'flex items-start gap-3 rounded-md border border-line p-3',
+            onDemandImagesReady ? 'cursor-pointer' : 'cursor-not-allowed opacity-60',
+          ]}
+        >
+          <input
+            type="radio"
+            name="image_delivery"
+            value="cloudflare"
+            checked={settings.imageDelivery === 'cloudflare'}
+            disabled={!onDemandImagesReady}
+            class="mt-1 accent-brand"
+          />
+          <span>
+            <span class="block font-medium">
+              Cloudflare on-demand
+              {!onDemandImagesReady && (
+                <span class="ml-2 text-xs uppercase tracking-widest text-amber-700">
+                  Unavailable
+                </span>
+              )}
+            </span>
+            <span class={onDemandImagesReady ? 'block text-xs text-gray-500' : 'block text-xs text-amber-700'}>
+              {onDemandImagesReady
+                ? 'Responsive AVIF/WebP delivery with automatic format negotiation and original-image fallback.'
+                : 'Connect an HTTPS R2 custom domain, set IMAGE_BASE_URL, and enable Transformations for the storefront zone.'}
+            </span>
+            {onDemandImagesReady && (
+              <span class="mt-1 block text-xs text-amber-700">
+                Uses your Cloudflare Image Transformations quota. Each unique source-and-parameter
+                combination counts as a unique transformation.
+              </span>
+            )}
+          </span>
+        </label>
+      </fieldset>
+
+      <div class="mt-4 flex flex-wrap items-center gap-3">
+        <button
+          type="submit"
+          class="rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover"
+        >
+          Save image delivery
+        </button>
+        <p class="text-xs text-gray-400">
+          Public pages may take up to 60 seconds to reflect a change already held in edge cache.
+        </p>
+      </div>
+      <p class="mt-3 text-xs text-gray-400">
+        This controls delivery. <strong class="font-medium text-gray-500">Optimize images on upload</strong>
+        in General is a separate option that changes newly stored source files.
+      </p>
+    </form>
   </section>
 
   {/* ── Payments (keys + config grouped per method) ──────────────────────── */}

@@ -73,7 +73,8 @@
 	//   "send_email": [{ "name": "EMAIL" }],
 	//
 	// Serve product images from an R2 custom domain (bypasses the Worker /images
-	// route) — connect a public custom domain to the bucket, then set (README → Settings):
+	// route and unlocks the Admin image-delivery selector) — connect a public custom
+	// domain to the bucket, then set (README → Settings):
 	//   "vars": { "IMAGE_BASE_URL": "https://images.example.com" },
 	//
 	// Store name, time zone, and the search backend are all set

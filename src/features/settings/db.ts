@@ -22,6 +22,7 @@ export type SettingKey =
   | 'tax_enabled' // overrides config.tax.enabled
   | 'accounts_enabled' // overrides config.features.accounts
   | 'image_optimize' // overrides config.images.optimizeOnUpload
+  | 'image_delivery' // 'cloudflare' = responsive on-demand transforms; absent = originals
   | 'shipping_enabled' // overrides config.shipping.enabled (zones/rates stay build-time)
   | 'admin_password_hash' // PBKDF2 hash of the admin password (set at setup). NOT in StoreSettings — read only by the auth layer, never loaded into locals.
   // Integrations configured in the admin dashboard (non-secret halves; the keys
@@ -77,6 +78,8 @@ export interface StoreSettings {
   taxEnabled: boolean | null;
   accountsEnabled: boolean | null;
   imageOptimize: boolean | null;
+  /** Product-image delivery. Original is the safe, zero-configuration default. */
+  imageDelivery: 'original' | 'cloudflare';
   shippingEnabled: boolean | null;
   /** Turnstile bot challenge on (admin login + customer sign-in). Default off. */
   turnstileEnabled: boolean;
@@ -154,6 +157,7 @@ export async function getStoreSettings(db: D1Database): Promise<StoreSettings> {
     taxEnabled: map.get('tax_enabled') == null ? null : map.get('tax_enabled') === '1',
     accountsEnabled: map.get('accounts_enabled') == null ? null : map.get('accounts_enabled') === '1',
     imageOptimize: map.get('image_optimize') == null ? null : map.get('image_optimize') === '1',
+    imageDelivery: map.get('image_delivery') === 'cloudflare' ? 'cloudflare' : 'original',
     shippingEnabled: map.get('shipping_enabled') == null ? null : map.get('shipping_enabled') === '1',
     turnstileEnabled: map.get('turnstile_enabled') === '1',
     turnstileSiteKey: map.get('turnstile_site_key') ?? null,

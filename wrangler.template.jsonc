@@ -53,7 +53,8 @@
     "STORE_NAME": "My Shop",
     "TIME_ZONE": "UTC"
     // Serve product images from an R2 custom domain (bypasses the Worker /images
-    // route); connect a public custom domain to the bucket first. See README.
+    // route and unlocks on-demand delivery in Admin); connect a public custom
+    // domain to the bucket first. See README.
     // "IMAGE_BASE_URL": "https://images.example.com"
   }
 }
