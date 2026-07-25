@@ -294,10 +294,16 @@
   padding: 0.5rem 0.75rem;
   text-align: left;
 }
-/* Never let a wide upload break the column; keep the aspect ratio. */
+/* Never let a wide upload break the column; keep the aspect ratio, and centre
+   the image in the measure — a 240px photo pinned to the left of a 768px column
+   reads as a mistake for the same reason the column itself did.
+   Auto margins, not text-align: Tailwind's preflight sets img { display: block },
+   so text-align on the paragraph computes but has no effect on the image. That
+   also means there is no inline-image case to preserve — every image in a page
+   body is already block-level. */
 .markdown-content img {
   max-width: 100%;
   height: auto;
   border-radius: 0.375rem;
-  margin: 1.5rem 0;
+  margin: 1.5rem auto;
 }
