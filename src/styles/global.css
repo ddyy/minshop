@@ -16,6 +16,18 @@
   summary {
     cursor: pointer;
   }
+
+  /* Placeholders, set once so every field matches (browser defaults differ
+     noticeably between Chrome, Safari and Firefox). gray-500 is the lightest
+     value that still clears WCAG AA for text: 4.83:1 on white, where gray-400
+     would be 2.54:1 and fail. Placeholders here are supplementary examples —
+     every field has a real <label> — but they're still text, so they hold the
+     line. To read as "not a real value", prefix the text with "e.g." rather
+     than lightening the colour further. */
+  ::placeholder {
+    color: #6b7280;
+    opacity: 1; /* Firefox dims placeholders by default; undo it */
+  }
 }
 
 /* One orchestrated page-load reveal (staggered via inline animation-delay).
