@@ -7,6 +7,7 @@ import ProductImage from '../../../features/products/ProductImage.astro';
 import { orderByClause } from '../../../features/products/sort';
 import { paginate, queryHref } from '../../../pagination';
 import Pagination from '../../../components/Pagination.astro';
+import { menuReferencesFor } from '../../../features/navigation/admin';
 
 // Auth: /admin + /api/admin are gated by src/middleware.ts. The admin password is
 // set in the first-run setup wizard (hashed in D1); Cloudflare Access at the edge
@@ -23,6 +24,9 @@ const { page, offset, totalPages } = paginate(
   PAGE_SIZE,
 );
 const products = await listAllProducts(env.DB, PAGE_SIZE, offset, order);
+// Bounded to this page of rows, so the nav warning costs one query, not one
+// per product.
+const menuRefs = await menuReferencesFor(env.DB, 'product', products.map((p) => p.id));
 const hrefFor = (p: number) =>
   queryHref('/admin/products', { sort, dir, page: p > 1 ? p : undefined });
 
@@ -105,7 +109,11 @@ const arrow = (col: string) => (sort === col ? (dir === 'asc' ? ' ↑' : ' ↓')
                 <form
                   method="POST"
                   action={`/api/admin/products/${p.id}`}
-                  onsubmit="return confirm('Delete this product?')"
+                  onsubmit={`return confirm('${
+                    menuRefs.has(p.id)
+                      ? 'This product is linked from your navigation. Deleting it hides that link on the storefront. Continue?'
+                      : 'Delete this product?'
+                  }')`}
                 >
                   <input type="hidden" name="_action" value="delete" />
                   <button type="submit" class="text-red-600 hover:underline">

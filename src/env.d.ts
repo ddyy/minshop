@@ -35,9 +35,9 @@ declare namespace App {
     adminEmail?: string;
     /** Runtime settings overlay (store name etc.), loaded once per request. */
     settings?: import('./features/settings/db').StoreSettings;
-    /** Published page links for the storefront footer, batched with settings so
-     *  uncached routes (/cart, /checkout, /account) pay no extra round trip. */
-    pageLinks?: import('./features/pages/db').PageLink[];
+    /** Resolved header/footer navigation, batched with settings so uncached
+     *  routes (/cart, /checkout, /account) pay no extra round trip. */
+    menus?: import('./features/navigation/db').Menus;
   }
 }
 

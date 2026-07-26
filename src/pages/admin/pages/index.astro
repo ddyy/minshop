@@ -2,8 +2,16 @@
 import { env } from 'cloudflare:workers';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { listPages } from '../../../features/pages/db';
+import { menuReferencesFor } from '../../../features/navigation/admin';
 
 const pages = await listPages(env.DB);
+// Deleting a page that a menu links to silently shrinks the storefront nav.
+// One bounded query for the whole list, so say so before it happens.
+const menuRefs = await menuReferencesFor(
+  env.DB,
+  'page',
+  pages.map((p) => p.id),
+);
 const dateFmt = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' });
 const formatDate = (iso: string) => dateFmt.format(new Date(`${iso.replace(' ', 'T')}Z`));
 ---
@@ -22,8 +30,12 @@ const formatDate = (iso: string) => dateFmt.format(new Date(`${iso.replace(' ', 
   {
     pages.length === 0 ? (
       <p class="py-12 text-center text-sm text-gray-500">
-        No pages yet. Create one for About, Shipping, Returns, or Privacy — published pages
-        appear in the storefront footer.
+        No pages yet. Create one for About, Shipping, Returns, or Privacy, then add it to your
+        {' '}
+        <a href="/admin/navigation" class="underline hover:text-brand">
+          navigation
+        </a>{' '}
+        so shoppers can find it.
       </p>
     ) : (
       <div class="sm:overflow-x-auto">
@@ -74,7 +86,15 @@ const formatDate = (iso: string) => dateFmt.format(new Date(`${iso.replace(' ', 
                     >
                       Edit
                     </a>
-                    <form method="POST" action={`/api/admin/pages/${page.id}`}>
+                    <form
+                      method="POST"
+                      action={`/api/admin/pages/${page.id}`}
+                      onsubmit={`return confirm('${
+                        menuRefs.has(page.id)
+                          ? 'This page is linked from your navigation. Deleting it hides that link on the storefront. Continue?'
+                          : 'Delete this page?'
+                      }')`}
+                    >
                       <input type="hidden" name="_action" value="delete" />
                       <button
                         type="submit"

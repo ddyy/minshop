@@ -37,6 +37,7 @@ import { normalizeTimeZone, allTimeZones } from '../../features/settings/timeZon
 import SecretField from '../../components/SecretField.astro';
 import MethodToggle from '../../components/MethodToggle.astro';
 import { onDemandImageDeliveryAvailable } from '../../features/products/image';
+import { catalogIsOrphaned } from '../../features/navigation/db';
 
 const capabilities: RuntimeCapabilities = {
   vault: vaultReady(),
@@ -330,6 +331,12 @@ const homeChoiceMissing =
   homeChoice !== '' &&
   !homePages.some((page) => `page:${page.id}` === homeChoice) &&
   !homeProducts.some((product) => `product:${product.id}` === homeChoice);
+// Pointing / at a page or product moves the catalog to /products, and the header
+// no longer surfaces it automatically — navigation is merchant-managed now. If no
+// menu links the catalog, the shop becomes unreachable from the storefront. Warn
+// at the point of the decision rather than silently editing a menu the merchant
+// curates; they may genuinely want it unlinked.
+const catalogOrphaned = await catalogIsOrphaned(env.DB, settings.homePage);
 const timeZone = settings.timeZone ?? cfg.timeZone;
 const announcement = settings.announcement ?? '';
 const announcementHref = settings.announcementHref ?? '';
@@ -636,6 +643,19 @@ const sections = [
           <p class="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
             The page or product this was set to is no longer published or active, so the home
             page is showing the product list. Pick a new one to update the setting.
+          </p>
+        )
+      }
+      {
+        catalogOrphaned && (
+          <p class="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Your product list moved to <code>/products</code> when you set a custom home page,
+            and no menu links to it — shoppers currently have no way to reach your catalog. Add
+            a Catalog item in{' '}
+            <a href="/admin/navigation" class="underline hover:text-brand">
+              Navigation
+            </a>
+            .
           </p>
         )
       }

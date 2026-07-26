@@ -1,0 +1,635 @@
+---
+import { env } from 'cloudflare:workers';
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import {
+  getMenus,
+  MENU_CAPS,
+  MAX_MENU_LABEL,
+  isMenuTargetType,
+  SINGLETON_LABELS,
+  type MenuLocation,
+  type MenuTargetType,
+} from '../../features/navigation/db';
+import {
+  targetChoices,
+  unavailableReason,
+  TARGET_TYPE_LABELS,
+  PICKER_LIMIT,
+} from '../../features/navigation/admin';
+
+const url = Astro.url;
+const error = url.searchParams.get('error');
+const saved = url.searchParams.get('saved');
+
+// The picker is server-rendered and searchable rather than a giant <select>: a
+// store with thousands of products would otherwise put every one of them into
+// this page's HTML, and a bare cap would make anything past it unselectable.
+const rawType = url.searchParams.get('target_type');
+const pickerType: MenuTargetType = isMenuTargetType(rawType) ? rawType : 'page';
+const pickerLocation: MenuLocation = url.searchParams.get('location') === 'footer' ? 'footer' : 'header';
+const pickerQuery = url.searchParams.get('q') ?? '';
+
+const homePage = Astro.locals.settings?.homePage ?? null;
+const menus = await getMenus(env.DB, homePage);
+
+// Every object type's options are fetched and rendered up front so switching the
+// type <select> is instant — CSS reveals the matching picker instead of a page
+// reload. Three bounded reads on an admin page, not the storefront hot path.
+const OBJECT_TYPES = ['page', 'product', 'category'] as const satisfies readonly MenuTargetType[];
+// `q` applies ONLY to the type it was typed for. Applying it to all three would
+// mean searching "beanie" under Products and then switching to Pages shows a
+// page list mysteriously filtered by a product search.
+const choiceList = await Promise.all(
+  OBJECT_TYPES.map((t) => targetChoices(env.DB, t, t === pickerType ? pickerQuery : '')),
+);
+const choices = Object.fromEntries(
+  OBJECT_TYPES.map((t, i) => [t, choiceList[i]]),
+) as Record<(typeof OBJECT_TYPES)[number], (typeof choiceList)[number]>;
+const truncated = OBJECT_TYPES.filter((t) => choices[t].remaining > 0);
+
+const isSingletonType = pickerType === 'home' || pickerType === 'catalog';
+
+// "Search all" only matters when the list is capped — below the cap the live
+// filter is already complete. Rendered hidden from the server in that case:
+// the script used to hide it on load instead, which flashed the button into
+// view on every page load before the JS ran.
+const searchAllNeeded = !isSingletonType && choices[pickerType].remaining > 0;
+
+// Nothing selectable means nothing to add. Computed server-side so the button is
+// already correct without JavaScript; the script keeps it in step as the live
+// filter narrows the list.
+const nothingToAdd = !isSingletonType && choices[pickerType].options.length === 0;
+
+// What a blank label will fall back to, for the placeholder. Server-rendered for
+// the initial selection; the script keeps it in step as the merchant picks.
+const initialDefaultLabel = isSingletonType
+  ? SINGLETON_LABELS[pickerType]
+  : (choices[pickerType].options[0]?.name ?? '');
+
+// Home and Catalog both resolve to '/' until the home page is pointed elsewhere,
+// so a store in that state can end up with two identical links. Warn rather than
+// suppress one at render time: silently dropping it would make this list disagree
+// with the storefront, which is worse than a duplicate.
+const bothRootLinks = (loc: MenuLocation) =>
+  !homePage &&
+  menus[loc].some((i) => i.targetType === 'home') &&
+  menus[loc].some((i) => i.targetType === 'catalog');
+
+const locations: { key: MenuLocation; title: string; note: string }[] = [
+  {
+    key: 'header',
+    title: 'Header',
+    note: `Up to ${MENU_CAPS.header} items — the header also holds your logo, search, and cart.`,
+  },
+  { key: 'footer', title: 'Footer', note: `Up to ${MENU_CAPS.footer} items.` },
+];
+---
+
+<AdminLayout title="Navigation" active="navigation">
+  <div class="mb-8">
+    <h1 class="font-serif text-3xl tracking-tight">Navigation</h1>
+    <p class="mt-2 text-sm text-gray-500">
+      Choose what appears in your header and footer. Changes appear on the storefront within a
+      minute.
+    </p>
+  </div>
+
+  {
+    error && (
+      <p class="mb-6 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        {error}
+      </p>
+    )
+  }
+  {
+    saved && !error && (
+      <p class="mb-6 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+        Navigation updated.
+      </p>
+    )
+  }
+
+  <section class="mb-10 rounded-lg border border-line bg-white/60 p-5">
+    <h2 class="mb-4 font-serif text-xl tracking-tight">Add an item</h2>
+
+    {/* ONE form. Every type's picker is rendered up front and revealed by CSS as
+        the type <select> changes, so choosing a type costs no round trip.
+        Search still needs the server, so its button overrides the method for
+        that submit only (formmethod/formaction) — same form, no duplicate
+        controls to keep in sync, and it all works without JavaScript. */}
+    <form
+      method="POST"
+      action="/api/admin/navigation"
+      data-add-item
+      class="flex flex-col gap-4"
+    >
+      {/* Two rows on purpose. The picker and search change width with the
+          selected type, so keeping "Add to" and the Add button on the same row
+          made them slide left and right as you switched type — the primary
+          action should not move under the cursor.
+          min-h holds the row's height when Home/Catalog hide both the picker and
+          the search, which would otherwise nudge the second row up by 2px. */}
+      <div class="flex min-h-[3.65rem] flex-wrap items-end gap-3">
+      <label class="text-xs uppercase tracking-wider text-gray-500">
+        Type
+        <select
+          name="target_type"
+          class="mt-1 block rounded-md border border-line bg-white px-3 py-2 text-sm normal-case tracking-normal text-gray-900"
+        >
+          {
+            (Object.keys(TARGET_TYPE_LABELS) as MenuTargetType[]).map((t) => (
+              <option value={t} selected={t === pickerType}>
+                {TARGET_TYPE_LABELS[t]}
+              </option>
+            ))
+          }
+        </select>
+      </label>
+
+      <div data-target-search class="flex-col text-xs uppercase tracking-wider text-gray-500">
+        <label for="nav-target-search">Search</label>
+        <div class="mt-1 flex gap-2">
+          <input
+            id="nav-target-search"
+            type="search"
+            name="q"
+            value={pickerQuery}
+            placeholder="Filter by name"
+            class="block w-40 rounded-md border border-line px-3 py-2 text-sm normal-case tracking-normal"
+          />
+          <button
+            type="submit"
+            formmethod="get"
+            formaction="/admin/navigation"
+            hidden={!searchAllNeeded}
+            class="rounded-md border border-line px-3 py-2 text-xs uppercase tracking-wider hover:border-brand hover:text-brand"
+          >
+            Search all
+          </button>
+        </div>
+      </div>
+
+      {/* One picker per object type, all present, all but one hidden. Hidden
+          fields still submit, hence the per-type name — the endpoint reads only
+          target_id_<target_type>. No `required`: a hidden required control makes
+          the form unsubmittable. */}
+      {
+        OBJECT_TYPES.map((t) => (
+          <label
+            data-target-picker={t}
+            data-truncated={choices[t].remaining > 0 ? '1' : '0'}
+            class="flex-col text-xs uppercase tracking-wider text-gray-500"
+          >
+            {TARGET_TYPE_LABELS[t]}
+            <select
+              name={`target_id_${t}`}
+              class="mt-1 block w-56 rounded-md border border-line bg-white px-3 py-2 text-sm normal-case tracking-normal text-gray-900"
+            >
+              {choices[t].options.length === 0 && (
+                <option value="">
+                  {pickerQuery ? 'No matches' : 'None available'}
+                </option>
+              )}
+              {choices[t].options.map((o) => (
+                <option value={o.id}>{o.name}</option>
+              ))}
+            </select>
+          </label>
+        ))
+      }
+      </div>
+
+      <div class="flex flex-wrap items-end gap-3">
+        <label class="text-xs uppercase tracking-wider text-gray-500">
+        Label (optional)
+        <input
+          type="text"
+          name="label"
+          maxlength={MAX_MENU_LABEL}
+          data-label-input
+          placeholder={
+            initialDefaultLabel ? `Defaults to “${initialDefaultLabel}”` : 'Defaults to its name'
+          }
+          class="mt-1 block rounded-md border border-line px-3 py-2 text-sm normal-case tracking-normal"
+        />
+      </label>
+
+      <label class="text-xs uppercase tracking-wider text-gray-500">
+        Add to
+        <select
+          name="location"
+          class="mt-1 block rounded-md border border-line bg-white px-3 py-2 text-sm normal-case tracking-normal text-gray-900"
+        >
+          <option value="header" selected={pickerLocation === 'header'}>Header</option>
+          <option value="footer" selected={pickerLocation === 'footer'}>Footer</option>
+        </select>
+      </label>
+
+      <button
+        type="submit"
+        name="_action"
+        value="add"
+        data-add-button
+        disabled={nothingToAdd}
+        title={nothingToAdd ? 'Nothing matches — clear or widen your search' : undefined}
+        class="rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-brand"
+      >
+        Add
+        </button>
+      </div>
+    </form>
+
+    {
+      truncated.length > 0 && (
+        <p class="mt-3 text-xs text-gray-500">
+          {truncated
+            .map((t) => `${TARGET_TYPE_LABELS[t].toLowerCase()}s: showing ${PICKER_LIMIT} of ${choices[t].options.length + choices[t].remaining}`)
+            .join(' · ')}
+          . Type to filter; press Search all to look beyond that.
+        </p>
+      )
+    }
+  </section>
+
+  <div class="grid gap-10 lg:grid-cols-2">
+    {
+      locations.map((loc) => (
+        <section class="min-w-0">
+          <div class="mb-1 flex items-baseline justify-between">
+            <h2 class="font-serif text-xl tracking-tight">{loc.title}</h2>
+            <span class="text-xs text-gray-400">
+              {menus[loc.key].length} / {MENU_CAPS[loc.key]}
+            </span>
+          </div>
+          <p class="mb-4 text-xs text-gray-500">{loc.note}</p>
+
+          {bothRootLinks(loc.key) && (
+            <p class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              Home and Catalog both point at <code>/</code> right now. They will differ once you
+              set a custom home page in Settings.
+            </p>
+          )}
+
+          {menus[loc.key].length === 0 ? (
+            <p class="rounded-md border border-dashed border-line py-8 text-center text-sm text-gray-500">
+              No items yet.
+            </p>
+          ) : (
+            <ul data-menu-list={loc.key} class="divide-y divide-line border-y border-line">
+              {menus[loc.key].map((item, index) => {
+                const reason = unavailableReason(item);
+                return (
+                  <li data-menu-item={item.id} class="flex min-w-0 items-start gap-3 py-3">
+                    {/* Grip + grab cursor signal the row is draggable, matching the
+                        product gallery. aria-hidden because Up/Down are the
+                        accessible, no-JS way to do the same thing. */}
+                    <span
+                      data-handle
+                      aria-hidden="true"
+                      class="mt-1 hidden shrink-0 cursor-grab text-gray-300 hover:text-gray-500 sm:block"
+                    >
+                      <svg width="12" height="20" viewBox="0 0 12 20" fill="currentColor">
+                        <circle cx="3" cy="5" r="1.5" />
+                        <circle cx="9" cy="5" r="1.5" />
+                        <circle cx="3" cy="10" r="1.5" />
+                        <circle cx="9" cy="10" r="1.5" />
+                        <circle cx="3" cy="15" r="1.5" />
+                        <circle cx="9" cy="15" r="1.5" />
+                      </svg>
+                    </span>
+                    <div class="min-w-0 flex-1">
+                      <div class="flex min-w-0 flex-wrap items-center gap-2">
+                        <span class="truncate text-sm font-medium">
+                          {item.text || 'Untitled'}
+                        </span>
+                        <span class="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-gray-500">
+                          {TARGET_TYPE_LABELS[item.targetType]}
+                        </span>
+                      </div>
+                      {reason ? (
+                        <p class="mt-1 text-xs text-amber-700">{reason}</p>
+                      ) : (
+                        <p class="mt-1 truncate text-xs text-gray-400">{item.href}</p>
+                      )}
+
+                      {/* Renaming is folded away behind a disclosure. An always-on
+                          input per row gave no clue what it did — it read as much
+                          like a search box as a rename — and a 50-item footer meant
+                          50 unexplained inputs. <details> states the intent in its
+                          own summary and needs no JavaScript. */}
+                      <details class="admin-rename mt-1">
+                        <summary class="inline-flex cursor-pointer list-none text-xs text-gray-500 hover:text-brand">
+                          Edit link text
+                        </summary>
+                        <form
+                          method="POST"
+                          action="/api/admin/navigation"
+                          class="mt-2 rounded-md bg-gray-50 p-2"
+                        >
+                          <input type="hidden" name="_action" value="label" />
+                          <input type="hidden" name="id" value={item.id} />
+                          <label
+                            for={`label-${item.id}`}
+                            class="block text-[10px] uppercase tracking-wider text-gray-500"
+                          >
+                            Link text
+                          </label>
+                          <div class="mt-1 flex gap-2">
+                            <input
+                              id={`label-${item.id}`}
+                              type="text"
+                              name="label"
+                              value={item.label ?? ''}
+                              maxlength={MAX_MENU_LABEL}
+                              placeholder={item.targetName ?? 'Link text'}
+                              class="min-w-0 flex-1 rounded border border-line bg-white px-2 py-1 text-xs focus:border-brand focus:outline-none"
+                            />
+                            <button
+                              type="submit"
+                              class="rounded border border-line px-2 py-1 text-xs hover:border-brand hover:text-brand"
+                            >
+                              Save
+                            </button>
+                          </div>
+                          <p class="mt-1 text-[10px] text-gray-500">
+                            Changes only what this menu shows
+                            {item.targetName ? ` — leave blank to use “${item.targetName}”` : ''}.
+                          </p>
+                        </form>
+                      </details>
+                    </div>
+
+                    <div class="flex flex-none items-center gap-1">
+                      {/* Up/Down, not drag-and-drop: works with no JavaScript.
+                          The gallery's drag pattern can be layered on later. */}
+                      <form method="POST" action="/api/admin/navigation">
+                        <input type="hidden" name="_action" value="move" />
+                        <input type="hidden" name="id" value={item.id} />
+                        <input type="hidden" name="direction" value="up" />
+                        <button
+                          type="submit"
+                          aria-label="Move up"
+                          disabled={index === 0}
+                          class="px-1 text-gray-400 hover:text-brand disabled:invisible"
+                        >
+                          ↑
+                        </button>
+                      </form>
+                      <form method="POST" action="/api/admin/navigation">
+                        <input type="hidden" name="_action" value="move" />
+                        <input type="hidden" name="id" value={item.id} />
+                        <input type="hidden" name="direction" value="down" />
+                        <button
+                          type="submit"
+                          aria-label="Move down"
+                          disabled={index === menus[loc.key].length - 1}
+                          class="px-1 text-gray-400 hover:text-brand disabled:invisible"
+                        >
+                          ↓
+                        </button>
+                      </form>
+                      {/* Confirmed: this is the only destructive control on the
+                          page, it sits one pixel from the arrows, and there is no
+                          undo. The other delete sites in admin all confirm. */}
+                      <form
+                        method="POST"
+                        action="/api/admin/navigation"
+                        onsubmit={`return confirm('Remove ${(item.text || 'this item').replace(/'/g, "\\'")} from the ${loc.title.toLowerCase()} menu?')`}
+                      >
+                        <input type="hidden" name="_action" value="remove" />
+                        <input type="hidden" name="id" value={item.id} />
+                        <button
+                          type="submit"
+                          aria-label={`Remove ${item.text || 'item'}`}
+                          class="px-1 text-gray-400 hover:text-red-600"
+                        >
+                          ×
+                        </button>
+                      </form>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      ))
+    }
+  </div>
+
+
+<script>
+  // Progressive enhancement over a form that already works without it.
+  //
+  // Baseline: pick a type, pick from its (server-filtered) <select>, submit —
+  // and "Search all" round-trips for lists too long to ship whole.
+  // Enhanced: typing filters the visible list instantly, and switching type
+  // clears the box, because a query typed for Products means nothing for Pages.
+  //
+  // The filter only claims completeness when the list is NOT truncated. Over a
+  // capped list it would report "No matches" for a product that exists just past
+  // the cap, so "Search all" stays visible in exactly that case.
+  //
+  // Casts rather than querySelector<T> generics: this project's global `Element`
+  // resolves to the Workers HTMLRewriter Element, whose remove() returns Element
+  // instead of void, so DOM element types fail that generic's constraint.
+  const form = document.querySelector('[data-add-item]') as HTMLFormElement | null;
+  const typeSel = form?.querySelector('select[name="target_type"]') as HTMLSelectElement | null;
+  const search = form?.querySelector('input[name="q"]') as HTMLInputElement | null;
+  const searchAll = form?.querySelector('button[formmethod="get"]') as HTMLButtonElement | null;
+  const labelInput = form?.querySelector('[data-label-input]') as HTMLInputElement | null;
+  const addButton = form?.querySelector('[data-add-button]') as HTMLButtonElement | null;
+
+  if (form && typeSel && search && searchAll) {
+    type Picker = {
+      select: HTMLSelectElement;
+      truncated: boolean;
+      all: { value: string; text: string }[];
+    };
+    const pickers = new Map<string, Picker>();
+
+    for (const node of form.querySelectorAll('[data-target-picker]')) {
+      const el = node as HTMLElement;
+      const select = el.querySelector('select') as HTMLSelectElement | null;
+      const key = el.getAttribute('data-target-picker');
+      if (!select || !key) continue;
+      pickers.set(key, {
+        select,
+        truncated: el.getAttribute('data-truncated') === '1',
+        // Snapshot before any filtering, and rebuild from it — rather than
+        // hiding <option>s, which Safari ignores.
+        all: Array.from(select.options)
+          .filter((o) => o.value !== '')
+          .map((o) => ({ value: o.value, text: o.textContent ?? '' })),
+      });
+    }
+
+    // Mirrors SINGLETON_LABELS — Home and Catalog have no <option> to read a
+    // name from, so their fallback is stated here too.
+    const singletonLabels: Record<string, string> = { home: 'Home', catalog: 'Shop' };
+
+    const syncPlaceholder = () => {
+      if (!labelInput) return;
+      const picker = pickers.get(typeSel.value);
+      const name = picker
+        ? (picker.select.selectedOptions[0]?.value === ''
+            ? ''
+            : (picker.select.selectedOptions[0]?.textContent ?? ''))
+        : (singletonLabels[typeSel.value] ?? '');
+      labelInput.placeholder = name ? `Defaults to \u201C${name}\u201D` : 'Defaults to its name';
+    };
+
+    const setAddEnabled = (enabled: boolean) => {
+      if (!addButton) return;
+      addButton.disabled = !enabled;
+      if (enabled) addButton.removeAttribute('title');
+      else addButton.title = 'Nothing matches — clear or widen your search';
+    };
+
+    const apply = () => {
+      const picker = pickers.get(typeSel.value);
+      if (!picker) {
+        // Home and Catalog have no target to choose, so there is always
+        // something to add.
+        setAddEnabled(true);
+        syncPlaceholder();
+        return;
+      }
+      const q = search.value.trim().toLowerCase();
+      const matches = q ? picker.all.filter((o) => o.text.toLowerCase().includes(q)) : picker.all;
+      const empty = picker.truncated ? 'No matches here — try Search all' : 'No matches';
+      picker.select.replaceChildren(
+        ...(matches.length === 0
+          ? [new Option(empty, '')]
+          : matches.map((o) => new Option(o.text, o.value))),
+      );
+      searchAll.hidden = !picker.truncated;
+      setAddEnabled(matches.length > 0);
+      syncPlaceholder();
+    };
+
+    typeSel.addEventListener('change', () => {
+      search.value = '';
+      apply();
+    });
+    search.addEventListener('input', apply);
+    for (const picker of pickers.values()) {
+      picker.select.addEventListener('change', syncPlaceholder);
+    }
+    // Enter in the search box would submit the form — i.e. Add. Filtering is
+    // already live, so make it a no-op rather than an accidental add.
+    search.addEventListener('keydown', (event) => {
+      if ((event as KeyboardEvent).key === 'Enter') event.preventDefault();
+    });
+    apply();
+  }
+
+  // Up/Down without a page reload.
+  //
+  // Deliberately NOT a change to how saving works: each click still writes
+  // immediately through the same endpoint, so there is no unsaved state to lose
+  // and no dirty-state warning to write. This only skips the round trip's
+  // re-render, which is what made reordering six items feel like six page loads.
+  //
+  // Every failure path falls back to submitting the form normally, so a network
+  // error or a stale row leaves the merchant with the working no-JS behaviour
+  // rather than a button that silently does nothing.
+  const refreshEnds = (list: HTMLElement) => {
+    const rows = [...list.children];
+    rows.forEach((row, i) => {
+      const up = row.querySelector('button[aria-label="Move up"]') as HTMLButtonElement | null;
+      const down = row.querySelector('button[aria-label="Move down"]') as HTMLButtonElement | null;
+      if (up) up.disabled = i === 0;
+      if (down) down.disabled = i === rows.length - 1;
+    });
+  };
+
+  for (const node of document.querySelectorAll('[data-menu-list]')) {
+    const list = node as HTMLElement;
+    const menuLocation = list.getAttribute('data-menu-list') ?? '';
+    const rows = () => [...list.children] as HTMLElement[];
+
+    /** Persist the current DOM order for this menu. */
+    const persistOrder = async () => {
+      const body = new URLSearchParams();
+      body.set('_action', 'reorder');
+      body.set('location', menuLocation);
+      for (const row of rows()) body.append('order', row.getAttribute('data-menu-item') ?? '');
+      try {
+        const response = await fetch('/api/admin/navigation', {
+          method: 'POST',
+          body,
+          headers: { 'x-partial': '1' },
+        });
+        // A failed write would leave the screen showing an order the database
+        // does not have. Reload rather than lie about it.
+        if (!response.ok) reloadPage();
+      } catch {
+        reloadPage();
+      }
+    };
+    const reloadPage = () => window.location.reload();
+
+    // Drag-and-drop, mirroring the product gallery so the two reorderable lists
+    // in admin work the same way. Up/Down stay as the keyboard-accessible and
+    // no-JS path — this is additive.
+    let dragging: HTMLElement | null = null;
+    for (const row of rows()) {
+      row.setAttribute('draggable', 'true');
+      row.addEventListener('dragstart', () => {
+        dragging = row;
+        row.classList.add('dragging');
+      });
+      row.addEventListener('dragend', async () => {
+        row.classList.remove('dragging');
+        dragging = null;
+        refreshEnds(list);
+        await persistOrder();
+      });
+    }
+    list.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      if (!dragging) return;
+      const after = rows().find((el) => {
+        if (el === dragging) return false;
+        const r = el.getBoundingClientRect();
+        return r.top + r.height / 2 >= (event as DragEvent).clientY;
+      });
+      list.insertBefore(dragging, after ?? null);
+    });
+
+    list.addEventListener('submit', async (event) => {
+      const form = event.target as HTMLFormElement;
+      const actionInput = form.querySelector('input[name="_action"]') as HTMLInputElement | null;
+      if (actionInput?.value !== 'move') return;
+
+      const row = form.closest('li');
+      const direction = (form.querySelector('input[name="direction"]') as HTMLInputElement | null)?.value;
+      const sibling =
+        direction === 'up' ? row?.previousElementSibling : row?.nextElementSibling;
+      if (!row || !sibling) return; // already at the end — let the server no-op it
+
+      event.preventDefault();
+      let response: Response;
+      try {
+        response = await fetch(form.action, {
+          method: 'POST',
+          body: new URLSearchParams(new FormData(form) as unknown as Record<string, string>),
+          headers: { 'x-partial': '1' },
+        });
+      } catch {
+        form.submit();
+        return;
+      }
+      if (!response.ok) {
+        form.submit();
+        return;
+      }
+
+      if (direction === 'up') list.insertBefore(row, sibling);
+      else list.insertBefore(sibling, row);
+      refreshEnds(list);
+    });
+  }
+</script>
+</AdminLayout>

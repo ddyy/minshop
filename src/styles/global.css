@@ -164,6 +164,51 @@
   }
 }
 
+/* Admin → Navigation → "Add an item".
+   Every target type's picker is rendered up front and revealed by the type
+   <select>, so choosing a type is instant instead of a page reload. Pure CSS via
+   :has() + option:checked, which tracks the live selection — no JS, so the form
+   still works with scripting off.
+   The hidden pickers still SUBMIT (display:none does not stop that), which is why
+   each carries its own field name and the endpoint reads only the one matching
+   target_type. Note `required` must NOT be used on these: a hidden required
+   control blocks submission with an unfocusable-control error. */
+[data-target-picker],
+[data-target-search] {
+  display: none;
+}
+[data-add-item]:has(select[name='target_type'] option[value='page']:checked)
+  :is([data-target-picker='page'], [data-target-search]),
+[data-add-item]:has(select[name='target_type'] option[value='product']:checked)
+  :is([data-target-picker='product'], [data-target-search]),
+[data-add-item]:has(select[name='target_type'] option[value='category']:checked)
+  :is([data-target-picker='category'], [data-target-search]) {
+  display: flex;
+}
+
+/* Dragged row in the Navigation menus — same treatment as the product gallery,
+   so the two reorderable lists in admin behave and look alike. */
+[data-menu-list] > li.dragging {
+  opacity: 0.4;
+}
+
+/* Storefront mobile nav disclosure. <details> rather than a checkbox+label so the
+   control carries the disclosure role and expanded state natively — no JS needed
+   for navigation to work, and no aria-expanded to fake. Only the default marker
+   needs removing; Safari still needs the -webkit pseudo-element. */
+[data-nav-disclosure] > summary,
+.admin-rename > summary {
+  list-style: none;
+}
+[data-nav-disclosure] > summary::-webkit-details-marker,
+.admin-rename > summary::-webkit-details-marker {
+  display: none;
+}
+[data-nav-disclosure] > summary::marker,
+.admin-rename > summary::marker {
+  content: '';
+}
+
 /* Hide the scrollbar on scroll-snap carousels (navigated via thumbnails/swipe). */
 .no-scrollbar {
   scrollbar-width: none; /* Firefox */

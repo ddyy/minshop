@@ -10,7 +10,12 @@ import {
   parseStoreSettings,
   STORE_SETTINGS_SQL,
 } from './features/settings/db';
-import { PUBLISHED_PAGE_LINKS_SQL, type PageLink } from './features/pages/db';
+import {
+  MENU_ITEMS_SQL,
+  EMPTY_MENUS,
+  groupMenus,
+  type MenuItemRow,
+} from './features/navigation/db';
 import {
   checkRateLimit,
   rateLimitBucket,
@@ -102,30 +107,35 @@ async function gate(context: APIContext, next: MiddlewareNext): Promise<Response
     !path.startsWith('/_') &&
     !path.startsWith('/partials/');
   if (isDocument) {
-    // Storefront documents also need the footer's published-page links. Both
-    // reads go in ONE batch so /cart, /checkout, /account, /order, and /pay —
-    // which are never edge-cached — don't pay a second D1 round trip.
-    const wantsPageLinks = !path.startsWith('/admin');
+    // Storefront documents also need the header/footer menus. Both reads go in
+    // ONE batch so /cart, /checkout, /account, /order, and /pay — which are never
+    // edge-cached — don't pay a second D1 round trip.
+    const wantsMenus = !path.startsWith('/admin');
     try {
-      if (wantsPageLinks) {
-        const [settings, links] = await env.DB.batch<Record<string, string>>([
+      if (wantsMenus) {
+        const [settings, menus] = await env.DB.batch<Record<string, string>>([
           env.DB.prepare(STORE_SETTINGS_SQL),
-          env.DB.prepare(PUBLISHED_PAGE_LINKS_SQL),
+          env.DB.prepare(MENU_ITEMS_SQL),
         ]);
         context.locals.settings = parseStoreSettings(
           (settings.results ?? []) as Array<{ key: string; value: string }>,
         );
-        context.locals.pageLinks = (links.results ?? []) as unknown as PageLink[];
+        context.locals.menus = groupMenus(
+          (menus.results ?? []) as unknown as MenuItemRow[],
+          context.locals.settings.homePage,
+        );
       } else {
         context.locals.settings = await getStoreSettings(env.DB);
       }
     } catch {
-      // A batch is all-or-nothing, so a missing `pages` table (pre-migration)
+      // A batch is all-or-nothing, so a missing `menu_items` table (pre-migration)
       // would take settings down with it — and losing settings silently
       // disables the first-run setup funnel below. Retry settings alone.
+      // Empty menus render a bare header and a copyright-only footer: degraded
+      // but navigable. Losing settings is not.
       try {
         context.locals.settings = await getStoreSettings(env.DB);
-        context.locals.pageLinks = [];
+        context.locals.menus = EMPTY_MENUS;
       } catch {
         // Settings table missing too → fall back to build-time defaults.
       }

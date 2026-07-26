@@ -140,6 +140,12 @@ done
 npx wrangler d1 execute DB --local --persist-to "$state_dir" \
   --command "INSERT INTO pages (title, slug, body_markdown, published) VALUES ('Shipping Info', 'shipping', '## Shipping\n\nWe ship worldwide.', 1), ('Secret Draft', 'secret-draft', 'Not ready.', 0);" >/dev/null
 
+# Navigation is explicit now: publishing a page no longer puts it in the footer
+# by itself. The migration's seed only backfills pages that existed when it ran,
+# and these were created after it, so link them the way a merchant would.
+npx wrangler d1 execute DB --local --persist-to "$state_dir" \
+  --command "INSERT INTO menu_items (location, target_type, target_id, position) SELECT 'footer', 'page', id, 0 FROM pages WHERE slug = 'shipping';" >/dev/null
+
 page_status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
   "http://127.0.0.1:$test_port/pages/shipping")"
 if [[ "$page_status" != "200" ]]; then
@@ -173,14 +179,19 @@ if [[ "$missing_status" != "404" ]]; then
   exit 1
 fi
 
-# The footer links published pages only, on every storefront document.
+# The footer renders what the merchant put in the menu, and hides a menu item
+# whose target stops being published — the draft below is deliberately linked to
+# prove the storefront drops it rather than rendering a dead link.
+npx wrangler d1 execute DB --local --persist-to "$state_dir" \
+  --command "INSERT INTO menu_items (location, target_type, target_id, position) SELECT 'footer', 'page', id, 1 FROM pages WHERE slug = 'secret-draft';" >/dev/null
+
 home="$(curl --fail --silent --show-error "http://127.0.0.1:$test_port/")"
 if [[ "$home" != *"/pages/shipping"* ]]; then
-  echo "D1 integration failed: published page missing from the footer" >&2
+  echo "D1 integration failed: menu-linked page missing from the footer" >&2
   exit 1
 fi
 if [[ "$home" == *"/pages/secret-draft"* ]]; then
-  echo "D1 integration failed: draft page leaked into the footer" >&2
+  echo "D1 integration failed: draft page leaked into the footer via a menu item" >&2
   exit 1
 fi
 
