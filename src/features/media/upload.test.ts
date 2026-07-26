@@ -28,13 +28,24 @@ describe('validateUpload', () => {
 
 describe('mediaKeyFor', () => {
   it('namespaces under media/ with an extension matching the type', () => {
-    expect(mediaKeyFor(file('image/webp', 1))).toMatch(/^media\/[0-9a-f-]{36}\.webp$/);
-    expect(mediaKeyFor(file('image/jpeg', 1))).toMatch(/^media\/[0-9a-f-]{36}\.jpg$/);
+    expect(mediaKeyFor(file('image/webp', 1))).toMatch(/^media\/[0-9a-f]{20}\.webp$/);
+    expect(mediaKeyFor(file('image/jpeg', 1))).toMatch(/^media\/[0-9a-f]{20}\.jpg$/);
   });
 
   it('never reuses a key, so /images/* can stay immutable', () => {
     const same = file('image/png', 1, 'same-name.png');
     expect(mediaKeyFor(same)).not.toBe(mediaKeyFor(same));
+  });
+
+  // Cloudflare's observability pipeline replaces any run of ID characters in a
+  // request URL that reads like a credential — 32+ hex digits, or 21+ characters
+  // mixing upper, lower and digits. A key above either line logs as
+  // `/images/media/REDACTED.webp` and cannot be traced back to a file. This is
+  // the guard against someone lengthening the key and quietly losing that.
+  it('stays under the length Cloudflare redacts from request logs', () => {
+    const id = mediaKeyFor(file('image/webp', 1)).slice('media/'.length).split('.')[0];
+    expect(id.length).toBeLessThanOrEqual(20);
+    expect(id).toMatch(/^[0-9a-f]+$/); // no uppercase: also below the base64 rule
   });
 });
 
