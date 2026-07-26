@@ -82,6 +82,9 @@ function formatSize(bytes: number | null): string | null {
           const entry = usage.get(m.id);
           const unused = !!entry && isUnused(entry);
           const size = formatSize(m.size_bytes);
+          // Recorded at upload since migration 0029; NULL for anything older, so
+          // the line simply omits it rather than showing a placeholder.
+          const dimensions = m.width && m.height ? `${m.width} × ${m.height}` : null;
           const url = mediaUrl(m.image_key, baseUrl);
           return (
             <li class="flex flex-col gap-2">
@@ -99,6 +102,7 @@ function formatSize(bytes: number | null): string | null {
               </p>
               <p class="text-xs text-gray-500">
                 {formatDate(m.created_at)}
+                {dimensions ? ` · ${dimensions}` : ''}
                 {size ? ` · ${size}` : ''}
                 {!m.mime_type && !size ? ' · Legacy image' : ''}
               </p>
