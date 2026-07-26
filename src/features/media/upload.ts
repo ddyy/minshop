@@ -3,6 +3,7 @@ import type { StorageProvider } from '../storage';
 // Explicit .ts: scripts/test-media.mjs loads this module through Node's type
 // stripping, which does not resolve extensionless relative imports.
 import { createMediaRecord, type Media } from './db.ts';
+import { readImageDimensions } from './dimensions.ts';
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 
@@ -71,13 +72,20 @@ export async function uploadMedia(
   originalName: string,
 ): Promise<Media> {
   const key = mediaKeyFor(file);
-  await storage.put(key, await file.arrayBuffer(), file.type);
+  // One read of the bytes, used for both the upload and the header parse. `file`
+  // is already the OPTIMIZED file — every caller passes optimizeUpload(file) —
+  // so these dimensions describe the object actually stored, not the original.
+  const buffer = await file.arrayBuffer();
+  await storage.put(key, buffer, file.type);
+  const dimensions = readImageDimensions(new Uint8Array(buffer));
   try {
     return await createMediaRecord(db, {
       image_key: key,
       original_name: originalName,
       mime_type: file.type,
       size_bytes: file.size,
+      width: dimensions?.width ?? null,
+      height: dimensions?.height ?? null,
     });
   } catch (err) {
     try {

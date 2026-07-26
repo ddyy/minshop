@@ -6,6 +6,10 @@ export interface Media {
   original_name: string;
   mime_type: string | null;
   size_bytes: number | null;
+  /** Pixel dimensions, so <img> can reserve its space. NULL for rows created
+   *  before migration 0029, and for anything whose header could not be read. */
+  width: number | null;
+  height: number | null;
   created_at: string;
 }
 
@@ -68,15 +72,24 @@ export async function createMediaRecord(
     original_name: string;
     mime_type: string | null;
     size_bytes: number | null;
+    width?: number | null;
+    height?: number | null;
   },
 ): Promise<Media> {
   const row = await db
     .prepare(
-      `INSERT INTO media (image_key, original_name, mime_type, size_bytes)
-       VALUES (?, ?, ?, ?)
+      `INSERT INTO media (image_key, original_name, mime_type, size_bytes, width, height)
+       VALUES (?, ?, ?, ?, ?, ?)
        RETURNING *`,
     )
-    .bind(fields.image_key, fields.original_name, fields.mime_type, fields.size_bytes)
+    .bind(
+      fields.image_key,
+      fields.original_name,
+      fields.mime_type,
+      fields.size_bytes,
+      fields.width ?? null,
+      fields.height ?? null,
+    )
     .first<Media>();
   if (!row) throw new Error('media insert returned no row');
   return row;
@@ -175,6 +188,28 @@ export async function attachMediaToProduct(
  * land or neither does. Executing them separately leaves a window where media
  * is deleted after the claim check but before the page is published.
  */
+/**
+ * Dimensions for the media a page embeds, keyed by image_key.
+ *
+ * Joined through page_media rather than parsing the body again: the claim rows
+ * already record exactly which media a page uses, and one indexed read is
+ * cheaper than re-walking the Markdown. Bounded by the page's own claims.
+ */
+export async function pageImageDimensions(
+  db: D1Database,
+  pageId: number,
+): Promise<Map<string, { width: number; height: number }>> {
+  const { results } = await db
+    .prepare(
+      `SELECT m.image_key, m.width, m.height
+         FROM page_media pm JOIN media m ON m.id = pm.media_id
+        WHERE pm.page_id = ? AND m.width IS NOT NULL AND m.height IS NOT NULL`,
+    )
+    .bind(pageId)
+    .all<{ image_key: string; width: number; height: number }>();
+  return new Map((results ?? []).map((r) => [r.image_key, { width: r.width, height: r.height }]));
+}
+
 export function pageMediaClaimStatements(
   db: D1Database,
   pageId: number,

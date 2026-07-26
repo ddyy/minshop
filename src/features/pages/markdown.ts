@@ -66,6 +66,16 @@ export interface RenderOptions {
    * page renders without it, so storefront HTML stays free of editor plumbing.
    */
   sourceMap?: boolean;
+  /**
+   * Pixel dimensions per media key, so each <img> can reserve its space.
+   *
+   * Without width/height an image has no intrinsic size and no aspect-ratio, so
+   * it occupies only its alt-text line box until the bitmap arrives and then
+   * jumps to full height — 181px of shift on a 242x209 page image. Keys absent
+   * from the map simply render without the attributes, which is the old
+   * behaviour, so a page mixing measured and unmeasured images still works.
+   */
+  dimensions?: Map<string, { width: number; height: number }>;
 }
 
 /**
@@ -74,7 +84,11 @@ export interface RenderOptions {
  * applied at render time, so changing IMAGE_BASE_URL never requires a rewrite
  * of stored content.
  */
-function installImageRule(instance: MarkdownIt, baseUrl: string): void {
+function installImageRule(
+  instance: MarkdownIt,
+  baseUrl: string,
+  dimensions?: RenderOptions['dimensions'],
+): void {
   instance.renderer.rules.image = (tokens, idx, options, _env, self) => {
     const token = tokens[idx];
     const src = token.attrGet('src') ?? '';
@@ -88,6 +102,13 @@ function installImageRule(instance: MarkdownIt, baseUrl: string): void {
     // only image on the page that must not be lazy.
     token.attrSet('loading', 'lazy');
     token.attrSet('decoding', 'async');
+    const size = key ? dimensions?.get(key) : undefined;
+    if (size) {
+      // Intrinsic size only. The CSS keeps `max-width: 100%; height: auto`, so
+      // these reserve the right aspect ratio without pinning the rendered size.
+      token.attrSet('width', String(size.width));
+      token.attrSet('height', String(size.height));
+    }
     // renderToken escapes attribute values, and alt text goes through the
     // default renderer, so neither can break out into markup.
     return self.renderToken(tokens, idx, options);
@@ -102,7 +123,7 @@ export function renderMarkdown(markdown: string, options: RenderOptions = {}): s
     breaks: false,
     typographer: false,
   });
-  installImageRule(instance, baseUrl);
+  installImageRule(instance, baseUrl, options.dimensions);
 
   if (options.sourceMap) {
     // Block tokens carry `map: [startLine, endLine]`. Stamping the start line on

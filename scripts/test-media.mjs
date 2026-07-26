@@ -69,6 +69,17 @@ function fakeStorage({ failPut = false, failDelete = false } = {}) {
 const png = (name = 'photo.png') =>
   new File([new Uint8Array(8)], name, { type: 'image/png' });
 
+/** A real PNG header, so the dimension parser has something valid to read. */
+const pngSized = (w, h, name = 'photo.png') => {
+  const b = new Uint8Array(24);
+  b.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+  b.set([0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52], 8);
+  const view = new DataView(b.buffer);
+  view.setUint32(16, w);
+  view.setUint32(20, h);
+  return new File([b], name, { type: 'image/png' });
+};
+
 try {
   const db = await mf.getD1Database('DB');
 
@@ -79,6 +90,8 @@ try {
        original_name TEXT NOT NULL,
        mime_type TEXT,
        size_bytes INTEGER,
+       width INTEGER,
+       height INTEGER,
        created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
     `CREATE TABLE products (
        id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -172,6 +185,21 @@ try {
   });
 
   console.log('\nupload lifecycle');
+
+  await check('upload records pixel dimensions from the image header', async () => {
+    const media = await uploadMedia(db, fakeStorage(), pngSized(1200, 630), 'hero.png');
+    assert.equal(media.width, 1200);
+    assert.equal(media.height, 630);
+  });
+
+  // A header we cannot parse must cost the dimensions, never the upload — the
+  // renderer simply omits width/height, which is the pre-0029 behaviour.
+  await check('an unreadable header leaves dimensions NULL without failing', async () => {
+    const media = await uploadMedia(db, fakeStorage(), png('junk.png'), 'junk.png');
+    assert.equal(media.width, null);
+    assert.equal(media.height, null);
+    assert.ok(media.id, 'row was still created');
+  });
 
   await check('successful upload writes the object and creates the row', async () => {
     const storage = fakeStorage();

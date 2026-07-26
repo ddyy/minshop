@@ -77,6 +77,37 @@ describe('renderMarkdown — images', () => {
     expect(renderMarkdown('![A tote bag](/images/media/a.webp)')).toContain('alt="A tote bag"');
   });
 
+  // The attributes this whole feature exists to produce: without them an <img>
+  // has no intrinsic size, occupies only its alt-text line box, and jumps to full
+  // height when the bitmap lands — measured at 181px on a 242x209 page image.
+  it('emits width and height for a key it has dimensions for', () => {
+    const dimensions = new Map([['media/a.webp', { width: 1200, height: 630 }]]);
+    const html = renderMarkdown('![Hero](/images/media/a.webp)', { dimensions });
+    expect(html).toContain('width="1200"');
+    expect(html).toContain('height="630"');
+  });
+
+  it('omits them for a key with no recorded dimensions', () => {
+    const dimensions = new Map([['media/other.webp', { width: 10, height: 10 }]]);
+    const html = renderMarkdown('![Hero](/images/media/a.webp)', { dimensions });
+    expect(html).not.toContain('width=');
+    expect(html).not.toContain('height=');
+  });
+
+  it('omits them when no dimensions are supplied at all', () => {
+    const html = renderMarkdown('![Hero](/images/media/a.webp)');
+    expect(html).not.toContain('width=');
+    expect(html).not.toContain('height=');
+  });
+
+  // An external image is not ours to measure, and its key never matches.
+  it('leaves external images unsized', () => {
+    const dimensions = new Map([['media/a.webp', { width: 1200, height: 630 }]]);
+    const html = renderMarkdown('![Remote](https://example.com/media/a.webp)', { dimensions });
+    expect(html).not.toContain('width=');
+    expect(html).not.toContain('height=');
+  });
+
   it('marks body images lazy and async', () => {
     const html = renderMarkdown('![Tote](/images/media/tote.webp)');
     expect(html).toContain('loading="lazy"');

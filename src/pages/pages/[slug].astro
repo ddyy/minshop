@@ -3,6 +3,7 @@ import { env } from 'cloudflare:workers';
 import Layout from '../../layouts/Layout.astro';
 import { getConfig } from '../../config';
 import { getPublishedPageBySlug } from '../../features/pages/db';
+import { pageImageDimensions } from '../../features/media/db';
 import { renderMarkdown, markdownExcerpt } from '../../features/pages/markdown';
 import { normalizePageLayout, pageLayoutStyle } from '../../features/pages/layouts';
 
@@ -21,7 +22,13 @@ if (!page) {
   });
 }
 
-const html = renderMarkdown(page.body_markdown, { baseUrl: getConfig().images.baseUrl });
+// One indexed read, on an edge-cached route, so body images can carry their
+// intrinsic size and stop shifting the layout when they load.
+const dimensions = await pageImageDimensions(env.DB, page.id);
+const html = renderMarkdown(page.body_markdown, {
+  baseUrl: getConfig().images.baseUrl,
+  dimensions,
+});
 const description = markdownExcerpt(page.body_markdown);
 const layout = normalizePageLayout(page.layout);
 ---
