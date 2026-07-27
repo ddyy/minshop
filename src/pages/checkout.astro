@@ -113,6 +113,19 @@ const carry = Number.isInteger(productId) && productId > 0 ? String(productId) :
 const carryVariantId = buyNowVariantId > 0 ? String(buyNowVariantId) : '';
 const carryExtraIds = buyNowExtraIds;
 
+const editAddressHref = (() => {
+  const params = new URLSearchParams({ method: rail });
+  if (carry) params.set('product_id', carry);
+  if (carryVariantId) params.set('variant_id', carryVariantId);
+  for (const id of carryExtraIds) params.append('extra', String(id));
+  return `/checkout?${params}`;
+})();
+const RAIL_LABEL: Record<InAppRail, string> = {
+  lightning: 'Pay with Lightning',
+  opennode: 'Pay with Bitcoin',
+  demo: 'Place demo order',
+};
+
 const addr = {
   email: fld('email'),
   name: fld('name'),
@@ -321,7 +334,7 @@ const hasErrors = errors.length > 0;
               {addr.name}, {addr.line1}
               {addr.line2 ? `, ${addr.line2}` : ''}, {addr.city} {addr.state} {addr.postal}, {addr.country}
             </div>
-            <a href="/checkout" class="mt-2 inline-block text-xs font-medium text-accent">
+            <a href={editAddressHref} class="mt-2 inline-block text-xs font-medium text-accent">
               Edit address
             </a>
           </div>
@@ -346,7 +359,7 @@ const hasErrors = errors.length > 0;
             type="submit"
             class="w-full rounded-md bg-brand px-4 py-2.5 font-medium text-white hover:bg-brand-hover"
           >
-            Pay with Lightning →
+            {RAIL_LABEL[rail]} →
           </button>
         </form>
       ) : (

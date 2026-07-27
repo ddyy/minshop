@@ -68,6 +68,25 @@ describe('parseRuntimeShippingConfig', () => {
     const parsed = parseRuntimeShippingConfig(JSON.stringify({ ...doc(), revision: 'x' }));
     expect(parsed.status).toBe('invalid');
   });
+  it('rejects a schema 2 document with a non-boolean enabled', () => {
+    // Coercing this to `false` would read as "the merchant switched shipping off"
+    // and bypass checkout entirely — the opposite of failing closed.
+    const parsed = parseRuntimeShippingConfig(JSON.stringify({ ...doc(), enabled: 'yes' }));
+    expect(parsed.status).toBe('invalid');
+  });
+  it('rejects a schema 2 document with malformed zones or rates', () => {
+    expect(parseRuntimeShippingConfig(JSON.stringify({ ...doc(), zones: 'US' })).status).toBe('invalid');
+    const badZone = doc({ zones: [{ ...doc().zones[0]!, countries: [1, 2] } as never] });
+    expect(parseRuntimeShippingConfig(JSON.stringify(badZone)).status).toBe('invalid');
+    const badRate = doc({ zones: [{ ...doc().zones[0]!, rates: [{ label: 'X' }] as never }] });
+    expect(parseRuntimeShippingConfig(JSON.stringify(badRate)).status).toBe('invalid');
+  });
+  it('rejects a schema 2 document with an invalid packaging weight', () => {
+    const parsed = parseRuntimeShippingConfig(
+      JSON.stringify({ ...doc(), packageWeightGrams: '40' }),
+    );
+    expect(parsed.status).toBe('invalid');
+  });
   it('normalizes a schema 1 flat rate in memory', () => {
     const legacy = {
       schema: 1,
@@ -145,6 +164,18 @@ describe('effectiveShippingConfig', () => {
     const effective = effectiveShippingConfig(overCap, { status: 'absent' }, null);
     expect(effective.config.zones).toEqual([]);
     expect(effective.issue?.source).toBe('build-time');
+  });
+  it('accepts a legacy threshold-only zone with no rates', () => {
+    // The calculator has always synthesized free shipping for these; the Admin
+    // editor requires a rate, but that rule must not retire a working store.
+    const thresholdOnly: ShippingConfig = {
+      enabled: true,
+      zones: [{ countries: ['US'], rates: [], freeOverCents: 5000 }],
+    };
+    expect(validateBuildTimeShipping(thresholdOnly)).toBeNull();
+    const effective = effectiveShippingConfig(thresholdOnly, { status: 'absent' }, null);
+    expect(effective.issue).toBeNull();
+    expect(effective.config.zones).toHaveLength(1);
   });
   it('accepts an ordinary build-time configuration', () => {
     expect(validateBuildTimeShipping(buildTime)).toBeNull();

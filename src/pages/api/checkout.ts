@@ -560,28 +560,36 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
       }
     : undefined;
 
-  // Lightning + shipping: the agent supplies a `ship_to` address (the JSON API has
-  // no interactive step). We price shipping for that country, capture the address,
-  // and mint an invoice whose total includes shipping — mirroring the /checkout page.
-  if (method === 'lightning' && shippingOn) {
-    const shipTo = parseShipTo((body as { ship_to?: unknown }).ship_to);
+  // The JSON API has no interactive step, so every rail that cannot collect an
+  // address on a hosted page takes it as `ship_to` here: the agent supplies the
+  // address, we price THAT country, and the chosen rate travels with the charge.
+  // Without this, OpenNode and Demo reached their adapters with an unselected list
+  // and charged nothing for shipping.
+  const IN_APP_JSON_RAILS = ['lightning', 'opennode', 'demo'];
+  const needsShipTo = shippingOn && IN_APP_JSON_RAILS.includes(method);
+  let shipTo: ReturnType<typeof parseShipTo> = null;
+  let chosen: { label: string; amountCents: number } | undefined;
+  let inAppQuote: ReturnType<typeof quoteFor> | null = null;
+
+  if (needsShipTo) {
+    shipTo = parseShipTo((body as { ship_to?: unknown }).ship_to);
     if (!shipTo) {
       return cjson(
         {
-          error: 'A shipped Lightning order needs a "ship_to" address: { email, name, line1, city, postal, country }.',
+          error: `A shipped ${method} order needs a "ship_to" address: { email, name, line1, city, postal, country }.`,
           available_methods: available,
         },
         400,
       );
     }
-    const lnQuote = quoteFor(shipTo.country);
-    const shipOptions = lnQuote.options;
-    if (shipOptions.length === 0) return shippingProblem(shipTo.country, lnQuote);
+    inAppQuote = quoteFor(shipTo.country);
+    const shipOptions = inAppQuote.options;
+    if (shipOptions.length === 0) return shippingProblem(shipTo.country, inAppQuote);
     const wantLabel =
       typeof (body as { shipping_label?: unknown }).shipping_label === 'string'
         ? (body as { shipping_label: string }).shipping_label
         : null;
-    const chosen = wantLabel ? shipOptions.find((o) => o.label === wantLabel) : shipOptions[0];
+    chosen = wantLabel ? shipOptions.find((o) => o.label === wantLabel) : shipOptions[0];
     if (!chosen) {
       return cjson(
         {
@@ -591,6 +599,9 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
         400,
       );
     }
+  }
+
+  if (method === 'lightning' && shippingOn && shipTo && chosen && inAppQuote) {
     const lnPublicId = crypto.randomUUID();
     const lnReserved = await reserveInventory(
       env.DB,
@@ -608,7 +619,7 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
         subtotalCents,
         shippingCents: chosen.amountCents,
         shippingLabel: chosen.label,
-        shippingWeightGrams: lnQuote.shipmentWeightGrams,
+        shippingWeightGrams: inAppQuote.shipmentWeightGrams,
         itemsJson: JSON.stringify(
           lines.map((l) => ({ id: l.product.id, v: l.variantId, q: l.qty, n: l.name, p: l.unitPriceCents })),
         ),
@@ -690,7 +701,25 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
       })),
       successUrl: `${origin}/order/${publicId}`,
       cancelUrl: `${origin}/`,
-      shipping,
+      shipping: method === 'stripe' ? shipping : undefined,
+      ...(chosen &&
+        shipTo && {
+          selectedShipping: {
+            label: chosen.label,
+            amountCents: chosen.amountCents,
+            weightGrams: inAppQuote?.shipmentWeightGrams ?? null,
+            address: {
+              name: shipTo.name,
+              line1: shipTo.line1,
+              line2: shipTo.line2,
+              city: shipTo.city,
+              state: shipTo.state,
+              postal: shipTo.postal,
+              country: shipTo.country,
+            },
+            email: shipTo.email,
+          },
+        }),
       allowPromotionCodes: jsonSettings.discountsEnabled ?? cfg.discounts.enabled,
       automaticTax: jsonSettings.taxEnabled ?? cfg.tax.enabled,
       orderItemsJson: JSON.stringify(

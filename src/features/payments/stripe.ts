@@ -6,26 +6,7 @@ import type {
   WebhookResult,
 } from './provider';
 import { STRIPE_CHECKOUT_TTL_SECONDS } from './provider';
-import { COUNTRY_CODES } from '../shipping/countries';
-
-/**
- * Countries Stripe Checkout will collect an address for.
- *
- * A "rest of world" zone has no explicit codes, and an EMPTY `allowed_countries`
- * is an API error rather than "anywhere" — so expand the catch-all here, at the
- * provider boundary, instead of leaking Stripe's limits into the zone calculator.
- * A denylist (not a ~190-entry allowlist) means a newly supported country starts
- * working by deleting a line, and nothing silently stops working on an SDK bump.
- */
-const STRIPE_UNSUPPORTED = new Set([
-  // Sanctioned or otherwise unsupported destinations for Stripe Checkout.
-  'AQ', 'BV', 'CU', 'HM', 'IR', 'KP', 'SY', 'TF', 'UM', 'GS', 'IO', 'PN', 'SJ', 'EH',
-]);
-
-export function stripeAllowedCountries(explicit: string[], hasCatchAll: boolean): string[] {
-  const codes = hasCatchAll ? COUNTRY_CODES : explicit;
-  return codes.map((c) => c.toUpperCase()).filter((c) => !STRIPE_UNSUPPORTED.has(c));
-}
+import { stripeAllowedCountries } from './stripeCountries.ts';
 
 // Shipping details have moved across Stripe API versions (session.shipping_details
 // → session.collected_information.shipping_details); this is the shape we read.

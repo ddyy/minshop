@@ -111,7 +111,10 @@ export const POST: APIRoute = async ({ request, params, redirect, locals }) => {
   await setProductCategories(env.DB, id, categoryIds);
 
   // Variants + extras edited inline on the same form (no-op if none submitted).
-  await applyVariantForm(env.DB, id, form, parsed.data.currency, weightUnit);
+  // A bad variant weight is reported rather than dropped: applyVariantForm
+  // validates every weight before it writes anything.
+  const variantResult = await applyVariantForm(env.DB, id, form, parsed.data.currency, weightUnit);
+  if (variantResult.error) return fail(variantResult.error);
 
   // Re-embed for semantic search (no-op unless vector search is on).
   try {

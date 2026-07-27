@@ -248,7 +248,7 @@ export async function applyVariantForm(
   form: FormData,
   currency: string,
   weightUnit: WeightUnit = 'g',
-): Promise<void> {
+): Promise<{ error?: string }> {
   const str = (name: string) => form.getAll(name).map((v) => String(v));
   const ids = (name: string) =>
     new Set(form.getAll(name).map((v) => Number(v)).filter((n) => Number.isInteger(n) && n > 0));
@@ -261,14 +261,34 @@ export async function applyVariantForm(
     return Number.isInteger(n) && n > 0 ? n : 0;
   };
   // Blank inherits the product's weight; an explicit 0 is a known weight and must
-  // survive as 0 rather than collapsing back to "inherit". Unparseable input keeps
-  // the row's existing value rather than silently zeroing it.
-  const weight = (s: string): number | null | undefined => {
+  // survive as 0 rather than collapsing back to "inherit".
+  const weight = (s: string): number | null => {
     const parsed = toGrams(String(s ?? ''), weightUnit);
-    if (parsed.status === 'blank') return null;
-    if (parsed.status === 'ok') return parsed.grams;
-    return undefined;
+    return parsed.status === 'ok' ? parsed.grams : null;
   };
+
+  // Validate every weight BEFORE any write. Silently dropping a mistyped weight
+  // and redirecting to a success page tells the merchant the value was saved when
+  // it was not — and under weight pricing that is a mis-quoted order.
+  const weightErrors = form
+    .getAll('v_weight')
+    .map((raw, index) => ({ index, parsed: toGrams(String(raw), weightUnit) }))
+    .filter((r) => r.parsed.status === 'error');
+  if (weightErrors.length > 0) {
+    const first = weightErrors[0]!;
+    const reason = first.parsed.status === 'error' ? first.parsed.reason : 'not_number';
+    return {
+      error: `Variant ${first.index + 1}: ${
+        reason === 'negative'
+          ? 'weight cannot be negative.'
+          : reason === 'precision'
+            ? `weight has too many decimal places for ${weightUnit}.`
+            : reason === 'over_limit'
+              ? 'weight is too heavy for parcel shipping.'
+              : 'weight must be a number.'
+      }`,
+    };
+  }
 
   // The variant group label (null clears it).
   await setVariantLabel(db, productId, String(form.get('variant_group_label') ?? '').trim() || null);
@@ -309,12 +329,7 @@ export async function applyVariantForm(
     if (Number.isInteger(id) && id > 0) {
       if (!label) continue; // a cleared label on an existing row → ignore (use Remove to delete)
       const v = await getVariant(db, id);
-      if (v && v.product_id === productId) {
-        await updateVariant(db, id, {
-          ...fields,
-          weight_grams: parsedWeight === undefined ? v.weight_grams : parsedWeight,
-        });
-      }
+      if (v && v.product_id === productId) await updateVariant(db, id, fields);
     } else if (label) {
       await createVariant(db, productId, fields);
     }
@@ -342,6 +357,7 @@ export async function applyVariantForm(
       await createExtra(db, productId, fields);
     }
   }
+  return {};
 }
 
 /** Decrement a variant's stock (clamped at 0) — the variant is the inventory unit. */

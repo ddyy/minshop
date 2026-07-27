@@ -3,7 +3,8 @@ import { env } from 'cloudflare:workers';
 import Layout from '../layouts/Layout.astro';
 import { formatPrice } from '../config';
 import { readCart, resolveCart } from '../features/cart/cart';
-import { allowedCountries } from '../features/shipping/calculator';
+import { allowedCountries, hasCatchAllZone } from '../features/shipping/calculator';
+import { COUNTRY_CODES, countryName } from '../features/shipping/countries';
 import { shippingFor } from '../features/shipping/effective';
 import { shipmentWeightFor } from '../features/shipping/lines';
 import ProductImage from '../features/products/ProductImage.astro';
@@ -42,12 +43,20 @@ const error = Astro.url.searchParams.get('error');
 // the zones and the on/off switch. An all-digital cart never needs a destination,
 // so the selector is also gated on some line actually requiring shipping.
 const effectiveShipping = shippingFor(settings).config;
+// A "rest of world" zone means every country is shippable, so the selector must
+// offer them all. Listing only the EXPLICIT codes would price the session from the
+// first zone (and hide the selector entirely when there is one) while Stripe still
+// accepts an address from anywhere — quoting US rates for a Canadian delivery.
+const shipsAnywhere = hasCatchAllZone(effectiveShipping);
 const shipCountries =
   effectiveShipping.enabled &&
   shipmentWeightFor(lines).shippingRequired &&
   settings?.paymentProvider !== 'lightning'
-    ? allowedCountries(effectiveShipping)
+    ? shipsAnywhere
+      ? [...COUNTRY_CODES]
+      : allowedCountries(effectiveShipping)
     : [];
+const countryLabel = (code: string) => (shipsAnywhere ? `${countryName(code)} (${code})` : code);
 const showCountry = shipCountries.length > 1;
 // The catalog is at / until the home page is pointed elsewhere.
 const shopHref = catalogPath(Astro.locals.settings?.homePage);
@@ -176,7 +185,7 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
                     class="rounded-md border border-gray-200 px-2 py-1.5 text-sm normal-case tracking-normal text-gray-900"
                   >
                     {shipCountries.map((c) => (
-                      <option value={c}>{c}</option>
+                      <option value={c}>{countryLabel(c)}</option>
                     ))}
                   </select>
                 </label>

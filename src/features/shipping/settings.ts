@@ -351,12 +351,47 @@ export function parseRuntimeShippingConfig(
     return { status: 'invalid', raw, error: 'The shipping configuration has no valid revision.' };
   }
 
-  // Schema 1 predates pricing modes and the package allowance; normalize both in
-  // memory so an older document keeps working without being rewritten.
+  // Coercion is a SCHEMA 1 MIGRATION, not a parser. Applying it to a schema 2
+  // document would turn corrupt values into plausible ones — `enabled: "yes"`
+  // becoming `false` reads as "the merchant switched shipping off" and bypasses
+  // checkout silently, which is the opposite of failing closed. So schema 2 is
+  // validated as written; only an explicit schema 1 upgrade fills in defaults.
+  const isLegacy = doc.schema < 2;
+  if (!isLegacy) {
+    if (typeof doc.enabled !== 'boolean') {
+      return { status: 'invalid', raw, error: 'The shipping configuration has no valid on/off value.' };
+    }
+    if (!Number.isSafeInteger(doc.packageWeightGrams)) {
+      return { status: 'invalid', raw, error: 'The shipping configuration has an invalid packaging weight.' };
+    }
+    if (!Array.isArray(doc.zones)) {
+      return { status: 'invalid', raw, error: 'The shipping configuration has no zone list.' };
+    }
+    for (const zone of doc.zones) {
+      if (
+        typeof zone?.name !== 'string' ||
+        !Array.isArray(zone?.countries) ||
+        !zone.countries.every((c) => typeof c === 'string') ||
+        !Array.isArray(zone?.rates) ||
+        (zone.freeOverCents !== null && typeof zone.freeOverCents !== 'number')
+      ) {
+        return { status: 'invalid', raw, error: 'The shipping configuration has a malformed zone.' };
+      }
+      for (const rate of zone.rates) {
+        if (typeof rate?.label !== 'string' || rate?.pricing == null) {
+          return { status: 'invalid', raw, error: 'The shipping configuration has a malformed rate.' };
+        }
+      }
+    }
+  } else if (typeof doc.enabled !== 'boolean') {
+    return { status: 'invalid', raw, error: 'The shipping configuration has no valid on/off value.' };
+  }
+
   const normalized: RuntimeShippingConfig = {
     schema: doc.schema,
     revision: doc.revision as number,
-    enabled: doc.enabled === true,
+    enabled: doc.enabled as boolean,
+    // Schema 1 predates the package allowance and pricing modes; fill both in.
     packageWeightGrams: Number.isSafeInteger(doc.packageWeightGrams)
       ? (doc.packageWeightGrams as number)
       : 0,
@@ -422,7 +457,14 @@ export function validateBuildTimeShipping(cfg: ShippingConfig): string | null {
   };
   // A disabled store with no zones is a legitimate resting state, not a fault.
   if (!asDocument.enabled && asDocument.zones.length === 0) return null;
-  const errors = validateShippingDocument(asDocument).filter((e) => e.field !== 'name');
+  const errors = validateShippingDocument(asDocument).filter(
+    (e) =>
+      // Build-time zones have no names, and a threshold-only zone with no rates is
+      // legal there (the calculator still synthesizes free shipping for it) even
+      // though the Admin editor requires a rate. Neither is a reason to stop
+      // selling for a store that has always worked.
+      e.field !== 'name' && e.message !== 'Add at least one shipping rate.',
+  );
   return errors.length > 0 ? errors[0]!.message : null;
 }
 

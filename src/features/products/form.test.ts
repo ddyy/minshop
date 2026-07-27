@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseProductForm } from './form';
+import { toGrams } from '../shipping/weight';
 
 function form(data: Record<string, string>): FormData {
   const f = new FormData();
@@ -90,5 +91,20 @@ describe('parseProductForm', () => {
     // A digital product is never blocked by weight pricing.
     const digital = { name: 'X', price: '5', stock: '1', active: 'on' };
     expect('data' in parseProductForm(form(digital), { requireWeight: true })).toBe(true);
+  });
+});
+
+describe('variant weight input', () => {
+  // applyVariantForm validates with the same parser before it writes anything;
+  // these pin the reasons it must refuse rather than silently drop.
+  it('refuses the inputs that used to be discarded', () => {
+    expect(toGrams('heavy', 'g').status).toBe('error');
+    expect(toGrams('-1', 'g').status).toBe('error');
+    expect(toGrams('0.5', 'g').status).toBe('error');
+    expect(toGrams('2000', 'kg').status).toBe('error');
+  });
+  it('still treats blank as inherit and zero as a known weight', () => {
+    expect(toGrams('', 'g')).toEqual({ status: 'blank' });
+    expect(toGrams('0', 'g')).toEqual({ status: 'ok', grams: 0 });
   });
 });
