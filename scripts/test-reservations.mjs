@@ -9,6 +9,11 @@ import {
 } from '../src/features/orders/reservations.ts';
 import { recordPaidOrder } from '../src/features/orders/db.ts';
 import { pendingToPaidOrder } from '../src/features/payments/lightning/pending.ts';
+import {
+  claimNotification,
+  markNotificationSent,
+  MAX_ATTEMPTS,
+} from '../src/features/email/outboxStore.ts';
 
 const mf = new Miniflare({
   modules: true,
@@ -201,6 +206,56 @@ try {
   // ...and no outbox rows either: no order, no email intent. (4 = the two
   // successful orders above × two kinds; the blocked one added none.)
   assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM order_notifications').first()).n, 4);
+
+  // Outbox state machine against REAL D1 — the exact statements outboxStore.ts
+  // ships, not a unit-test interpretation of them: claim exclusivity, expired-
+  // lease reclaim, the fencing token, and the spent-attempts park.
+  const nid = (await db
+    .prepare("SELECT id FROM orders WHERE provider_session_id = 'legacy-payment'")
+    .first()).id;
+  const KIND = 'customer-receipt';
+  const notifRow = () =>
+    db
+      .prepare('SELECT state, attempts, lease_expires_at FROM order_notifications WHERE order_id = ? AND kind = ?')
+      .bind(nid, KIND)
+      .first();
+
+  // Claim wins once; a second claim against the live lease loses.
+  assert.equal(await claimNotification(db, nid, KIND), 1);
+  assert.equal(await claimNotification(db, nid, KIND), null);
+  assert.equal((await notifRow()).state, 'processing');
+
+  // Lease expires → reclaimable, attempts advance.
+  await db
+    .prepare("UPDATE order_notifications SET lease_expires_at = datetime('now', '-1 minute') WHERE order_id = ? AND kind = ?")
+    .bind(nid, KIND)
+    .run();
+  assert.equal(await claimNotification(db, nid, KIND), 2);
+
+  // Fencing: the stale claim's completion (token 1) must NOT stick...
+  await markNotificationSent(db, nid, KIND, 1);
+  assert.equal((await notifRow()).state, 'processing');
+  // ...while the live claim's (token 2) does.
+  await markNotificationSent(db, nid, KIND, 2);
+  assert.equal((await notifRow()).state, 'sent');
+
+  // Spent-attempts park: an abandoned claim with no attempts left goes dead
+  // instead of being reclaimed forever.
+  await db
+    .prepare(
+      `UPDATE order_notifications
+          SET state = 'processing', attempts = ?, lease_expires_at = datetime('now', '-1 minute'), last_error = NULL
+        WHERE order_id = ? AND kind = 'owner-notification'`,
+    )
+    .bind(MAX_ATTEMPTS, nid)
+    .run();
+  assert.equal(await claimNotification(db, nid, 'owner-notification'), null);
+  const parked = await db
+    .prepare("SELECT state, last_error FROM order_notifications WHERE order_id = ? AND kind = 'owner-notification'")
+    .bind(nid)
+    .first();
+  assert.equal(parked.state, 'dead');
+  assert.match(parked.last_error, /interrupted/);
 
   console.log('Reservation integration passed: concurrency + pending + release + settlement + legacy + batched pending settle');
 } finally {

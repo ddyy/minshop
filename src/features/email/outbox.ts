@@ -1,4 +1,13 @@
 import type { D1Database } from '@cloudflare/workers-types';
+import {
+  NOTIFICATION_KINDS,
+  claimNotification as claim,
+  markNotificationSent as markSent,
+  markNotificationSkipped as markSkipped,
+  markNotificationFailed as markFailed,
+} from './outboxStore';
+
+export { NOTIFICATION_KINDS, type NotificationKind } from './outboxStore';
 import { getConfig } from '../../config';
 import { getStoreSettings, type StoreSettings } from '../settings/db';
 import { getOrder, listOrderItemsWithImages } from '../orders/db';
@@ -16,129 +25,16 @@ import { shouldSendCustomerOrderEmail } from './orderPolicy';
  * absorbs that for 24h; the Cloudflare binding has no equivalent). The claim
  * is a conditional UPDATE, so the concurrent deliverers — settlement itself,
  * a webhook redelivery, the piggyback sweep — cannot double-send a live row.
+ *
+ * The state-machine SQL itself lives in outboxStore.ts, dependency-free so the
+ * reservations integration script exercises it against a real D1.
  */
 
-export const NOTIFICATION_KINDS = ['customer-receipt', 'owner-notification'] as const;
-export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
-
-/** Attempts after which a row is abandoned as 'dead' (last_error says why). */
-const MAX_ATTEMPTS = 5;
-/** Claim lease. A deliverer that dies mid-send frees its row this much later. */
-const LEASE_SECONDS = 120;
 /** Rows younger than this are left to their own settlement's deliverer. */
 const SWEEP_MIN_AGE_SECONDS = 120;
 /** Stale rows recovered per sweep. Small on purpose: the sweep piggybacks on
  *  live settlements, and one slow backlog must not snowball into them. */
 const SWEEP_BATCH = 3;
-
-/**
- * Claim one row: pending, or processing with an expired lease (a dead
- * deliverer's abandoned claim). Exactly one concurrent caller wins. Returns
- * the attempt number, or null when there is nothing to claim (row absent,
- * already sent/skipped/dead, or validly leased by someone else).
- */
-async function claim(
-  db: D1Database,
-  orderId: number,
-  kind: NotificationKind,
-): Promise<number | null> {
-  // An abandoned claim (deliverer cancelled mid-send — waitUntil is bounded to
-  // ~30s after the response) consumed its attempt at claim time. Once the
-  // attempts are spent, park the row instead of reclaiming it forever: HTTP
-  // cancellation is exactly the failure mode this table exists to bound.
-  await db
-    .prepare(
-      `UPDATE order_notifications
-          SET state = 'dead', lease_expires_at = NULL,
-              last_error = COALESCE(last_error, 'delivery repeatedly interrupted (lease expired)')
-        WHERE order_id = ? AND kind = ? AND state = 'processing'
-          AND lease_expires_at < datetime('now') AND attempts >= ${MAX_ATTEMPTS}`,
-    )
-    .bind(orderId, kind)
-    .run();
-  const row = await db
-    .prepare(
-      `UPDATE order_notifications
-          SET state = 'processing',
-              attempts = attempts + 1,
-              lease_expires_at = datetime('now', '+${LEASE_SECONDS} seconds')
-        WHERE order_id = ? AND kind = ? AND attempts < ${MAX_ATTEMPTS}
-          AND (state = 'pending'
-               OR (state = 'processing' AND lease_expires_at < datetime('now')))
-        RETURNING attempts`,
-    )
-    .bind(orderId, kind)
-    .first<{ attempts: number }>();
-  return row?.attempts ?? null;
-}
-
-// Every completion update carries the claim's attempt number as a FENCING
-// token (`AND attempts = ?`): if worker A's lease expired and worker B
-// reclaimed the row (incrementing attempts), a late-resuming A no longer
-// matches and cannot clear B's live lease or mark B's work terminal.
-
-async function markSent(
-  db: D1Database,
-  orderId: number,
-  kind: NotificationKind,
-  attempts: number,
-): Promise<void> {
-  await db
-    .prepare(
-      `UPDATE order_notifications
-          SET state = 'sent', sent_at = datetime('now'), lease_expires_at = NULL, last_error = NULL
-        WHERE order_id = ? AND kind = ? AND state = 'processing' AND attempts = ?`,
-    )
-    .bind(orderId, kind, attempts)
-    .run();
-}
-
-async function markSkipped(
-  db: D1Database,
-  orderId: number,
-  kind: NotificationKind,
-  attempts: number,
-): Promise<void> {
-  await db
-    .prepare(
-      `UPDATE order_notifications
-          SET state = 'skipped', lease_expires_at = NULL
-        WHERE order_id = ? AND kind = ? AND state = 'processing' AND attempts = ?`,
-    )
-    .bind(orderId, kind, attempts)
-    .run();
-}
-
-/**
- * Failure: release for retry, or park as 'dead' once attempts are exhausted
- * (or immediately, for conditions no retry can cure — `terminal`). `attempts`
- * is always the claim's own number: it is the fencing token, never a way to
- * force a state.
- */
-async function markFailed(
-  db: D1Database,
-  orderId: number,
-  kind: NotificationKind,
-  attempts: number,
-  error: unknown,
-  terminal = false,
-): Promise<void> {
-  const message = error instanceof Error ? error.message : String(error);
-  await db
-    .prepare(
-      `UPDATE order_notifications
-          SET state = ?, lease_expires_at = NULL, last_error = ?
-        WHERE order_id = ? AND kind = ? AND state = 'processing' AND attempts = ?`,
-    )
-    .bind(
-      terminal || attempts >= MAX_ATTEMPTS ? 'dead' : 'pending',
-      message.slice(0, 500),
-      orderId,
-      kind,
-      attempts,
-    )
-    .run();
-}
 
 /**
  * Deliver whatever undelivered notifications an order still has. Safe to call
@@ -190,7 +86,12 @@ export async function deliverOrderNotifications(
         kind === 'customer-receipt'
           ? orderConfirmationEmail(order, items, origin, storeName, s.imageDelivery)
           : orderNotificationEmail(order, items, notifyTo!, origin, storeName, s.imageDelivery);
-      await emailer.send({ ...msg, idempotencyKey: `${kind}/${orderId}` });
+      // Keyed on public_id, not the row id: D1 ids restart per store, so two
+      // stores sharing one Resend account would both mint customer-receipt/1 —
+      // and Resend 409s a reused key with a different payload, walking the
+      // second store's row to 'dead'. public_id is globally random; the id
+      // fallback is only for pre-0005 legacy rows without one.
+      await emailer.send({ ...msg, idempotencyKey: `${kind}/${order.public_id ?? orderId}` });
       await markSent(db, orderId, kind, attempts);
     } catch (err) {
       console.error(`Order notification ${kind}/${orderId} failed:`, err);

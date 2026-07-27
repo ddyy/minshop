@@ -114,7 +114,8 @@ const SETTINGS = {
   imageDelivery: 'original',
 } as never;
 
-const ORDER = { id: 7, email: 'buyer@example.com', payment_method: 'stripe' };
+const PUBLIC_ID = 'a3d54f80-9c1e-4b7d-8f2a-6c0d9e1b2a34';
+const ORDER = { id: 7, public_id: PUBLIC_ID, email: 'buyer@example.com', payment_method: 'stripe' };
 
 function freshRows(): Row[] {
   return ['customer-receipt', 'owner-notification'].map((kind) => ({
@@ -137,10 +138,22 @@ describe('deliverOrderNotifications', () => {
     send.mockResolvedValue(undefined);
   });
 
-  it('sends both kinds and marks them sent, with per-notification keys', async () => {
+  it('sends both kinds and marks them sent, keyed on the globally-unique public id', async () => {
     const rows = freshRows();
     await deliverOrderNotifications(fakeDb(rows), 7, 'https://x', SETTINGS);
     expect(rows.map((r) => r.state)).toEqual(['sent', 'sent']);
+    // public_id, NOT the numeric row id: D1 ids restart per store, and two
+    // stores sharing a Resend account must never mint the same key.
+    expect(send.mock.calls.map(([m]) => m.idempotencyKey)).toEqual([
+      `customer-receipt/${PUBLIC_ID}`,
+      `owner-notification/${PUBLIC_ID}`,
+    ]);
+  });
+
+  it('falls back to the numeric id only for legacy orders without a public id', async () => {
+    vi.mocked(getOrder).mockResolvedValue({ ...ORDER, public_id: null } as never);
+    const rows = freshRows();
+    await deliverOrderNotifications(fakeDb(rows), 7, 'https://x', SETTINGS);
     expect(send.mock.calls.map(([m]) => m.idempotencyKey)).toEqual([
       'customer-receipt/7',
       'owner-notification/7',
