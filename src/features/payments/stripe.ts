@@ -6,6 +6,7 @@ import type {
   WebhookResult,
 } from './provider';
 import { STRIPE_CHECKOUT_TTL_SECONDS } from './provider';
+import { stripeAllowedCountries } from './stripeCountries.ts';
 
 // Shipping details have moved across Stripe API versions (session.shipping_details
 // → session.collected_information.shipping_details); this is the shape we read.
@@ -56,13 +57,24 @@ export function createStripeProvider(
         })),
         success_url: params.successUrl,
         cancel_url: params.cancelUrl,
-        ...(params.metadata && { metadata: params.metadata }),
+        ...((params.metadata || params.shipping?.shipmentWeightGrams != null) && {
+          metadata: {
+            ...(params.metadata ?? {}),
+            // Stripe picks the rate AFTER the session exists, so the weight it was
+            // priced at has to travel with the session to reach the order.
+            ...(params.shipping?.shipmentWeightGrams != null && {
+              shipping_weight_grams: String(params.shipping.shipmentWeightGrams),
+            }),
+          },
+        }),
         ...(params.allowPromotionCodes && { allow_promotion_codes: true }),
         ...(params.automaticTax && { automatic_tax: { enabled: true } }),
         ...(params.shipping && {
           shipping_address_collection: {
-            allowed_countries:
-              params.shipping.addressCountries as Stripe.Checkout.SessionCreateParams.ShippingAddressCollection.AllowedCountry[],
+            allowed_countries: stripeAllowedCountries(
+              params.shipping.addressCountries,
+              params.shipping.hasCatchAll === true,
+            ) as Stripe.Checkout.SessionCreateParams.ShippingAddressCollection.AllowedCountry[],
           },
           shipping_options: params.shipping.options.map((o) => ({
             shipping_rate_data: {
@@ -154,6 +166,25 @@ export function createStripeProvider(
         // sessions; `shipping_cost` is often undefined unless expanded.
         const shippingCents =
           session.total_details?.amount_shipping ?? session.shipping_cost?.amount_total ?? 0;
+        // WHICH service the customer picked is only knowable after the fact: the
+        // rate is chosen on Stripe's page. `display_name` is the label we sent as
+        // `shipping_rate_data.display_name`, so no duplicate metadata is needed.
+        let shippingLabel: string | null = null;
+        const rateRef = session.shipping_cost?.shipping_rate;
+        if (typeof rateRef === 'string') {
+          try {
+            shippingLabel = (await stripe.shippingRates.retrieve(rateRef)).display_name ?? null;
+          } catch {
+            // A missing rate must not fail an otherwise valid paid order.
+          }
+        } else if (rateRef && typeof rateRef === 'object') {
+          shippingLabel = rateRef.display_name ?? null;
+        }
+        const weightRaw = session.metadata?.shipping_weight_grams;
+        const shippingWeightGrams =
+          weightRaw != null && weightRaw !== '' && Number.isSafeInteger(Number(weightRaw))
+            ? Number(weightRaw)
+            : null;
         // Discount applied via a promotion code (0 when none).
         const discountCents = session.total_details?.amount_discount ?? 0;
         // Sales tax / VAT computed by Stripe Tax (0 when off/none).
@@ -194,6 +225,8 @@ export function createStripeProvider(
             email: session.customer_details?.email ?? null,
             amountTotalCents: session.amount_total ?? 0,
             shippingCents,
+            shippingLabel,
+            shippingWeightGrams,
             discountCents,
             taxCents,
             shippingAddress,

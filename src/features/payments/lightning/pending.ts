@@ -19,6 +19,10 @@ export interface PendingPayment {
   email: string | null;
   items: string | null; // JSON: [{ id, q, n, p }]
   shipping_cents: number;
+  /** Which service was chosen, and what the shipment weighed when it was priced.
+   *  Under weight bands the amount alone no longer explains itself. */
+  shipping_label: string | null;
+  shipping_weight_grams: number | null;
   ship_address: string | null; // JSON (ShippingAddress) or null
   /** Explicit link for post-0021 rows; null preserves legacy settlement. */
   reservation_id: string | null;
@@ -39,6 +43,8 @@ export interface NewPendingPayment {
   /** Pre-serialized JSON cart snapshot persisted server-side. */
   itemsJson: string | null;
   shippingCents?: number;
+  shippingLabel?: string | null;
+  shippingWeightGrams?: number | null;
   /** Pre-serialized JSON ShippingAddress, or null. */
   shipAddressJson?: string | null;
   /** Inventory hold created with this payment; absent for demo and legacy rows. */
@@ -50,8 +56,8 @@ export async function createPendingPayment(db: D1Database, p: NewPendingPayment)
   await db
     .prepare(
       `INSERT INTO pending_payments
-         (public_id, payment_hash, backend, bolt11, amount_sat, amount_total_cents, currency, email, items, shipping_cents, ship_address, expires_at, reservation_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (public_id, payment_hash, backend, bolt11, amount_sat, amount_total_cents, currency, email, items, shipping_cents, shipping_label, shipping_weight_grams, ship_address, expires_at, reservation_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       p.publicId,
@@ -64,6 +70,8 @@ export async function createPendingPayment(db: D1Database, p: NewPendingPayment)
       p.email,
       p.itemsJson,
       p.shippingCents ?? 0,
+      p.shippingLabel ?? null,
+      p.shippingWeightGrams ?? null,
       p.shipAddressJson ?? null,
       p.expiresAt,
       p.reservationId ?? null,
@@ -142,8 +150,12 @@ export function pendingToPaidOrder(p: PendingPayment): PaidOrderInput {
     email: p.email,
     amountTotalCents: p.amount_total_cents,
     shippingCents: p.shipping_cents,
+    shippingLabel: p.shipping_label,
+    shippingWeightGrams: p.shipping_weight_grams,
     shippingAddress,
     currency: p.currency,
     items,
+    // Settle this pending row inside the order batch — no separate round trip.
+    settlePaymentHash: p.payment_hash,
   };
 }

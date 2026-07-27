@@ -20,8 +20,11 @@ export function createDemoProvider(db: D1Database): PaymentProvider {
   return {
     async createCheckout(params: CreateCheckoutParams): Promise<CheckoutResult> {
       const subtotal = params.lineItems.reduce((s, li) => s + li.amountCents * li.quantity, 0);
-      // No address is collected in demo, so just take the first offered rate (if any).
-      const shippingCents = params.shipping?.options?.[0]?.amountCents ?? 0;
+      // The in-app step (/checkout) collects the address and the chosen rate before
+      // we get here, so demo exercises the merchant's REAL configuration. Without a
+      // selection there is nothing to charge — never fall back to options[0], which
+      // silently billed whichever rate happened to sort first.
+      const shippingCents = params.selectedShipping?.amountCents ?? 0;
       const publicId = params.metadata?.public_id ?? crypto.randomUUID();
       await createPendingPayment(db, {
         publicId,
@@ -31,10 +34,14 @@ export function createDemoProvider(db: D1Database): PaymentProvider {
         amountSat: null,
         amountTotalCents: subtotal + shippingCents,
         currency: params.lineItems[0]?.currency ?? 'usd',
-        email: null,
+        email: params.selectedShipping?.email ?? null,
         itemsJson: params.orderItemsJson ?? null,
         shippingCents,
-        shipAddressJson: null,
+        shippingLabel: params.selectedShipping?.label ?? null,
+        shippingWeightGrams: params.selectedShipping?.weightGrams ?? null,
+        shipAddressJson: params.selectedShipping
+          ? JSON.stringify(params.selectedShipping.address)
+          : null,
         expiresAt: null,
       });
       // Point at the unified self-rendered pay page, absolute (origin from successUrl).

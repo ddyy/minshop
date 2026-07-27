@@ -1,5 +1,10 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import { normalizeTimeZone } from './timeZone';
+import {
+  parseRuntimeShippingConfig,
+  type ParsedRuntimeShippingConfig,
+} from '../shipping/settings';
+import { isWeightUnit, type WeightUnit } from '../shipping/weight';
 
 /**
  * Runtime settings — the small set of values the setup wizard persists to D1 so
@@ -23,7 +28,9 @@ export type SettingKey =
   | 'accounts_enabled' // overrides config.features.accounts
   | 'image_optimize' // overrides config.images.optimizeOnUpload
   | 'image_delivery' // 'cloudflare' = responsive on-demand transforms; absent = originals
-  | 'shipping_enabled' // overrides config.shipping.enabled (zones/rates stay build-time)
+  | 'shipping_enabled' // LEGACY: overrides config.shipping.enabled. Only consulted while no shipping_config document exists.
+  | 'shipping_config' // the merchant-managed shipping document (JSON; see features/shipping/settings.ts)
+  | 'weight_unit' // 'g' | 'kg' | 'oz' | 'lb' — Admin input/display unit; storage is always grams
   | 'admin_password_hash' // PBKDF2 hash of the admin password (set at setup). NOT in StoreSettings — read only by the auth layer, never loaded into locals.
   // Integrations configured in the admin dashboard (non-secret halves; the keys
   // live encrypted in the vault — see features/secrets/store.ts).
@@ -97,7 +104,15 @@ export interface StoreSettings {
   imageOptimize: boolean | null;
   /** Product-image delivery. Original is the safe, zero-configuration default. */
   imageDelivery: 'original' | 'cloudflare';
+  /** LEGACY on/off switch. Consulted only when `shippingConfig` is absent — a
+   *  saved document owns `enabled` itself. */
   shippingEnabled: boolean | null;
+  /** The complete parse state, not a nullable config: absent (inherit build-time)
+   *  and invalid (fail closed) must stay distinguishable, and the invalid case
+   *  carries the raw value the Admin replacement flow needs. */
+  shippingConfig: ParsedRuntimeShippingConfig;
+  /** Unit the Admin forms read and write. Storage is always integer grams. */
+  weightUnit: WeightUnit;
   /** Turnstile bot challenge on (admin login + customer sign-in). Default off. */
   turnstileEnabled: boolean;
   /** Turnstile public sitekey, or null. (The secret lives in the vault.) */
@@ -191,6 +206,10 @@ export function parseStoreSettings(
     imageOptimize: map.get('image_optimize') == null ? null : map.get('image_optimize') === '1',
     imageDelivery: map.get('image_delivery') === 'cloudflare' ? 'cloudflare' : 'original',
     shippingEnabled: map.get('shipping_enabled') == null ? null : map.get('shipping_enabled') === '1',
+    // Parsed from the rows we already have — no extra query, and the storefront
+    // never has to decide what a malformed document means on its own.
+    shippingConfig: parseRuntimeShippingConfig(map.get('shipping_config')),
+    weightUnit: isWeightUnit(map.get('weight_unit')) ? (map.get('weight_unit') as WeightUnit) : 'g',
     turnstileEnabled: map.get('turnstile_enabled') === '1',
     turnstileSiteKey: map.get('turnstile_site_key') ?? null,
     paymentProvider:

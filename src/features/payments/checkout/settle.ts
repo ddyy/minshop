@@ -40,8 +40,9 @@ export async function settleDemoCheckout(
   if (!email) return { declined: 'A valid email is required.' };
   if (outcome === 'approve') {
     const order = { ...pendingToPaidOrder(pending), email };
+    // pendingToPaidOrder carries settlePaymentHash, so the pending row settles
+    // inside the order batch — no separate markPendingSettled round trip.
     await recordPaidWebhookOrder({ type: 'demo.paid', order }, origin, 'demo', settings);
-    await markPendingSettled(env.DB, pending.payment_hash);
     return { redirect: `/order/${pending.public_id}` };
   }
   return { declined: DECLINE[outcome] ?? DECLINE.decline };
@@ -66,6 +67,9 @@ export async function settleLightningOnLoad(pending: PendingPayment): Promise<bo
   if (!orderId && !(await getOrderByProviderSessionId(env.DB, order.providerSessionId))) {
     throw new Error(`Inventory reservation ${pending.public_id} is no longer active.`);
   }
-  await markPendingSettled(env.DB, pending.payment_hash);
+  // Won the settlement → the batch already marked the pending row. Lost it
+  // (webhook got there first) → that winner's batch marked it; settle again
+  // explicitly only in that race, as belt and braces for the redirect check.
+  if (!orderId) await markPendingSettled(env.DB, pending.payment_hash);
   return true;
 }

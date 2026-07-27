@@ -31,7 +31,7 @@ MCP dependencies. Use `--no-install` to only scaffold the files, or
 - **Categories** — nested (arbitrary-depth tree), many-to-many with products; storefront category pages with breadcrumbs + sub-category drill-down (recursive descendant queries)
 - **Admin** — products, categories, pages, media, orders, customers, fulfillment, CSV export, and runtime store settings
 - **Payments** — Stripe Checkout, self-hosted Bitcoin Lightning (phoenixd or LNbits), hosted OpenNode, or a built-in demo rail; configure enabled methods and the default in Admin (see [Payments](#payments))
-- **Shipping** — configurable zones, flat rates, and free-over-threshold rules; supported checkout flows capture the address and shipping cost on the order
+- **Shipping** — merchant-managed zones, flat **or weight-banded** rates, and free-over-threshold rules, edited in Admin with no redeploy; supported checkout flows capture the address, chosen service, and shipping cost on the order
 - **Discount codes** — promo-code field enabled from Admin; codes are created/managed in the Stripe Dashboard, and the applied discount is captured onto the order
 - **Tax** — sales tax / VAT via Stripe Tax (off by default — **activate Stripe Tax in the Dashboard first**); computed from the customer address and captured onto the order
 - **Order email** — confirmation email behind an `EmailProvider` seam with two adapters: **Resend** (HTTPS API, works on the Workers free plan) or **Cloudflare Email** (binding, paid plan); configured in Admin and a safe no-op until a provider is ready
@@ -173,7 +173,7 @@ Two ports, nested: the outer `PaymentProvider` (stripe / lightning / opennode) a
 
 **How settlement is trusted.** Lightning webhooks are treated as an untrusted *nudge* — on receipt minshop **re-polls the node** for the payment (the authority), so a forged webhook can't fake a sale. The `/pay` page also settles on load by polling, so it works even with no public webhook (e.g. local dev). Orders stay "paid-only": unpaid invoices live in a `pending_payments` table, never in `orders`.
 
-**Shipping (Lightning).** When shipping is enabled in Admin, the Lightning cart routes through minshop's own `/checkout` page — a server-rendered address + shipping-option step (zone-based rates from `store.config.ts`, see [Shipping](#shipping-and-order-email)) — so the invoice total includes shipping and the address + email land on the order, same as Stripe. Programmatic checkout accepts the same address as a `ship_to` object. (Stripe keeps its own hosted address/shipping collection, unchanged.)
+**Shipping (in-app rails).** When shipping is enabled in Admin, the Lightning, OpenNode, and Demo carts route through minshop's own `/checkout` page — a server-rendered address + shipping-option step (zone-based rates from `store.config.ts`, see [Shipping](#shipping-and-order-email)) — so the invoice total includes shipping and the address + email land on the order, same as Stripe. Programmatic checkout accepts the same address as a `ship_to` object. (Stripe keeps its own hosted address/shipping collection, unchanged.)
 
 **Limitations (Lightning).** **Tax** and promo codes are still Stripe-Checkout features and are skipped on the Lightning path — to charge tax on a non-Stripe rail you'd compute it yourself (e.g. Stripe's Tax *Calculation* API) and add it to the total. No automatic refunds (Lightning can't reverse in place). Invoices are priced in sats from a BTC spot rate fetched at checkout (`payments.lightning.rateUrl`, default Coinbase — no key).
 
@@ -317,7 +317,11 @@ hardening for a high-traffic paid deployment.
 
 ### Shipping and order email
 
-- **Shipping** — switch it on or off in **Admin → Settings**. Define destination **`zones`** in `src/store.config.ts` (provider-agnostic, see `features/shipping/calculator`). Each zone has `countries` (ISO alpha-2, or `['*']` catch-all, matched top-to-bottom), `rates` (label + amount), and `freeOverCents` (a $0 "Free shipping" option once the subtotal qualifies; `null` to disable). The same engine feeds **Stripe Checkout's** options and the **Lightning** checkout total. Stripe uses the country selected in the cart; Lightning prices the entered `ship_to.country`.
+- **Shipping** — managed at **Admin → Shipping** (zones, rates, free-over thresholds, packaging weight). Each zone has `countries` (ISO alpha-2, or "Rest of world", matched top-to-bottom), one or more rates, and an optional free-shipping threshold. A rate is priced either **flat** or **by order weight** (ordered bands: the shipment weight selects one band, they are not accumulated). `src/store.config.ts` supplies the defaults for a brand-new store and is ignored once shipping is saved in Admin.
+
+  A zone offers at most **five** options including a synthesized "Free shipping" — Stripe Checkout's maximum, applied to every rail so all rails quote identically.
+
+- **Shipping weight** — set a product's packed weight (and a per-variant override; blank inherits) on the product form. Weights are stored in grams and entered in the store's unit (**Admin → Settings → Weight unit**). Uncheck **Requires shipping** for digital goods so they are excluded from the shipment weight instead of blocking checkout. An unknown weight is never treated as zero: weight-priced services are withheld and, if nothing else can carry the order, checkout is blocked and the products are named.
 - **Email** — configured in **Admin → Settings → Email** (on/off, provider, from-address; the key in the encrypted vault). Unconfigured it's a safe no-op — checkout still succeeds. A **Send test email** button verifies real delivery. Two providers:
   - **Resend** (default, **works on the Workers free plan** — a plain HTTPS call): get a free key at [resend.com](https://resend.com), paste it in Settings → Email, and set the from-address (a Resend-verified domain, or `onboarding@resend.dev` to test to your own address).
   - **Cloudflare (Workers Paid plan)**: onboard a sender domain, add the commented `send_email` binding from `wrangler.jsonc`, redeploy, then pick Cloudflare in Settings → Email with a from-address on that domain. The section flags whether the binding is wired.
@@ -482,7 +486,7 @@ Each product is self-describing, price in both major + minor units:
 }
 ```
 
-When shipping is enabled, `ship_to` is required for Lightning; `shipping_label` is optional and defaults to the first rate for `ship_to.country`. When shipping is off, omit both fields. A successful Lightning response includes:
+When shipping is enabled, `ship_to` is required for every rail that collects the address itself (Lightning, OpenNode, Demo); `shipping_label` is optional and defaults to the first rate for `ship_to.country`. For **Stripe**, pass an optional `ship_country` (ISO alpha-2) instead — the session is priced for that country and Stripe collects an address only there; without it the first Stripe-supported configured country is used. When shipping is off, omit these fields. A successful Lightning response includes:
 
 ```json
 {

@@ -1,9 +1,11 @@
 ---
 import { env } from 'cloudflare:workers';
 import Layout from '../layouts/Layout.astro';
-import { formatPrice, getConfig } from '../config';
+import { formatPrice } from '../config';
 import { readCart, resolveCart } from '../features/cart/cart';
-import { allowedCountries } from '../features/shipping/calculator';
+import { shippingFor } from '../features/shipping/effective';
+import { shipmentWeightFor } from '../features/shipping/lines';
+import { stripeDestination } from '../features/shipping/destination';
 import ProductImage from '../features/products/ProductImage.astro';
 import { enabledMethods, isMethodAvailable } from '../features/payments';
 import { catalogPath } from '../features/settings/home';
@@ -35,13 +37,17 @@ const error = Astro.url.searchParams.get('error');
 // Destination pre-selector for Stripe's hosted checkout: Stripe shows a static
 // rate list set before it knows the address, so let the shopper pick the country
 // here (defaulted to the first, editable) → Stripe gets that zone's rates. The
-// Lightning path collects the country on its own /checkout page, so skip it there.
-const cfg = getConfig();
-const shipCountries =
-  (settings?.shippingEnabled ?? cfg.shipping.enabled) && settings?.paymentProvider !== 'lightning'
-    ? allowedCountries(cfg.shipping)
-    : [];
-const showCountry = shipCountries.length > 1;
+// in-app rails collect the address on /checkout, so the selector appears exactly
+// when Stripe is offered at all — not only when it happens to be the default.
+// Effective configuration, not `cfg.shipping` — a saved Admin document owns both
+// the zones and the on/off switch. An all-digital cart never needs a destination,
+// so the selector is also gated on some line actually requiring shipping.
+const effectiveShipping = shippingFor(settings).config;
+const destination = stripeDestination(
+  settings,
+  effectiveShipping,
+  shipmentWeightFor(lines).shippingRequired,
+);
 // The catalog is at / until the home page is pointed elsewhere.
 const shopHref = catalogPath(Astro.locals.settings?.homePage);
 ---
@@ -161,18 +167,24 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
             ) : (
             <form method="POST" action="/api/checkout" class="mt-4 space-y-2">
               <input type="hidden" name="source" value="cart" />
-              {showCountry && (
+              {destination.showSelect && (
                 <label class="mb-2 flex items-center justify-between gap-2 text-xs uppercase tracking-widest text-gray-500">
                   Ship to
                   <select
                     name="country"
                     class="rounded-md border border-gray-200 px-2 py-1.5 text-sm normal-case tracking-normal text-gray-900"
                   >
-                    {shipCountries.map((c) => (
-                      <option value={c}>{c}</option>
+                    {destination.countries.map((c) => (
+                      <option value={c}>{destination.label(c)}</option>
                     ))}
                   </select>
                 </label>
+              )}
+              {/* One choice must STILL be submitted: with the field absent the
+                  server falls back to the raw first zone, which may be exactly the
+                  Stripe-unsupported country the filter removed. */}
+              {destination.hiddenOnly && (
+                <input type="hidden" name="country" value={destination.countries[0]} />
               )}
 
               {/* One control per offered method. Ready (configured/demo) → a submit

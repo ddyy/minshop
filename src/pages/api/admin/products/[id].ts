@@ -7,9 +7,11 @@ import {
   deleteProduct,
 } from '../../../../features/products/db';
 import { parseProductForm } from '../../../../features/products/form';
+import { zonesRequireWeight } from '../../../../features/shipping/calculator';
+import { shippingFor } from '../../../../features/shipping/effective';
 import { uniqueSlug } from '../../../../features/products/slug';
 import { setProductCategories } from '../../../../features/categories/db';
-import { applyVariantForm } from '../../../../features/products/variants';
+import { applyVariantForm, validateVariantWeights } from '../../../../features/products/variants';
 import { validateImage } from '../../../../features/products/image';
 import { optimizeUpload } from '../../../../features/products/imageOptimize';
 import { uploadMedia } from '../../../../features/media/upload';
@@ -24,7 +26,7 @@ export const prerender = false;
 
 // POST /api/admin/products/:id — update (with optional image replace), or delete
 // when `_action=delete`. (HTML forms can't send DELETE/PUT, so the verb is a field.)
-export const POST: APIRoute = async ({ request, params, redirect }) => {
+export const POST: APIRoute = async ({ request, params, redirect, locals }) => {
   const id = Number(params.id);
   if (!Number.isInteger(id)) {
     return new Response('Invalid id', { status: 400 });
@@ -50,8 +52,21 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
   const fail = (msg: string) =>
     redirect(`/admin/products/${id}/edit?error=${encodeURIComponent(msg)}`, 303);
 
-  const parsed = parseProductForm(form);
+  // The store's display unit, plus whether a blank weight would make this product
+  // unsellable (every enabled zone prices by weight). Both come from settings the
+  // request already loaded.
+  const weightUnit = locals.settings?.weightUnit ?? 'g';
+  const parsed = parseProductForm(form, {
+    unit: weightUnit,
+    requireWeight: zonesRequireWeight(shippingFor(locals.settings).config),
+  });
   if ('error' in parsed) return fail(parsed.error);
+
+  // Weights are checked before ANY write. applyVariantForm runs last, after the
+  // image, product, and category mutations — reporting the error from there left
+  // a half-saved edit behind the failure page.
+  const badWeight = validateVariantWeights(form, weightUnit);
+  if (badWeight) return fail(badWeight);
 
   // The uploaded key is NOT written to products.image_key here: that reference
   // would be unguarded, and the media row is deletable until something claims
@@ -102,7 +117,10 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
   await setProductCategories(env.DB, id, categoryIds);
 
   // Variants + extras edited inline on the same form (no-op if none submitted).
-  await applyVariantForm(env.DB, id, form, parsed.data.currency);
+  // A bad variant weight is reported rather than dropped: applyVariantForm
+  // validates every weight before it writes anything.
+  const variantResult = await applyVariantForm(env.DB, id, form, parsed.data.currency, weightUnit);
+  if (variantResult.error) return fail(variantResult.error);
 
   // Re-embed for semantic search (no-op unless vector search is on).
   try {

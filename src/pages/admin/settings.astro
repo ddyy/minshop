@@ -34,6 +34,8 @@ import {
 } from '../../features/settings/availability';
 import { getEmailProvider } from '../../features/email';
 import { normalizeTimeZone, allTimeZones } from '../../features/settings/timeZone';
+import { WEIGHT_UNITS, isWeightUnit } from '../../features/shipping/weight';
+import { shippingFor } from '../../features/shipping/effective';
 import SecretField from '../../components/SecretField.astro';
 import MethodToggle from '../../components/MethodToggle.astro';
 import { onDemandImageDeliveryAvailable } from '../../features/products/image';
@@ -119,6 +121,10 @@ if (Astro.request.method === 'POST') {
   } else if (action === 'save_store') {
     // Empty → setSetting deletes the row → falls back to the STORE_NAME default.
     await setSetting(env.DB, 'store_name', String(form.get('store_name') ?? '').trim());
+    // Display/input preference only: stored weights stay in grams, so changing the
+    // unit never rewrites a single product row.
+    const unit = String(form.get('weight_unit') ?? '');
+    await setSetting(env.DB, 'weight_unit', isWeightUnit(unit) && unit !== 'g' ? unit : '');
     const zone = normalizeTimeZone(String(form.get('time_zone') ?? ''));
     if (zone) {
       await setSetting(env.DB, 'time_zone', zone);
@@ -338,6 +344,10 @@ const homeChoiceMissing =
 // curates; they may genuinely want it unlinked.
 const catalogOrphaned = await catalogIsOrphaned(env.DB, settings.homePage);
 const timeZone = settings.timeZone ?? cfg.timeZone;
+const weightUnit = settings.weightUnit;
+// One control, one source of truth: the old on/off toggle lived here and the zones
+// lived in store.config.ts, which could disagree. Now Shipping owns both.
+const effectiveShipping = shippingFor(settings).config;
 const announcement = settings.announcement ?? '';
 const announcementHref = settings.announcementHref ?? '';
 const timeZones = allTimeZones();
@@ -394,12 +404,6 @@ const baseFeatureRows: { key: string; label: string; desc: string; on: boolean }
     label: 'Optimize images on upload',
     desc: 'WebP-downscale product images via Cloudflare Images. Needs the IMAGES binding.',
     on: settings.imageOptimize ?? cfg.images.optimizeOnUpload,
-  },
-  {
-    key: 'shipping_enabled',
-    label: 'Shipping',
-    desc: 'Collect an address and charge the zones/rates in store.config.ts. Programmatic Lightning checkout accepts a shipping address when this is on.',
-    on: settings.shippingEnabled ?? cfg.shipping.enabled,
   },
 ];
 const featureRows = baseFeatureRows.map((row) => ({
@@ -547,6 +551,19 @@ const sections = [
             {timeZones.map((z) => <option value={z} />)}
           </datalist>
         </label>
+        <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-gray-400">
+          Weight unit
+          <select
+            name="weight_unit"
+            class="w-32 rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none"
+          >
+            {WEIGHT_UNITS.map((u) => (
+              <option value={u} selected={u === weightUnit}>
+                {u}
+              </option>
+            ))}
+          </select>
+        </label>
         <button
           type="submit"
           class="rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover"
@@ -555,6 +572,8 @@ const sections = [
         </button>
       </div>
       <p class="mt-3 text-xs text-gray-400">
+        Product weights are entered and shown in the chosen unit; they are always stored in
+        grams, so switching units never changes a stored value.
         The time zone controls stored UTC date display. Use an IANA name such as
         <code>UTC</code> or <code>America/New_York</code>.
       </p>
@@ -704,6 +723,24 @@ const sections = [
         appear everywhere.
       </p>
     </form>
+
+    {/* Shipping used to be a toggle here while the zones lived in store.config.ts —
+        two controls that could disagree. It now has its own page that owns both. */}
+    <a
+      href="/admin/shipping"
+      class="mb-4 flex items-center justify-between gap-4 rounded-lg border border-gray-200 bg-white px-4 py-4 transition hover:border-brand"
+    >
+      <div class="min-w-0">
+        <p class="font-medium">Shipping</p>
+        <p class="text-xs text-gray-500">
+          {effectiveShipping.enabled ? 'On' : 'Off'} ·{' '}
+          {effectiveShipping.zones.length}{' '}
+          {effectiveShipping.zones.length === 1 ? 'zone' : 'zones'} · zones, rates, and
+          free-shipping thresholds
+        </p>
+      </div>
+      <span aria-hidden="true" class="shrink-0 text-brand">&rarr;</span>
+    </a>
 
     <ul class="mb-10 divide-y divide-gray-100 overflow-hidden rounded-lg border border-gray-200 bg-white">
       {

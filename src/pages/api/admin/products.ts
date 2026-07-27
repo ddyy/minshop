@@ -9,6 +9,8 @@ import {
 import { setProductCategories } from '../../../features/categories/db';
 import { indexProduct } from '../../../features/search';
 import { parseProductForm } from '../../../features/products/form';
+import { zonesRequireWeight } from '../../../features/shipping/calculator';
+import { shippingFor } from '../../../features/shipping/effective';
 import { uniqueSlug } from '../../../features/products/slug';
 import { validateImage } from '../../../features/products/image';
 import { optimizeUpload } from '../../../features/products/imageOptimize';
@@ -21,9 +23,16 @@ export const prerender = false;
 const fail = (msg: string) => `/admin/products/new?error=${encodeURIComponent(msg)}`;
 
 // POST /api/admin/products — create a product (with optional image), then redirect.
-export const POST: APIRoute = async ({ request, redirect }) => {
+export const POST: APIRoute = async ({ request, redirect, locals }) => {
   const form = await request.formData();
-  const parsed = parseProductForm(form);
+  // The store's display unit, plus whether a blank weight would make this product
+  // unsellable (every enabled zone prices by weight). Both come from settings the
+  // request already loaded.
+  const weightUnit = locals.settings?.weightUnit ?? 'g';
+  const parsed = parseProductForm(form, {
+    unit: weightUnit,
+    requireWeight: zonesRequireWeight(shippingFor(locals.settings).config),
+  });
   if ('error' in parsed) return redirect(fail(parsed.error), 303);
 
   let mediaId: number | null = null;

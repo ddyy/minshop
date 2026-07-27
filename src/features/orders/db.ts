@@ -17,6 +17,8 @@ export interface Order {
   email: string | null;
   amount_total_cents: number;
   shipping_cents: number;
+  shipping_label: string | null;
+  shipping_weight_grams: number | null;
   discount_cents: number;
   tax_cents: number;
   currency: string;
@@ -66,6 +68,10 @@ export interface PaidOrderInput {
   email: string | null;
   amountTotalCents: number;
   shippingCents?: number;
+  /** The service the shopper actually chose, and the weight it was priced at.
+   *  Snapshotted so later catalog or rate edits cannot rewrite history. */
+  shippingLabel?: string | null;
+  shippingWeightGrams?: number | null;
   discountCents?: number;
   taxCents?: number;
   shippingAddress?: ShippingAddress | null;
@@ -79,6 +85,13 @@ export interface PaidOrderInput {
    */
   providerPaymentId?: string | null;
   items?: OrderItemInput[];
+  /**
+   * pending_payments row to mark settled in the same batch as the order insert
+   * (saves the separate markPendingSettled round trip — meaningful when the D1
+   * primary is far away). Guarded on this invocation's settlement-token claim,
+   * so a payment is never marked settled unless ITS order row actually landed.
+   */
+  settlePaymentHash?: string | null;
 }
 
 /** Recent orders for the admin view, newest first. */
@@ -297,6 +310,8 @@ export async function recordPaidOrder(
     o.email,
     o.amountTotalCents,
     o.shippingCents ?? 0,
+    o.shippingLabel ?? null,
+    o.shippingWeightGrams ?? null,
     o.discountCents ?? 0,
     o.taxCents ?? 0,
     o.currency,
@@ -309,8 +324,8 @@ export async function recordPaidOrder(
   const insertOrder = o.reservationId
     ? db
         .prepare(
-          `INSERT INTO orders (provider_session_id, public_id, email, amount_total_cents, shipping_cents, discount_cents, tax_cents, currency, ship_address, status, payment_method, settlement_token, provider_payment_id)
-           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, NULL, ?
+          `INSERT INTO orders (provider_session_id, public_id, email, amount_total_cents, shipping_cents, shipping_label, shipping_weight_grams, discount_cents, tax_cents, currency, ship_address, status, payment_method, settlement_token, provider_payment_id)
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, NULL, ?
             WHERE EXISTS (
               SELECT 1 FROM checkout_reservations
                WHERE public_id = ? AND status IN ('active', 'payment_pending')
@@ -321,8 +336,8 @@ export async function recordPaidOrder(
         .bind(...orderValues, o.reservationId)
     : db
         .prepare(
-          `INSERT INTO orders (provider_session_id, public_id, email, amount_total_cents, shipping_cents, discount_cents, tax_cents, currency, ship_address, status, payment_method, settlement_token, provider_payment_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, NULL, ?)
+          `INSERT INTO orders (provider_session_id, public_id, email, amount_total_cents, shipping_cents, shipping_label, shipping_weight_grams, discount_cents, tax_cents, currency, ship_address, status, payment_method, settlement_token, provider_payment_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, NULL, ?)
            ON CONFLICT(provider_session_id) DO NOTHING
            RETURNING id`,
         )
@@ -401,6 +416,24 @@ export async function recordPaidOrder(
             )`,
         )
         .bind(o.reservationId, o.providerSessionId, settlementToken),
+    );
+  }
+
+  if (o.settlePaymentHash) {
+    stmts.push(
+      db
+        .prepare(
+          // Correlated on the pending row's own hash (not the caller's
+          // providerSessionId) so a malformed caller can never settle payment A
+          // while inserting order B — the order must BE this payment's order.
+          `UPDATE pending_payments SET status = 'settled'
+            WHERE payment_hash = ? AND EXISTS (
+              SELECT 1 FROM orders
+               WHERE provider_session_id = pending_payments.payment_hash
+                 AND settlement_token = ?
+            )`,
+        )
+        .bind(o.settlePaymentHash, settlementToken),
     );
   }
 

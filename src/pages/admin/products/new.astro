@@ -3,9 +3,13 @@ import { env } from 'cloudflare:workers';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import ProductForm from '../../../features/products/ProductForm.astro';
 import { listCategories, buildTree, flattenTree } from '../../../features/categories/db';
+import { zonesRequireWeight } from '../../../features/shipping/calculator';
+import { shippingFor } from '../../../features/shipping/effective';
 
 const categoryOptions = flattenTree(buildTree(await listCategories(env.DB)));
 const error = Astro.url.searchParams.get('error');
+const weightUnit = Astro.locals.settings?.weightUnit ?? 'g';
+const weightRequired = zonesRequireWeight(shippingFor(Astro.locals.settings).config);
 ---
 
 <AdminLayout title="New product" active="products">
@@ -16,5 +20,7 @@ const error = Astro.url.searchParams.get('error');
     submitLabel="Create product"
     categoryOptions={categoryOptions}
     error={error}
+    weightUnit={weightUnit}
+    weightRequired={weightRequired}
   />
 </AdminLayout>

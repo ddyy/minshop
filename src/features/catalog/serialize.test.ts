@@ -13,6 +13,8 @@ const base: Product = {
   stock: 120,
   active: 1,
   variant_label: null,
+  weight_grams: null,
+  requires_shipping: 1,
   related_ids: null,
   created_at: '2026-06-18 00:00:00',
 };
@@ -67,8 +69,8 @@ describe('toCatalogProduct', () => {
   it('embeds variants + extras and derives availability from variants', () => {
     const p = { ...base, stock: 0, variant_label: 'Size' }; // product row stock is irrelevant
     const variants = [
-      { id: 1, product_id: 4, label: 'S', price_cents: 2400, stock: 0, sku: 'T-S', position: 0, active: 1, image_id: null },
-      { id: 2, product_id: 4, label: 'L', price_cents: 2600, stock: 5, sku: null, position: 1, active: 1, image_id: null },
+      { id: 1, product_id: 4, label: 'S', price_cents: 2400, stock: 0, sku: 'T-S', position: 0, active: 1, image_id: null, weight_grams: null },
+      { id: 2, product_id: 4, label: 'L', price_cents: 2600, stock: 5, sku: null, position: 1, active: 1, image_id: null, weight_grams: null },
     ];
     const extras = [
       { id: 9, product_id: 4, label: 'Gift wrap', price_delta_cents: 500, position: 0, active: 1 },

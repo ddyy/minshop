@@ -22,6 +22,9 @@ import {
 } from '../../features/payments';
 import { getStoreSettings } from '../../features/settings/db';
 import { createConfigRatesCalculator } from '../../features/shipping/calculator';
+import { shippingFor } from '../../features/shipping/effective';
+import { shipmentWeightFor } from '../../features/shipping/lines';
+import { stripeAllowedCountries, stripeSessionDestination } from '../../features/payments/stripeCountries.ts';
 import { getConfig } from '../../config';
 import {
   reserveInventory,
@@ -230,15 +233,27 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
   // the order (zone-accurate shipping), so route to the own-checkout page. Carry the
   // buy-now product + variant/extras so it prices the same line. Stripe & OpenNode
   // collect/handle shipping on their own hosted page, so they continue below.
-  if (selected === 'lightning' && (settings.shippingEnabled ?? cfg.shipping.enabled)) {
+  const effectiveShipping = shippingFor(settings).config;
+  // Digital-only baskets never collect an address or pay for delivery, whatever
+  // the store's shipping setting says.
+  const shipment = shipmentWeightFor(lines);
+  const shippingApplies = effectiveShipping.enabled && shipment.shippingRequired;
+
+  // Rails that cannot collect a destination on their own hosted page go through the
+  // in-app step first: Lightning has no hosted page, OpenNode's ignores addresses,
+  // and Demo has none. Without this, OpenNode charged no shipping at all and Demo
+  // billed whichever rate sorted first — both silently wrong once a merchant can
+  // edit rates. Stripe collects the address itself and continues below.
+  const IN_APP_SHIPPING_RAILS = ['lightning', 'opennode', 'demo'];
+  if (IN_APP_SHIPPING_RAILS.includes(selected) && shippingApplies) {
+    const params = new URLSearchParams({ method: selected });
     if (Number.isInteger(productId) && productId > 0) {
-      const params = new URLSearchParams({ product_id: String(productId) });
+      params.set('product_id', String(productId));
       const vid = form.get('variant_id');
       if (vid) params.set('variant_id', String(vid));
       for (const ex of form.getAll('extra')) params.append('extra', String(ex));
-      return redirect(`/checkout?${params}`, 303);
     }
-    return redirect('/checkout', 303);
+    return redirect(`/checkout?${params}`, 303);
   }
 
   const provider = await getPaymentProvider(selected);
@@ -251,20 +266,91 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
   // it gets the primary zone's options; zone-accurate per-address shipping is the
   // own-checkout (Lightning) path's job — Stripe can't recompute mid-session.
   const subtotalCents = lines.reduce((s, l) => s + l.unitPriceCents * l.qty, 0);
-  const shipCalc = createConfigRatesCalculator(cfg.shipping);
+  const shipCalc = createConfigRatesCalculator(effectiveShipping);
   // The shopper pre-selects a destination on the cart (defaulted, editable), so
   // Stripe gets that zone's rates instead of always the first zone's. Stripe still
   // collects + confirms the full address on its page; this just sets which rates
   // it shows. Falls back to the first zone's country (e.g. buy-now, no selector).
-  const selectedCountry = (form.get('country') ?? '').toString().trim().toUpperCase();
-  const shipCountry =
-    selectedCountry.length === 2 ? selectedCountry : (cfg.shipping.zones[0]?.countries[0] ?? 'US');
-  const shipping = (settings.shippingEnabled ?? cfg.shipping.enabled)
-    ? {
-        addressCountries: shipCalc.allowedCountries(),
-        options: shipCalc.optionsFor({ subtotalCents, country: shipCountry }),
-      }
-    : undefined;
+  const countryField = form.get('country');
+  const selectedCountry = countryField == null ? null : String(countryField).trim().toUpperCase();
+  // Nullable on purpose: an invented fallback (say 'US' for a CU-only store)
+  // would fail later as "we don't ship to US" — true but useless. The absence of
+  // ANY Stripe-supported configured country is its own, configuration-level
+  // problem and gets named as such before quoting or reserving.
+  const stripeFallbackCountry =
+    stripeAllowedCountries(shipCalc.allowedCountries(), shipCalc.hasCatchAll())[0] ?? null;
+  // Absent → the supported fallback. PRESENT → taken as supplied, even when
+  // malformed: stripeSessionDestination rejects anything that is not a real
+  // alpha-2 code, so 'USA' becomes a refusal, not a silent quote for a
+  // destination the shopper never chose. (Empty string counts as absent — that
+  // is a selector that submitted nothing, not a chosen value.)
+  const shipCountry = selectedCountry ? selectedCountry : stripeFallbackCountry;
+  if (shippingApplies && shipCountry == null) {
+    return redirect(
+      `${errorPath}?error=${encodeURIComponent(
+        'The configured shipping destinations are not supported by card checkout. Please contact us to complete this order.',
+      )}`,
+      303,
+    );
+  }
+  const quote = shippingApplies && shipCountry != null
+    ? shipCalc.quoteFor({
+        subtotalCents,
+        country: shipCountry,
+        itemWeightGrams: shipment.itemWeightGrams,
+        missingWeight: shipment.missingWeight,
+      })
+    : null;
+  // No options for a REQUIRED shipment blocks the order — sending Stripe an empty
+  // option list (or an empty allowed_countries) is an API error, not "no shipping".
+  if (quote && quote.options.length === 0) {
+    const missing = quote.omitted.some((o) => o.reason === 'missing_weight');
+    if (missing) {
+      console.error(
+        JSON.stringify({
+          event: 'shipping_quote_blocked',
+          reason: 'missing_weight',
+          country: shipCountry,
+          product_ids: quote.missingWeight.map((m) => m.productId),
+        }),
+      );
+    }
+    return redirect(
+      `${errorPath}?error=${encodeURIComponent(
+        missing
+          ? "We can't calculate shipping for one of these items right now. Please contact us to complete this order."
+          : quote.omitted.some((o) => o.reason === 'overweight')
+            ? 'This order is too heavy for the available shipping services.'
+            : `Sorry, we don't ship to ${shipCountry} yet.`,
+      )}`,
+      303,
+    );
+  }
+  // The session collects an address ONLY for the country the rates were priced
+  // against. Any wider list lets the shopper keep a cheap zone's rate while
+  // entering an address in an expensive one; a crafted country in the POST is
+  // refused here, before inventory is reserved.
+  const sessionCountries =
+    quote && shipCountry
+      ? stripeSessionDestination(shipCountry, shipCalc.allowedCountries(), shipCalc.hasCatchAll())
+      : null;
+  if (quote && !sessionCountries) {
+    return redirect(
+      `${errorPath}?error=${encodeURIComponent(
+        `Sorry, card checkout can't ship to ${shipCountry}.`,
+      )}`,
+      303,
+    );
+  }
+  const shipping =
+    quote && sessionCountries
+      ? {
+          addressCountries: sessionCountries,
+          hasCatchAll: false,
+          options: quote.options,
+          shipmentWeightGrams: quote.shipmentWeightGrams,
+        }
+      : undefined;
 
   // Pre-generate the order's public token here so success_url can point straight
   // at the confirmation page. The webhook stores this same id on the order.
@@ -379,7 +465,7 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
   const method: PaymentMethod = requested ?? available[0] ?? defaultMethod(jsonSettings);
 
   const cfg = getConfig();
-  const shippingOn = jsonSettings.shippingEnabled ?? cfg.shipping.enabled;
+  const effectiveShipping = shippingFor(jsonSettings).config;
 
   // Resolve each { slug, quantity, variant_id?, extras? } → a priced line,
   // validating active + variant choice + stock. Variant/extra ids come from the
@@ -449,35 +535,142 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
 
   const storeCurrency = cfg.currency;
   const subtotalCents = lines.reduce((s, l) => s + l.unitPriceCents * l.qty, 0);
-  const shipCalc = createConfigRatesCalculator(cfg.shipping);
-  const shipCountry = cfg.shipping.zones[0]?.countries[0] ?? 'US';
-  const shipping = shippingOn
-    ? { addressCountries: shipCalc.allowedCountries(), options: shipCalc.optionsFor({ subtotalCents, country: shipCountry }) }
-    : undefined;
+  const shipCalc = createConfigRatesCalculator(effectiveShipping);
+  const stripeFallbackCountry =
+    stripeAllowedCountries(shipCalc.allowedCountries(), shipCalc.hasCatchAll())[0] ?? null;
+  // Weight comes from the D1 rows resolved above; a request body never supplies it.
+  const shipment = shipmentWeightFor(lines);
+  const shippingOn = effectiveShipping.enabled && shipment.shippingRequired;
+  const quoteFor = (country: string) =>
+    shipCalc.quoteFor({
+      subtotalCents,
+      country,
+      itemWeightGrams: shipment.itemWeightGrams,
+      missingWeight: shipment.missingWeight,
+    });
+  /** 422 with a reason an agent can act on, from the same quote the browser uses. */
+  const shippingProblem = (country: string, quote: ReturnType<typeof quoteFor>) => {
+    if (quote.omitted.some((o) => o.reason === 'missing_weight')) {
+      console.error(
+        JSON.stringify({
+          event: 'shipping_quote_blocked',
+          reason: 'missing_weight',
+          country: country.toUpperCase(),
+          product_ids: quote.missingWeight.map((m) => m.productId),
+        }),
+      );
+      return cjson(
+        {
+          error: 'Shipping cannot be calculated: some items have no shipping weight recorded.',
+          reason: 'missing_weight',
+          items: quote.missingWeight.map((m) => ({ product_id: m.productId, name: m.name })),
+        },
+        422,
+      );
+    }
+    if (quote.omitted.some((o) => o.reason === 'overweight')) {
+      return cjson(
+        {
+          error: 'This order is too heavy for the available shipping services.',
+          reason: 'overweight',
+          shipment_weight_grams: quote.shipmentWeightGrams,
+        },
+        422,
+      );
+    }
+    return cjson(
+      { error: `This store does not ship to ${country.toUpperCase()}.`, reason: 'destination' },
+      422,
+    );
+  };
+  // The static preflight prices the FIRST configured country, which only Stripe
+  // needs (its hosted page takes a fixed list before knowing the address). The
+  // in-app rails must be judged solely on the ship_to they submit — quoting the
+  // first zone here rejected orders that their own destination could serve.
+  // Agents may choose the destination the Stripe session is priced for; without
+  // one the first Stripe-supported configured country is used.
+  // Absent/undefined → the supported fallback. Present in ANY other form — a
+  // string of the wrong shape, a number, null — is a claim about the destination
+  // and must be judged, not silently replaced with a different country.
+  const shipCountryRaw = (body as { ship_country?: unknown }).ship_country;
+  if (shipCountryRaw !== undefined && typeof shipCountryRaw !== 'string') {
+    return cjson(
+      { error: '"ship_country" must be an ISO 3166-1 alpha-2 string.', reason: 'destination' },
+      422,
+    );
+  }
+  const stripeCountry =
+    shipCountryRaw === undefined ? stripeFallbackCountry : shipCountryRaw.trim().toUpperCase();
+  if (shippingOn && method === 'stripe' && stripeCountry == null) {
+    return cjson(
+      {
+        error:
+          'None of the configured shipping destinations are supported by Stripe checkout. Pass "ship_country" or use another payment method.',
+        reason: 'destination',
+      },
+      422,
+    );
+  }
+  const hostedQuote =
+    shippingOn && method === 'stripe' && stripeCountry != null ? quoteFor(stripeCountry) : null;
+  if (hostedQuote && hostedQuote.options.length === 0) {
+    return shippingProblem(stripeCountry ?? '', hostedQuote);
+  }
+  // Narrow the session to the quoted country (see the form path): a wider list
+  // would let the payer keep this zone's rate while shipping to another.
+  const sessionCountries =
+    hostedQuote && stripeCountry
+      ? stripeSessionDestination(stripeCountry, shipCalc.allowedCountries(), shipCalc.hasCatchAll())
+      : null;
+  if (hostedQuote && !sessionCountries) {
+    return cjson(
+      {
+        error: `Stripe checkout cannot collect an address in ${stripeCountry}.`,
+        reason: 'destination',
+      },
+      422,
+    );
+  }
+  const shipping =
+    hostedQuote && sessionCountries
+      ? {
+          addressCountries: sessionCountries,
+          hasCatchAll: false,
+          options: hostedQuote.options,
+          shipmentWeightGrams: hostedQuote.shipmentWeightGrams,
+        }
+      : undefined;
 
-  // Lightning + shipping: the agent supplies a `ship_to` address (the JSON API has
-  // no interactive step). We price shipping for that country, capture the address,
-  // and mint an invoice whose total includes shipping — mirroring the /checkout page.
-  if (method === 'lightning' && shippingOn) {
-    const shipTo = parseShipTo((body as { ship_to?: unknown }).ship_to);
+  // The JSON API has no interactive step, so every rail that cannot collect an
+  // address on a hosted page takes it as `ship_to` here: the agent supplies the
+  // address, we price THAT country, and the chosen rate travels with the charge.
+  // Without this, OpenNode and Demo reached their adapters with an unselected list
+  // and charged nothing for shipping.
+  const IN_APP_JSON_RAILS = ['lightning', 'opennode', 'demo'];
+  const needsShipTo = shippingOn && IN_APP_JSON_RAILS.includes(method);
+  let shipTo: ReturnType<typeof parseShipTo> = null;
+  let chosen: { label: string; amountCents: number } | undefined;
+  let inAppQuote: ReturnType<typeof quoteFor> | null = null;
+
+  if (needsShipTo) {
+    shipTo = parseShipTo((body as { ship_to?: unknown }).ship_to);
     if (!shipTo) {
       return cjson(
         {
-          error: 'A shipped Lightning order needs a "ship_to" address: { email, name, line1, city, postal, country }.',
+          error: `A shipped ${method} order needs a "ship_to" address: { email, name, line1, city, postal, country }.`,
           available_methods: available,
         },
         400,
       );
     }
-    const shipOptions = shipCalc.optionsFor({ subtotalCents, country: shipTo.country });
-    if (shipOptions.length === 0) {
-      return cjson({ error: `This store does not ship to ${shipTo.country}.` }, 409);
-    }
+    inAppQuote = quoteFor(shipTo.country);
+    const shipOptions = inAppQuote.options;
+    if (shipOptions.length === 0) return shippingProblem(shipTo.country, inAppQuote);
     const wantLabel =
       typeof (body as { shipping_label?: unknown }).shipping_label === 'string'
         ? (body as { shipping_label: string }).shipping_label
         : null;
-    const chosen = wantLabel ? shipOptions.find((o) => o.label === wantLabel) : shipOptions[0];
+    chosen = wantLabel ? shipOptions.find((o) => o.label === wantLabel) : shipOptions[0];
     if (!chosen) {
       return cjson(
         {
@@ -487,6 +680,9 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
         400,
       );
     }
+  }
+
+  if (method === 'lightning' && shippingOn && shipTo && chosen && inAppQuote) {
     const lnPublicId = crypto.randomUUID();
     const lnReserved = await reserveInventory(
       env.DB,
@@ -503,6 +699,8 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
         currency: storeCurrency,
         subtotalCents,
         shippingCents: chosen.amountCents,
+        shippingLabel: chosen.label,
+        shippingWeightGrams: inAppQuote.shipmentWeightGrams,
         itemsJson: JSON.stringify(
           lines.map((l) => ({ id: l.product.id, v: l.variantId, q: l.qty, n: l.name, p: l.unitPriceCents })),
         ),
@@ -584,7 +782,25 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
       })),
       successUrl: `${origin}/order/${publicId}`,
       cancelUrl: `${origin}/`,
-      shipping,
+      shipping: method === 'stripe' ? shipping : undefined,
+      ...(chosen &&
+        shipTo && {
+          selectedShipping: {
+            label: chosen.label,
+            amountCents: chosen.amountCents,
+            weightGrams: inAppQuote?.shipmentWeightGrams ?? null,
+            address: {
+              name: shipTo.name,
+              line1: shipTo.line1,
+              line2: shipTo.line2,
+              city: shipTo.city,
+              state: shipTo.state,
+              postal: shipTo.postal,
+              country: shipTo.country,
+            },
+            email: shipTo.email,
+          },
+        }),
       allowPromotionCodes: jsonSettings.discountsEnabled ?? cfg.discounts.enabled,
       automaticTax: jsonSettings.taxEnabled ?? cfg.tax.enabled,
       orderItemsJson: JSON.stringify(

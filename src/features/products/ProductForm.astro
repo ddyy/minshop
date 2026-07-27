@@ -2,6 +2,7 @@
 import type { Product } from './db';
 import type { CategoryOption } from '../categories/db';
 import { getConfig, toMajorUnits, currencyDecimals } from '../../config';
+import { formatWeightValue, type WeightUnit } from '../shipping/weight';
 
 interface Props {
   action: string;
@@ -17,6 +18,11 @@ interface Props {
   /** Optional form id, so out-of-tree inputs (e.g. the variants editor) can submit
       with this form via the HTML `form="..."` attribute. */
   formId?: string;
+  /** Store-wide weight unit (Admin → Settings). Storage is always grams. */
+  weightUnit?: WeightUnit;
+  /** True when every enabled zone prices by weight, so a blank weight would make
+   *  this product unsellable. Shown as a requirement rather than discovered later. */
+  weightRequired?: boolean;
 }
 
 const {
@@ -28,6 +34,8 @@ const {
   selectedCategoryIds = [],
   showImage = true,
   formId,
+  weightUnit = 'g',
+  weightRequired = false,
 } = Astro.props;
 const selected = new Set(selectedCategoryIds);
 // New products default to the store currency; edits keep their own.
@@ -92,6 +100,40 @@ const inputClass =
       <input id="stock" name="stock" type="number" step="1" min="0" value={product?.stock ?? 0} class={inputClass} />
     </div>
   </div>
+
+  <fieldset class="rounded-md border border-line p-4">
+    <legend class="px-1 text-sm font-medium">Shipping</legend>
+    <label class="flex items-center gap-2 text-sm">
+      <input
+        name="requires_shipping"
+        type="checkbox"
+        checked={product ? product.requires_shipping === 1 : true}
+        class="h-4 w-4"
+      />
+      Requires shipping
+    </label>
+    <p class="mt-1 text-xs text-gray-500">
+      Uncheck for digital goods (ebooks, gift cards). They are excluded from shipment weight
+      and never block checkout for a missing weight.
+    </p>
+    <div class="mt-3">
+      <label class="block text-sm font-medium" for="weight">Weight ({weightUnit})</label>
+      <input
+        id="weight"
+        name="weight"
+        type="text"
+        inputmode="decimal"
+        value={product?.weight_grams != null ? formatWeightValue(product.weight_grams, weightUnit) : ''}
+        class={inputClass}
+      />
+      <p class="mt-1 text-xs text-gray-500">
+        Packed item weight, excluding the shared packaging allowance set in Shipping.
+        {weightRequired
+          ? ' Required: every shipping zone prices by weight, so this product cannot be sold without it.'
+          : ' Optional while a flat rate is available.'}
+      </p>
+    </div>
+  </fieldset>
 
   {
     showImage && (

@@ -46,7 +46,11 @@ export function createOpenNodeProvider(
   return {
     async createCheckout(params: CreateCheckoutParams): Promise<CheckoutResult> {
       const currency = params.lineItems[0]?.currency ?? 'usd';
-      const totalCents = params.lineItems.reduce((s, l) => s + l.amountCents * l.quantity, 0);
+      // Shipping is charged only when the in-app step already priced it against a
+      // submitted address; the hosted OpenNode page cannot collect one.
+      const shippingCents = params.selectedShipping?.amountCents ?? 0;
+      const totalCents =
+        params.lineItems.reduce((s, l) => s + l.amountCents * l.quantity, 0) + shippingCents;
       const origin = new URL(params.successUrl).origin;
       const publicId = params.metadata?.public_id ?? crypto.randomUUID();
 
@@ -85,8 +89,14 @@ export function createOpenNodeProvider(
         amountSat: null,
         amountTotalCents: totalCents,
         currency,
-        email: null,
+        email: params.selectedShipping?.email ?? null,
         itemsJson: params.orderItemsJson ?? null,
+        shippingCents,
+        shippingLabel: params.selectedShipping?.label ?? null,
+        shippingWeightGrams: params.selectedShipping?.weightGrams ?? null,
+        shipAddressJson: params.selectedShipping
+          ? JSON.stringify(params.selectedShipping.address)
+          : null,
         reservationId: params.metadata?.reservation_id ?? null,
         expiresAt: null,
       });

@@ -11,6 +11,11 @@ export interface Product {
   stock: number;
   active: number;
   variant_label: string | null; // variant group display name (e.g. "Size"); null = no variants
+  /** Packed item weight in grams; NULL = unknown (never "zero" — see 0030). */
+  weight_grams: number | null;
+  /** 0 = digital/no fulfillment: excluded from shipment weight and from the
+   *  missing-weight check, so a mixed cart can still check out. */
+  requires_shipping: number;
   /** Precomputed semantic neighbours as a JSON id array; null = not computed yet
    *  (see migration 0024 / features/search relatedIds). */
   related_ids: string | null;
@@ -25,6 +30,8 @@ export interface ProductFields {
   currency: string;
   stock: number;
   active: number;
+  weight_grams: number | null;
+  requires_shipping: number;
 }
 
 /** Full input for create/update — form fields plus resolved image key + slug. */
@@ -338,11 +345,11 @@ export async function getProductBySlug(db: D1Database, slug: string): Promise<Pr
 export async function createProduct(db: D1Database, p: ProductInput): Promise<number> {
   const row = await db
     .prepare(
-      `INSERT INTO products (name, slug, description, price_cents, currency, image_key, stock, active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO products (name, slug, description, price_cents, currency, image_key, stock, active, weight_grams, requires_shipping)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        RETURNING id`,
     )
-    .bind(p.name, p.slug, p.description, p.price_cents, p.currency, p.image_key, p.stock, p.active)
+    .bind(p.name, p.slug, p.description, p.price_cents, p.currency, p.image_key, p.stock, p.active, p.weight_grams, p.requires_shipping)
     .first<{ id: number }>();
   return row!.id;
 }
@@ -351,10 +358,11 @@ export async function updateProduct(db: D1Database, id: number, p: ProductInput)
   await db
     .prepare(
       `UPDATE products
-         SET name = ?, slug = ?, description = ?, price_cents = ?, currency = ?, image_key = ?, stock = ?, active = ?
+         SET name = ?, slug = ?, description = ?, price_cents = ?, currency = ?, image_key = ?, stock = ?, active = ?,
+             weight_grams = ?, requires_shipping = ?
        WHERE id = ?`,
     )
-    .bind(p.name, p.slug, p.description, p.price_cents, p.currency, p.image_key, p.stock, p.active, id)
+    .bind(p.name, p.slug, p.description, p.price_cents, p.currency, p.image_key, p.stock, p.active, p.weight_grams, p.requires_shipping, id)
     .run();
 }
 

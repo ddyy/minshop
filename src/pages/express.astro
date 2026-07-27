@@ -6,6 +6,9 @@ import { formatPrice } from '../config';
 import { getProduct } from '../features/products/db';
 import { listVariants, getExtrasByIds } from '../features/products/variants';
 import { lineUnitPriceCents } from '../features/cart/key';
+import { shippingFor } from '../features/shipping/effective';
+import { shipmentWeightFor } from '../features/shipping/lines';
+import { stripeDestination } from '../features/shipping/destination';
 import { readCart, resolveCart } from '../features/cart/cart';
 import { enabledMethods } from '../features/payments';
 import ProductImage from '../features/products/ProductImage.astro';
@@ -29,6 +32,9 @@ const productId = Number(fld('product_id'));
 const isBuyNow = Number.isInteger(productId) && productId > 0;
 
 let lines: DisplayLine[] = [];
+// Parallel model for the shipping question only ("does anything here ship?") —
+// the display lines deliberately drop the product/variant rows.
+let weightLines: Parameters<typeof shipmentWeightFor>[0] = [];
 // Fields each method form re-sends to /api/checkout to reproduce this exact order.
 let carry: { name: string; value: string }[] = [];
 let backHref = '/';
@@ -66,6 +72,7 @@ if (isBuyNow) {
       qty: 1,
     },
   ];
+  weightLines = [{ product, variant, qty: 1 }];
   carry = [{ name: 'product_id', value: String(product.id) }];
   if (variant) carry.push({ name: 'variant_id', value: String(variant.id) });
   for (const e of extras) carry.push({ name: 'extra', value: String(e.id) });
@@ -97,6 +104,7 @@ if (isBuyNow) {
     unitPriceCents: l.unitPriceCents,
     qty: l.qty,
   }));
+  weightLines = cartLines.map((l) => ({ product: l.product, variant: l.variant, qty: l.qty }));
   carry = [{ name: 'source', value: 'cart' }];
 }
 
@@ -105,6 +113,13 @@ const totalCents = lines.reduce((s, l) => s + l.unitPriceCents * l.qty, 0);
 // Only the actually-usable rails, default first. None → no checkout (cart-style).
 const methods = Astro.locals.settings ? enabledMethods(Astro.locals.settings) : [];
 if (methods.length === 0) return Astro.redirect(backHref, 303);
+
+const effectiveShipping = shippingFor(Astro.locals.settings).config;
+const destination = stripeDestination(
+  Astro.locals.settings,
+  effectiveShipping,
+  shipmentWeightFor(weightLines).shippingRequired,
+);
 
 const heading = isBuyNow ? 'Buy now' : 'Checkout';
 const METHOD: Record<string, { label: string; hint: string }> = {
@@ -156,6 +171,26 @@ const METHOD: Record<string, { label: string; hint: string }> = {
               <input type="hidden" name={c.name} value={c.value} />
             ))}
             <input type="hidden" name="method" value={m} />
+            {/* Stripe prices its static rate list from this choice; the other
+                rails collect the address on /checkout. A single remaining country
+                still submits, or the server would fall back to the raw first
+                zone — possibly the very country the Stripe filter removed. */}
+            {m === 'stripe' && destination.showSelect && (
+              <label class="mb-2 flex items-center justify-between gap-2 text-xs uppercase tracking-widest text-gray-500">
+                Ship to
+                <select
+                  name="country"
+                  class="rounded-md border border-gray-200 px-2 py-1.5 text-sm normal-case tracking-normal text-gray-900"
+                >
+                  {destination.countries.map((c) => (
+                    <option value={c}>{destination.label(c)}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {m === 'stripe' && destination.hiddenOnly && (
+              <input type="hidden" name="country" value={destination.countries[0]} />
+            )}
             <button
               type="submit"
               class={`flex w-full items-center justify-between gap-3 rounded-lg px-5 py-3 text-left transition ${
