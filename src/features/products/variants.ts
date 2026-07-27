@@ -242,6 +242,33 @@ export async function deleteExtra(db: D1Database, id: number): Promise<void> {
  *
  * Prices arrive in major units and are scaled to `currency`.
  */
+/**
+ * Reject a mistyped variant weight with nothing written. This is separate from
+ * applyVariantForm so the route can run it BEFORE the product/image/category
+ * writes — validating mid-way produced a half-saved edit behind an error page,
+ * and under weight pricing a silently dropped weight is a mis-quoted order.
+ */
+export function validateVariantWeights(
+  form: FormData,
+  weightUnit: WeightUnit,
+): string | null {
+  const raws = form.getAll('v_weight').map((v) => String(v));
+  for (let i = 0; i < raws.length; i++) {
+    const parsed = toGrams(raws[i]!, weightUnit);
+    if (parsed.status !== 'error') continue;
+    const what =
+      parsed.reason === 'negative'
+        ? 'weight cannot be negative.'
+        : parsed.reason === 'precision'
+          ? `weight has too many decimal places for ${weightUnit}.`
+          : parsed.reason === 'over_limit'
+            ? 'weight is too heavy for parcel shipping.'
+            : 'weight must be a number.';
+    return `Variant ${i + 1}: ${what}`;
+  }
+  return null;
+}
+
 export async function applyVariantForm(
   db: D1Database,
   productId: number,
@@ -267,28 +294,10 @@ export async function applyVariantForm(
     return parsed.status === 'ok' ? parsed.grams : null;
   };
 
-  // Validate every weight BEFORE any write. Silently dropping a mistyped weight
-  // and redirecting to a success page tells the merchant the value was saved when
-  // it was not — and under weight pricing that is a mis-quoted order.
-  const weightErrors = form
-    .getAll('v_weight')
-    .map((raw, index) => ({ index, parsed: toGrams(String(raw), weightUnit) }))
-    .filter((r) => r.parsed.status === 'error');
-  if (weightErrors.length > 0) {
-    const first = weightErrors[0]!;
-    const reason = first.parsed.status === 'error' ? first.parsed.reason : 'not_number';
-    return {
-      error: `Variant ${first.index + 1}: ${
-        reason === 'negative'
-          ? 'weight cannot be negative.'
-          : reason === 'precision'
-            ? `weight has too many decimal places for ${weightUnit}.`
-            : reason === 'over_limit'
-              ? 'weight is too heavy for parcel shipping.'
-              : 'weight must be a number.'
-      }`,
-    };
-  }
+  // Endpoints must call validateVariantWeights BEFORE their first write; this
+  // recheck only guards direct callers that skipped it.
+  const invalid = validateVariantWeights(form, weightUnit);
+  if (invalid) return { error: invalid };
 
   // The variant group label (null clears it).
   await setVariantLabel(db, productId, String(form.get('variant_group_label') ?? '').trim() || null);

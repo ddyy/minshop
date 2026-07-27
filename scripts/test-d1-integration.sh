@@ -271,6 +271,40 @@ checkout="$(curl --fail --silent --show-error \
   --data '{"items":[{"slug":"sample-tee","quantity":1}],"method":"demo","ship_to":{"email":"integration@example.com","name":"Integration Test","line1":"1 Test St","city":"Testville","postal":"12345","country":"US"}}' \
   "http://127.0.0.1:$test_port/api/checkout")"
 
+# In-app rails must be judged on the destination they SUBMIT, not on a preflight
+# quote of the first configured zone. Zone 1 here is weight-only (and the seeded
+# products carry no weights, so it can serve nothing); the catch-all zone 2 can.
+# A demo order shipped to CA must therefore succeed — the pre-fix preflight 422'd
+# it against zone 1 before ship_to was even read — while a US order still fails
+# with the real missing_weight reason.
+two_zone_config='{"schema":2,"revision":1,"enabled":true,"packageWeightGrams":0,"zones":[{"name":"United States","countries":["US"],"rates":[{"label":"By weight","pricing":{"type":"weight","bands":[{"upToGrams":1000,"amountCents":500}]}}],"freeOverCents":null},{"name":"Rest of world","countries":["*"],"rates":[{"label":"International","pricing":{"type":"flat","amountCents":3000}}],"freeOverCents":null}]}'
+npx wrangler d1 execute DB --local --persist-to "$state_dir" \
+  --command "INSERT INTO settings (key, value) VALUES ('shipping_config', '$two_zone_config')" >/dev/null
+
+ca_body="$state_dir/ca-checkout.json"
+ca_status="$(curl --silent --output "$ca_body" --write-out '%{http_code}' \
+  -H 'content-type: application/json' \
+  -H "origin: http://127.0.0.1:$test_port" \
+  --data '{"items":[{"slug":"sample-tee","quantity":1}],"method":"demo","ship_to":{"email":"integration@example.com","name":"Integration Test","line1":"1 Test St","city":"Testville","postal":"12345","country":"CA"}}' \
+  "http://127.0.0.1:$test_port/api/checkout")"
+if [[ "$ca_status" != "200" ]]; then
+  echo "D1 integration failed: catch-all destination refused (HTTP $ca_status): $(cat "$ca_body")" >&2
+  exit 1
+fi
+
+us_status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'content-type: application/json' \
+  -H "origin: http://127.0.0.1:$test_port" \
+  --data '{"items":[{"slug":"sample-tee","quantity":1}],"method":"demo","ship_to":{"email":"integration@example.com","name":"Integration Test","line1":"1 Test St","city":"Testville","postal":"12345","country":"US"}}' \
+  "http://127.0.0.1:$test_port/api/checkout")"
+if [[ "$us_status" != "422" ]]; then
+  echo "D1 integration failed: weight-only zone with weightless products returned HTTP $us_status (expected 422)" >&2
+  exit 1
+fi
+
+npx wrangler d1 execute DB --local --persist-to "$state_dir" \
+  --command "DELETE FROM settings WHERE key = 'shipping_config'" >/dev/null
+
 # A shipped in-app order without a destination must be refused, not quietly
 # accepted with zero shipping (the pre-fix behaviour this test used to rely on).
 no_ship_status="$(curl --silent --output /dev/null --write-out '%{http_code}' \

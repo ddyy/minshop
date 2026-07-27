@@ -457,13 +457,24 @@ export function validateBuildTimeShipping(cfg: ShippingConfig): string | null {
   };
   // A disabled store with no zones is a legitimate resting state, not a fault.
   if (!asDocument.enabled && asDocument.zones.length === 0) return null;
+  // Build-time zones have no names, and a THRESHOLD-ONLY zone (no rates but a
+  // free-over amount) is legal there — the calculator still synthesizes free
+  // shipping for it — even though the Admin editor requires a rate. A zone with
+  // neither rates nor a threshold offers nothing and stays an error: exempting it
+  // would accept configuration that cannot ship anything.
+  const thresholdOnly = new Set(
+    asDocument.zones.flatMap((zone, index) =>
+      zone.rates.length === 0 && zone.freeOverCents != null ? [index] : [],
+    ),
+  );
   const errors = validateShippingDocument(asDocument).filter(
     (e) =>
-      // Build-time zones have no names, and a threshold-only zone with no rates is
-      // legal there (the calculator still synthesizes free shipping for it) even
-      // though the Admin editor requires a rate. Neither is a reason to stop
-      // selling for a store that has always worked.
-      e.field !== 'name' && e.message !== 'Add at least one shipping rate.',
+      e.field !== 'name' &&
+      !(
+        e.message === 'Add at least one shipping rate.' &&
+        e.zoneIndex != null &&
+        thresholdOnly.has(e.zoneIndex)
+      ),
   );
   return errors.length > 0 ? errors[0]!.message : null;
 }

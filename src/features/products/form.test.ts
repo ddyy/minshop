@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseProductForm } from './form';
 import { toGrams } from '../shipping/weight';
+import { validateVariantWeights } from './variants';
 
 function form(data: Record<string, string>): FormData {
   const f = new FormData();
@@ -94,16 +95,28 @@ describe('parseProductForm', () => {
   });
 });
 
-describe('variant weight input', () => {
-  // applyVariantForm validates with the same parser before it writes anything;
-  // these pin the reasons it must refuse rather than silently drop.
-  it('refuses the inputs that used to be discarded', () => {
-    expect(toGrams('heavy', 'g').status).toBe('error');
-    expect(toGrams('-1', 'g').status).toBe('error');
-    expect(toGrams('0.5', 'g').status).toBe('error');
-    expect(toGrams('2000', 'kg').status).toBe('error');
+describe('validateVariantWeights', () => {
+  // The route runs this BEFORE its first write; a mid-save failure left the
+  // image/product/category changes committed behind an error page.
+  const withWeights = (...weights: string[]) => {
+    const f = new FormData();
+    for (const w of weights) f.append('v_weight', w);
+    return f;
+  };
+  it('refuses the inputs that used to be silently discarded', () => {
+    expect(validateVariantWeights(withWeights('heavy'), 'g')).toMatch(/must be a number/);
+    expect(validateVariantWeights(withWeights('-1'), 'g')).toMatch(/negative/);
+    expect(validateVariantWeights(withWeights('0.5'), 'g')).toMatch(/decimal places/);
+    expect(validateVariantWeights(withWeights('2000'), 'kg')).toMatch(/too heavy/);
   });
-  it('still treats blank as inherit and zero as a known weight', () => {
+  it('names the offending row', () => {
+    expect(validateVariantWeights(withWeights('1', 'heavy'), 'g')).toMatch(/^Variant 2:/);
+  });
+  it('accepts blank (inherit), zero, and ordinary values', () => {
+    expect(validateVariantWeights(withWeights('', '0', '250'), 'g')).toBeNull();
+    expect(validateVariantWeights(new FormData(), 'g')).toBeNull();
+  });
+  it('parses with the same rules as toGrams', () => {
     expect(toGrams('', 'g')).toEqual({ status: 'blank' });
     expect(toGrams('0', 'g')).toEqual({ status: 'ok', grams: 0 });
   });

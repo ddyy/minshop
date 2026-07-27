@@ -11,7 +11,7 @@ import { zonesRequireWeight } from '../../../../features/shipping/calculator';
 import { shippingFor } from '../../../../features/shipping/effective';
 import { uniqueSlug } from '../../../../features/products/slug';
 import { setProductCategories } from '../../../../features/categories/db';
-import { applyVariantForm } from '../../../../features/products/variants';
+import { applyVariantForm, validateVariantWeights } from '../../../../features/products/variants';
 import { validateImage } from '../../../../features/products/image';
 import { optimizeUpload } from '../../../../features/products/imageOptimize';
 import { uploadMedia } from '../../../../features/media/upload';
@@ -61,6 +61,12 @@ export const POST: APIRoute = async ({ request, params, redirect, locals }) => {
     requireWeight: zonesRequireWeight(shippingFor(locals.settings).config),
   });
   if ('error' in parsed) return fail(parsed.error);
+
+  // Weights are checked before ANY write. applyVariantForm runs last, after the
+  // image, product, and category mutations — reporting the error from there left
+  // a half-saved edit behind the failure page.
+  const badWeight = validateVariantWeights(form, weightUnit);
+  if (badWeight) return fail(badWeight);
 
   // The uploaded key is NOT written to products.image_key here: that reference
   // would be unguarded, and the media row is deletable until something claims

@@ -177,6 +177,15 @@ describe('effectiveShippingConfig', () => {
     expect(effective.issue).toBeNull();
     expect(effective.config.zones).toHaveLength(1);
   });
+  it('still rejects a build-time zone with neither rates nor a threshold', () => {
+    // Such a zone can ship nothing; the threshold-only exemption must not widen
+    // into accepting it.
+    const empty: ShippingConfig = {
+      enabled: true,
+      zones: [{ countries: ['US'], rates: [], freeOverCents: null }],
+    };
+    expect(validateBuildTimeShipping(empty)).toMatch(/at least one shipping rate/i);
+  });
   it('accepts an ordinary build-time configuration', () => {
     expect(validateBuildTimeShipping(buildTime)).toBeNull();
   });

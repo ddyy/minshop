@@ -7,6 +7,7 @@ import { allowedCountries, hasCatchAllZone } from '../features/shipping/calculat
 import { COUNTRY_CODES, countryName } from '../features/shipping/countries';
 import { shippingFor } from '../features/shipping/effective';
 import { shipmentWeightFor } from '../features/shipping/lines';
+import { stripeAllowedCountries } from '../features/payments/stripeCountries.ts';
 import ProductImage from '../features/products/ProductImage.astro';
 import { enabledMethods, isMethodAvailable } from '../features/payments';
 import { catalogPath } from '../features/settings/home';
@@ -38,7 +39,8 @@ const error = Astro.url.searchParams.get('error');
 // Destination pre-selector for Stripe's hosted checkout: Stripe shows a static
 // rate list set before it knows the address, so let the shopper pick the country
 // here (defaulted to the first, editable) → Stripe gets that zone's rates. The
-// Lightning path collects the country on its own /checkout page, so skip it there.
+// in-app rails collect the address on /checkout, so the selector appears exactly
+// when Stripe is offered at all — not only when it happens to be the default.
 // Effective configuration, not `cfg.shipping` — a saved Admin document owns both
 // the zones and the on/off switch. An all-digital cart never needs a destination,
 // so the selector is also gated on some line actually requiring shipping.
@@ -48,13 +50,13 @@ const effectiveShipping = shippingFor(settings).config;
 // first zone (and hide the selector entirely when there is one) while Stripe still
 // accepts an address from anywhere — quoting US rates for a Canadian delivery.
 const shipsAnywhere = hasCatchAllZone(effectiveShipping);
+const stripeOffered = settings ? isMethodAvailable('stripe', settings) : false;
 const shipCountries =
-  effectiveShipping.enabled &&
-  shipmentWeightFor(lines).shippingRequired &&
-  settings?.paymentProvider !== 'lightning'
-    ? shipsAnywhere
-      ? [...COUNTRY_CODES]
-      : allowedCountries(effectiveShipping)
+  effectiveShipping.enabled && shipmentWeightFor(lines).shippingRequired && stripeOffered
+    ? stripeAllowedCountries(
+        shipsAnywhere ? [...COUNTRY_CODES] : allowedCountries(effectiveShipping),
+        false,
+      )
     : [];
 const countryLabel = (code: string) => (shipsAnywhere ? `${countryName(code)} (${code})` : code);
 const showCountry = shipCountries.length > 1;

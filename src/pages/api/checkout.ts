@@ -24,6 +24,7 @@ import { getStoreSettings } from '../../features/settings/db';
 import { createConfigRatesCalculator } from '../../features/shipping/calculator';
 import { shippingFor } from '../../features/shipping/effective';
 import { shipmentWeightFor } from '../../features/shipping/lines';
+import { stripeAllowedCountries } from '../../features/payments/stripeCountries.ts';
 import { getConfig } from '../../config';
 import {
   reserveInventory,
@@ -316,6 +317,16 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
         shipmentWeightGrams: quote.shipmentWeightGrams,
       }
     : undefined;
+  if (shipping && stripeAllowedCountries(shipping.addressCountries, shipping.hasCatchAll).length === 0) {
+    // Stripe rejects an empty allowed_countries at session creation — after the
+    // reservation. Refuse first, with a message the merchant can act on.
+    return redirect(
+      `${errorPath}?error=${encodeURIComponent(
+        'The configured shipping destinations are not supported by card checkout. Please contact us to complete this order.',
+      )}`,
+      303,
+    );
+  }
 
   // Pre-generate the order's public token here so success_url can point straight
   // at the confirmation page. The webhook stores this same id on the order.
@@ -547,8 +558,12 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
       422,
     );
   };
-  const hostedQuote = shippingOn ? quoteFor(shipCountry) : null;
-  if (hostedQuote && hostedQuote.options.length === 0 && method !== 'lightning') {
+  // The static preflight prices the FIRST configured country, which only Stripe
+  // needs (its hosted page takes a fixed list before knowing the address). The
+  // in-app rails must be judged solely on the ship_to they submit — quoting the
+  // first zone here rejected orders that their own destination could serve.
+  const hostedQuote = shippingOn && method === 'stripe' ? quoteFor(shipCountry) : null;
+  if (hostedQuote && hostedQuote.options.length === 0) {
     return shippingProblem(shipCountry, hostedQuote);
   }
   const shipping = hostedQuote
@@ -559,6 +574,14 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
         shipmentWeightGrams: hostedQuote.shipmentWeightGrams,
       }
     : undefined;
+  if (shipping && stripeAllowedCountries(shipping.addressCountries, shipping.hasCatchAll).length === 0) {
+    // e.g. a zone whose only country Stripe cannot collect an address for. Stripe
+    // rejects an empty allowed_countries outright, so refuse before reserving.
+    return cjson(
+      { error: 'None of the configured shipping destinations are supported by Stripe checkout.', reason: 'destination' },
+      422,
+    );
+  }
 
   // The JSON API has no interactive step, so every rail that cannot collect an
   // address on a hosted page takes it as `ship_to` here: the agent supplies the
