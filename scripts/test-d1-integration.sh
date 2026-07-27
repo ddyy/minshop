@@ -268,8 +268,20 @@ fi
 checkout="$(curl --fail --silent --show-error \
   -H 'content-type: application/json' \
   -H "origin: http://127.0.0.1:$test_port" \
+  --data '{"items":[{"slug":"sample-tee","quantity":1}],"method":"demo","ship_to":{"email":"integration@example.com","name":"Integration Test","line1":"1 Test St","city":"Testville","postal":"12345","country":"US"}}' \
+  "http://127.0.0.1:$test_port/api/checkout")"
+
+# A shipped in-app order without a destination must be refused, not quietly
+# accepted with zero shipping (the pre-fix behaviour this test used to rely on).
+no_ship_status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'content-type: application/json' \
+  -H "origin: http://127.0.0.1:$test_port" \
   --data '{"items":[{"slug":"sample-tee","quantity":1}],"method":"demo"}' \
   "http://127.0.0.1:$test_port/api/checkout")"
+if [[ "$no_ship_status" != "400" ]]; then
+  echo "D1 integration failed: shipped demo checkout without ship_to returned HTTP $no_ship_status (expected 400)" >&2
+  exit 1
+fi
 
 pay_path="$(node -e 'const b=JSON.parse(process.argv[1]); if (!b.checkout_url) process.exit(1); process.stdout.write(new URL(b.checkout_url).pathname)' "$checkout")"
 order_id="$(node -e 'const b=JSON.parse(process.argv[1]); if (!b.order_public_id) process.exit(1); process.stdout.write(b.order_public_id)' "$checkout")"
