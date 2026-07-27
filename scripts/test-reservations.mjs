@@ -27,6 +27,8 @@ try {
     'CREATE TABLE order_items (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL, product_id INTEGER, variant_id INTEGER, name TEXT NOT NULL, price_cents INTEGER NOT NULL, quantity INTEGER NOT NULL)',
     'CREATE TABLE product_variants (id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER NOT NULL, label TEXT NOT NULL, price_delta_cents INTEGER NOT NULL DEFAULT 0, stock INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1)',
     "CREATE TABLE checkout_reservations (public_id TEXT PRIMARY KEY, items TEXT NOT NULL, payment_method TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', expires_at TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))",
+    // Just the columns recordPaidOrder's batched settle statement touches.
+    "CREATE TABLE pending_payments (payment_hash TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'pending')",
   ]) {
     await db.exec(sql);
   }
@@ -151,10 +153,42 @@ try {
     created_at: '2026-07-20 00:00:00',
   });
   assert.equal(legacy.reservationId, undefined);
+  assert.equal(legacy.settlePaymentHash, 'legacy-payment');
+  await db
+    .prepare("INSERT INTO pending_payments (payment_hash, status) VALUES ('legacy-payment', 'pending')")
+    .run();
   assert(await recordPaidOrder(db, legacy));
   assert.equal((await db.prepare('SELECT stock FROM products WHERE id = ?').bind(product.id).first()).stock, 2);
+  // The batched settle: recording the order flipped its pending row.
+  assert.equal(
+    (await db.prepare("SELECT status FROM pending_payments WHERE payment_hash = 'legacy-payment'").first()).status,
+    'settled',
+  );
 
-  console.log('Reservation integration passed: concurrency + pending + release + settlement + legacy');
+  // A reservation-gated order whose reservation is gone must NOT settle its
+  // pending row: the guard ties the settle to this batch's claimed order.
+  await db
+    .prepare("INSERT INTO pending_payments (payment_hash, status) VALUES ('blocked-payment', 'pending')")
+    .run();
+  assert.equal(
+    await recordPaidOrder(db, {
+      providerSessionId: 'blocked-payment',
+      publicId: crypto.randomUUID(),
+      reservationId: crypto.randomUUID(), // no such reservation
+      email: null,
+      amountTotalCents: 1200,
+      currency: 'usd',
+      items: [{ productId: product.id, name: 'Reserved product', priceCents: 1200, quantity: 1 }],
+      settlePaymentHash: 'blocked-payment',
+    }),
+    null,
+  );
+  assert.equal(
+    (await db.prepare("SELECT status FROM pending_payments WHERE payment_hash = 'blocked-payment'").first()).status,
+    'pending',
+  );
+
+  console.log('Reservation integration passed: concurrency + pending + release + settlement + legacy + batched pending settle');
 } finally {
   await mf.dispose();
 }

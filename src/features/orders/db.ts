@@ -85,6 +85,13 @@ export interface PaidOrderInput {
    */
   providerPaymentId?: string | null;
   items?: OrderItemInput[];
+  /**
+   * pending_payments row to mark settled in the same batch as the order insert
+   * (saves the separate markPendingSettled round trip — meaningful when the D1
+   * primary is far away). Guarded on this invocation's settlement-token claim,
+   * so a payment is never marked settled unless ITS order row actually landed.
+   */
+  settlePaymentHash?: string | null;
 }
 
 /** Recent orders for the admin view, newest first. */
@@ -409,6 +416,24 @@ export async function recordPaidOrder(
             )`,
         )
         .bind(o.reservationId, o.providerSessionId, settlementToken),
+    );
+  }
+
+  if (o.settlePaymentHash) {
+    stmts.push(
+      db
+        .prepare(
+          // Correlated on the pending row's own hash (not the caller's
+          // providerSessionId) so a malformed caller can never settle payment A
+          // while inserting order B — the order must BE this payment's order.
+          `UPDATE pending_payments SET status = 'settled'
+            WHERE payment_hash = ? AND EXISTS (
+              SELECT 1 FROM orders
+               WHERE provider_session_id = pending_payments.payment_hash
+                 AND settlement_token = ?
+            )`,
+        )
+        .bind(o.settlePaymentHash, settlementToken),
     );
   }
 

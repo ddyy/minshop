@@ -107,7 +107,10 @@ export async function recordPaidWebhookOrder(
     }
     throw new Error(`Could not settle inventory reservation ${paidOrder.reservationId ?? 'legacy'}.`);
   }
-  await markPending();
+  // Orders built from a pending payment settle it inside the batch above
+  // (settlePaymentHash); the separate round trip is only for results that
+  // carry a settle id without one (none today — belt and braces).
+  if (!paidOrder.settlePaymentHash) await markPending();
 
   // One settings object serves the provider lookup and the three values below,
   // so a caller that already has it costs us zero reads here.

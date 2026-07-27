@@ -155,5 +155,7 @@ export function pendingToPaidOrder(p: PendingPayment): PaidOrderInput {
     shippingAddress,
     currency: p.currency,
     items,
+    // Settle this pending row inside the order batch — no separate round trip.
+    settlePaymentHash: p.payment_hash,
   };
 }
