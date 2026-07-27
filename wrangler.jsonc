@@ -59,10 +59,6 @@
 		{
 			"binding": "BUCKET",
 			"bucket_name": "minshop-images"
-		},
-		{
-			"bucket_name": "minshop-images",
-			"binding": "minshop_images"
 		}
 	],
 	// Optional integrations — uncomment + redeploy to enable (see README → Search,
