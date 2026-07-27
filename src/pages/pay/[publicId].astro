@@ -27,7 +27,14 @@ if (!isDemo && !isLightning) return Astro.redirect(`/order/${pending.public_id}`
 
 let declined: string | null = null;
 if (isDemo && Astro.request.method === 'POST') {
-  const result = await settleDemoCheckout(pending, await Astro.request.formData(), Astro.url.origin);
+  // Middleware already loaded the settings overlay for this document — hand it
+  // down so settlement doesn't re-read it (and the three keys it derives).
+  const result = await settleDemoCheckout(
+    pending,
+    await Astro.request.formData(),
+    Astro.url.origin,
+    Astro.locals.settings,
+  );
   if (result.redirect) return Astro.redirect(result.redirect, 303);
   declined = result.declined ?? null;
 }

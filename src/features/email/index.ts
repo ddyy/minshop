@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:workers';
 import { getConfig } from '../../config';
-import { getStoreSettings } from '../settings/db';
+import { getStoreSettings, type StoreSettings } from '../settings/db';
 import { getSecret } from '../secrets/store';
 import type { EmailProvider } from './provider';
 import { createCloudflareEmail } from './cloudflare';
@@ -14,9 +14,16 @@ export type { EmailProvider, EmailMessage } from './provider';
  * on/off switch, provider, and from-address are runtime settings; the Resend API
  * key lives encrypted in the vault. The build-time `config.email` supplies only the
  * fallback from-address/name. Async because it reads D1.
+ *
+ * Pass `settings` when the caller already has them (middleware puts them on
+ * `locals.settings`, the webhook routes load them to pick a rail) — the settings
+ * read is a full-table scan on a path that may already have done it, and on a
+ * distant D1 primary each avoided round trip is worth ~100ms+.
  */
-export async function getEmailProvider(): Promise<EmailProvider | null> {
-  const s = await getStoreSettings(env.DB);
+export async function getEmailProvider(
+  settings?: StoreSettings,
+): Promise<EmailProvider | null> {
+  const s = settings ?? (await getStoreSettings(env.DB));
   if (!s.emailEnabled) return null;
 
   const cfg = getConfig().email;

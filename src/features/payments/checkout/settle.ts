@@ -8,6 +8,7 @@ import { getLightningBackend } from '../lightning';
 import { getOrderByProviderSessionId, recordPaidOrder } from '../../orders/db';
 import { recordPaidWebhookOrder } from '../../orders/recordWebhook';
 import { resolveRequiredOrderEmail } from '../../email/orderPolicy';
+import type { StoreSettings } from '../../settings/db';
 
 // Settlement logic for the self-rendered /pay page, one function per method. Kept
 // here (beside the views) so the route stays a thin dispatcher.
@@ -32,13 +33,14 @@ export async function settleDemoCheckout(
   pending: PendingPayment,
   form: FormData,
   origin: string,
+  settings?: StoreSettings,
 ): Promise<DemoSettleResult> {
   const outcome = String(form.get('outcome') ?? 'approve');
   const email = resolveRequiredOrderEmail(String(form.get('email') ?? ''), pending.email);
   if (!email) return { declined: 'A valid email is required.' };
   if (outcome === 'approve') {
     const order = { ...pendingToPaidOrder(pending), email };
-    await recordPaidWebhookOrder({ type: 'demo.paid', order }, origin, 'demo');
+    await recordPaidWebhookOrder({ type: 'demo.paid', order }, origin, 'demo', settings);
     await markPendingSettled(env.DB, pending.payment_hash);
     return { redirect: `/order/${pending.public_id}` };
   }

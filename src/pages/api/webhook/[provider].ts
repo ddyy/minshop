@@ -34,6 +34,6 @@ export const POST: APIRoute = async ({ request, params }) => {
     return new Response(`Webhook verification failed: ${(err as Error).message}`, { status: 400 });
   }
 
-  await recordPaidWebhookOrder(result, origin, method);
+  await recordPaidWebhookOrder(result, origin, method, settings);
   return new Response('ok', { status: 200 });
 };

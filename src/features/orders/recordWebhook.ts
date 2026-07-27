@@ -13,7 +13,7 @@ import { sendRefundNotice } from '../refunds/notify';
 import { getPaymentProvider, type PaymentMethod } from '../payments';
 import { shouldSendCustomerOrderEmail } from '../email/orderPolicy';
 import { getConfig } from '../../config';
-import { getSetting } from '../settings/db';
+import { getStoreSettings, type StoreSettings } from '../settings/db';
 import {
   getActiveReservationItems,
   markInventoryReservationPaymentPending,
@@ -27,11 +27,17 @@ import { markPendingSettled } from '../payments/lightning/pending';
  * the default `/api/webhook` and the per-provider `/api/webhook/[provider]`
  * routes; `paymentMethod` records which rail settled it (for refund routing).
  * Email failures are swallowed — the order is already saved.
+ *
+ * `settings` is optional but every caller already has it (middleware for /pay,
+ * an explicit load in the webhook routes). Passing it removes four D1 reads from
+ * the settlement path — the whole-table settings scan plus the three individual
+ * lookups whose values are already on `StoreSettings`.
  */
 export async function recordPaidWebhookOrder(
   result: WebhookResult,
   origin: string,
   paymentMethod: string,
+  settings?: StoreSettings,
 ): Promise<void> {
   const markPending = async () => {
     if (result.settlePendingPaymentId) {
@@ -103,22 +109,20 @@ export async function recordPaidWebhookOrder(
   }
   await markPending();
 
-  const emailer = await getEmailProvider();
+  // One settings object serves the provider lookup and the three values below,
+  // so a caller that already has it costs us zero reads here.
+  const s = settings ?? (await getStoreSettings(env.DB));
+  const emailer = await getEmailProvider(s);
   if (!emailer) return;
   const order = await getOrder(env.DB, orderId);
   if (!order) return;
 
   const items = await listOrderItemsWithImages(env.DB, orderId);
   // Dashboard setting (Settings → Email) wins; falls back to store.config.ts notifyTo.
-  const [notifySetting, storeNameSetting, imageDeliverySetting] = await Promise.all([
-    getSetting(env.DB, 'email_notify_to'),
-    getSetting(env.DB, 'store_name'),
-    getSetting(env.DB, 'image_delivery'),
-  ]);
-  const notifyTo = notifySetting || getConfig().email.notifyTo;
+  const notifyTo = s.emailNotifyTo || getConfig().email.notifyTo;
   // Runtime store name (Settings) wins over the build-time default in email copy.
-  const storeName = storeNameSetting || getConfig().storeName;
-  const imageDelivery = imageDeliverySetting === 'cloudflare' ? 'cloudflare' : 'original';
+  const storeName = s.storeName || getConfig().storeName;
+  const imageDelivery = s.imageDelivery;
   const messages = [
     ...(order.email && shouldSendCustomerOrderEmail(paymentMethod)
       ? [orderConfirmationEmail(order, items, origin, storeName, imageDelivery)]

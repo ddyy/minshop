@@ -13,7 +13,8 @@ export const prerender = false;
 export const POST: APIRoute = async ({ request }) => {
   const payload = await request.text();
   const origin = new URL(request.url).origin;
-  const method = defaultMethod(await getStoreSettings(env.DB));
+  const settings = await getStoreSettings(env.DB);
+  const method = defaultMethod(settings);
 
   let result;
   try {
@@ -23,6 +24,6 @@ export const POST: APIRoute = async ({ request }) => {
     return new Response(`Webhook verification failed: ${(err as Error).message}`, { status: 400 });
   }
 
-  await recordPaidWebhookOrder(result, origin, method);
+  await recordPaidWebhookOrder(result, origin, method, settings);
   return new Response('ok', { status: 200 });
 };
