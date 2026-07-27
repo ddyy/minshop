@@ -54,6 +54,37 @@ describe('productImageSources', () => {
     expect(sources.sizes).toContain('384px');
   });
 
+  // Every upload since the media library, and every object after the key rename,
+  // lives under media/. Gating transforms on products/ alone silently served the
+  // full-size original for all of them.
+  it('builds the same ladder for media/ keys', () => {
+    const sources = productImageSources('media/a9468bf665b439711b62.webp', {
+      baseUrl: 'https://images.example.com',
+      delivery: 'cloudflare',
+      usage: 'card',
+    });
+
+    expect(sources.srcset?.split(', /cdn-cgi/image/')).toHaveLength(4);
+    expect(sources.src).toContain('/cdn-cgi/image/width=384,');
+    expect(sources.src).toContain('https://images.example.com/media/a9468bf665b439711b62.webp?v=1');
+  });
+
+  it('still refuses keys outside the store\'s own prefixes', () => {
+    for (const key of [
+      'evil/abc.png',
+      '/etc/passwd',
+      'https://evil.example/a.jpg',
+      'products/../private/a.jpg',
+      'media/../../secret.png',
+    ]) {
+      const sources = productImageSources(key, {
+        baseUrl: 'https://images.example.com',
+        delivery: 'cloudflare',
+      });
+      expect(sources.srcset).toBeUndefined();
+    }
+  });
+
   it('uses detail and thumbnail fallbacks appropriate to their usage', () => {
     const detail = productImageSources('products/abc.png', {
       baseUrl: 'https://images.example.com',

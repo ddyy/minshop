@@ -59,11 +59,25 @@ export function productImageUrl(imageKey: string | null, baseUrl = ''): string {
   return mediaUrl(imageKey, baseUrl);
 }
 
+/**
+ * Object-key prefixes eligible for on-demand transformation.
+ *
+ * `media/` is where every upload has gone since the media library shipped, and
+ * where the key rename moved the existing `products/` objects. Gating on
+ * `products/` alone silently dropped the whole srcset ladder — the browser fell
+ * back to the full-size original for every image, on every store with on-demand
+ * delivery enabled. Measured on the demo: 77,830 bytes served where a 384px AVIF
+ * is 10,124.
+ *
+ * `products/` stays for stores that have not been renamed.
+ */
+const TRANSFORMABLE_KEY = /^(?:products|media)\/[A-Za-z0-9][A-Za-z0-9._/-]*$/;
+
 function versionedTransformSource(imageKey: string, baseUrl: string): string | null {
   // On-demand transforms require a public absolute source. Keep transformation
-  // requests scoped to product objects on the configured image origin; malformed
-  // or legacy out-of-prefix keys simply retain original delivery.
-  if (!/^products\/[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(imageKey)) return null;
+  // requests scoped to the store's own image prefixes on the configured origin;
+  // malformed or out-of-prefix keys simply retain original delivery.
+  if (!TRANSFORMABLE_KEY.test(imageKey)) return null;
   if (imageKey.split('/').some((segment) => segment === '.' || segment === '..')) return null;
   try {
     const base = new URL(`${baseUrl.replace(/\/+$/, '')}/`);
