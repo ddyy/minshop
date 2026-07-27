@@ -273,15 +273,27 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
   // it shows. Falls back to the first zone's country (e.g. buy-now, no selector).
   const countryField = form.get('country');
   const selectedCountry = countryField == null ? null : String(countryField).trim().toUpperCase();
+  // Nullable on purpose: an invented fallback (say 'US' for a CU-only store)
+  // would fail later as "we don't ship to US" — true but useless. The absence of
+  // ANY Stripe-supported configured country is its own, configuration-level
+  // problem and gets named as such before quoting or reserving.
   const stripeFallbackCountry =
-    stripeAllowedCountries(shipCalc.allowedCountries(), shipCalc.hasCatchAll())[0] ?? 'US';
+    stripeAllowedCountries(shipCalc.allowedCountries(), shipCalc.hasCatchAll())[0] ?? null;
   // Absent → the supported fallback. PRESENT → taken as supplied, even when
   // malformed: stripeSessionDestination rejects anything that is not a real
   // alpha-2 code, so 'USA' becomes a refusal, not a silent quote for a
   // destination the shopper never chose. (Empty string counts as absent — that
   // is a selector that submitted nothing, not a chosen value.)
   const shipCountry = selectedCountry ? selectedCountry : stripeFallbackCountry;
-  const quote = shippingApplies
+  if (shippingApplies && shipCountry == null) {
+    return redirect(
+      `${errorPath}?error=${encodeURIComponent(
+        'The configured shipping destinations are not supported by card checkout. Please contact us to complete this order.',
+      )}`,
+      303,
+    );
+  }
+  const quote = shippingApplies && shipCountry != null
     ? shipCalc.quoteFor({
         subtotalCents,
         country: shipCountry,
@@ -318,9 +330,10 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
   // against. Any wider list lets the shopper keep a cheap zone's rate while
   // entering an address in an expensive one; a crafted country in the POST is
   // refused here, before inventory is reserved.
-  const sessionCountries = quote
-    ? stripeSessionDestination(shipCountry, shipCalc.allowedCountries(), shipCalc.hasCatchAll())
-    : null;
+  const sessionCountries =
+    quote && shipCountry
+      ? stripeSessionDestination(shipCountry, shipCalc.allowedCountries(), shipCalc.hasCatchAll())
+      : null;
   if (quote && !sessionCountries) {
     return redirect(
       `${errorPath}?error=${encodeURIComponent(
@@ -523,8 +536,8 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
   const storeCurrency = cfg.currency;
   const subtotalCents = lines.reduce((s, l) => s + l.unitPriceCents * l.qty, 0);
   const shipCalc = createConfigRatesCalculator(effectiveShipping);
-  const shipCountry =
-    stripeAllowedCountries(shipCalc.allowedCountries(), shipCalc.hasCatchAll())[0] ?? 'US';
+  const stripeFallbackCountry =
+    stripeAllowedCountries(shipCalc.allowedCountries(), shipCalc.hasCatchAll())[0] ?? null;
   // Weight comes from the D1 rows resolved above; a request body never supplies it.
   const shipment = shipmentWeightFor(lines);
   const shippingOn = effectiveShipping.enabled && shipment.shippingRequired;
@@ -587,16 +600,28 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
     );
   }
   const stripeCountry =
-    shipCountryRaw === undefined ? shipCountry : shipCountryRaw.trim().toUpperCase();
-  const hostedQuote = shippingOn && method === 'stripe' ? quoteFor(stripeCountry) : null;
+    shipCountryRaw === undefined ? stripeFallbackCountry : shipCountryRaw.trim().toUpperCase();
+  if (shippingOn && method === 'stripe' && stripeCountry == null) {
+    return cjson(
+      {
+        error:
+          'None of the configured shipping destinations are supported by Stripe checkout. Pass "ship_country" or use another payment method.',
+        reason: 'destination',
+      },
+      422,
+    );
+  }
+  const hostedQuote =
+    shippingOn && method === 'stripe' && stripeCountry != null ? quoteFor(stripeCountry) : null;
   if (hostedQuote && hostedQuote.options.length === 0) {
-    return shippingProblem(stripeCountry, hostedQuote);
+    return shippingProblem(stripeCountry ?? '', hostedQuote);
   }
   // Narrow the session to the quoted country (see the form path): a wider list
   // would let the payer keep this zone's rate while shipping to another.
-  const sessionCountries = hostedQuote
-    ? stripeSessionDestination(stripeCountry, shipCalc.allowedCountries(), shipCalc.hasCatchAll())
-    : null;
+  const sessionCountries =
+    hostedQuote && stripeCountry
+      ? stripeSessionDestination(stripeCountry, shipCalc.allowedCountries(), shipCalc.hasCatchAll())
+      : null;
   if (hostedQuote && !sessionCountries) {
     return cjson(
       {

@@ -30,6 +30,14 @@ describe('stripeAllowedCountries', () => {
   it('still filters an explicit list that names an unsupported code', () => {
     expect(stripeAllowedCountries(['US', 'CU'], false)).toEqual(['US']);
   });
+
+  it('returns empty for a configuration with no supported country', () => {
+    // The checkout fallback is `[0] ?? null` over this result: a CU-only store
+    // must surface "configured destinations aren't supported by card checkout",
+    // not invent US and then fail as "we don't ship to US".
+    expect(stripeAllowedCountries(['CU'], false)).toEqual([]);
+    expect(stripeAllowedCountries([], false)).toEqual([]);
+  });
 });
 
 describe('stripeSessionDestination', () => {
