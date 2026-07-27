@@ -305,10 +305,9 @@ fallback if a transformation fails.
 
 The URL interface does not require an `IMAGES` Worker binding. That binding is only
 needed for the separate **Optimize images on upload** feature. Existing product
-images work immediately without a backfill, including legacy slug-named objects;
-the generated transformation source includes a revision token to avoid reusing an
-older cached version. New uploads and replacements always receive unique object
-keys.
+images work immediately without a backfill, including legacy slug-named objects.
+New uploads and replacements always receive unique object keys, so a source URL
+never serves different bytes and needs no cache-busting parameter.
 
 Each source-and-parameter combination is a unique transformation. The application
 emits only its fixed width ladder and uses `onerror=redirect`, but `/cdn-cgi/image/`

@@ -43,7 +43,7 @@ describe('productImageSources', () => {
 
     expect(sources.src).toContain('/cdn-cgi/image/width=384,');
     expect(sources.src).toContain(
-      'https://images.example.com/products/brass-pen.jpg?v=1',
+      'https://images.example.com/products/brass-pen.jpg',
     );
     expect(sources.src).toContain('fit=scale-down,format=auto,quality=82,onerror=redirect');
     expect(sources.srcset?.split(', /cdn-cgi/image/')).toHaveLength(4);
@@ -57,6 +57,18 @@ describe('productImageSources', () => {
   // Every upload since the media library, and every object after the key rename,
   // lives under media/. Gating transforms on products/ alone silently served the
   // full-size original for all of them.
+  // Keys are unique per upload, so a source URL can never serve different bytes.
+  // A version parameter would only change every URL — re-transforming the whole
+  // catalog, billed as new unique transformations for that month — for nothing.
+  it('adds no cache-busting parameter to the transform source', () => {
+    const sources = productImageSources('media/a9468bf665b439711b62.webp', {
+      baseUrl: 'https://images.example.com',
+      delivery: 'cloudflare',
+    });
+    expect(sources.src).not.toContain('?v=');
+    expect(sources.srcset).not.toContain('?v=');
+  });
+
   it('builds the same ladder for media/ keys', () => {
     const sources = productImageSources('media/a9468bf665b439711b62.webp', {
       baseUrl: 'https://images.example.com',
@@ -66,7 +78,7 @@ describe('productImageSources', () => {
 
     expect(sources.srcset?.split(', /cdn-cgi/image/')).toHaveLength(4);
     expect(sources.src).toContain('/cdn-cgi/image/width=384,');
-    expect(sources.src).toContain('https://images.example.com/media/a9468bf665b439711b62.webp?v=1');
+    expect(sources.src).toContain('https://images.example.com/media/a9468bf665b439711b62.webp');
   });
 
   it('still refuses keys outside the store\'s own prefixes', () => {
@@ -129,7 +141,7 @@ describe('productImageSources', () => {
     );
     expect(url).toContain('https://shop.example.com/cdn-cgi/image/');
     expect(url).toContain('width=96,height=96,fit=cover,format=jpeg,quality=80');
-    expect(url).toContain('https://images.example.com/products/abc.png?v=1');
+    expect(url).toContain('https://images.example.com/products/abc.png');
   });
 });
 

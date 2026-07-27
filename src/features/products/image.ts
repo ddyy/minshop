@@ -4,10 +4,6 @@ import { validateUpload } from '../media/upload';
 export type ImageDelivery = 'original' | 'cloudflare';
 export type ProductImageUsage = 'card' | 'detail' | 'thumbnail';
 
-// Changing this makes every source URL new, so the whole catalog's requested
-// variants count as new unique transformations for that calendar month. Bump it
-// only when deliberately invalidating the transformation cache.
-export const IMAGE_TRANSFORM_REVISION = '1';
 export const PRODUCT_IMAGE_WIDTHS = [128, 384, 768, 1024] as const;
 
 const USAGE_DEFAULTS: Record<
@@ -84,9 +80,11 @@ function versionedTransformSource(imageKey: string, baseUrl: string): string | n
     if (base.protocol !== 'https:' && base.protocol !== 'http:') return null;
     const source = new URL(imageKey, base);
     if (source.origin !== base.origin || !source.pathname.startsWith(base.pathname)) return null;
-    // One-time cache break for legacy objects that may previously have been
-    // overwritten under a slug-based key. Future uploads always get a new key.
-    source.searchParams.set('v', IMAGE_TRANSFORM_REVISION);
+    // No cache-busting parameter: every key is unique per upload, so a given
+    // source URL can never serve different bytes. A store that still holds
+    // legacy slug-named objects — which a re-upload could overwrite in place —
+    // should replace them rather than version the URL, since the object itself
+    // is what changed.
     return source.href;
   } catch {
     return null;
