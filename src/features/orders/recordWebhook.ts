@@ -32,12 +32,21 @@ import { markPendingSettled } from '../payments/lightning/pending';
  * an explicit load in the webhook routes). Passing it removes four D1 reads from
  * the settlement path — the whole-table settings scan plus the three individual
  * lookups whose values are already on `StoreSettings`.
+ *
+ * `waitUntil` (the ExecutionContext's, when the caller has one) moves the whole
+ * notification pipeline — provider construction, the order/items reads, both
+ * sends — off the response's critical path. Best-effort by design: sends were
+ * already swallowed on failure, so backgrounding them weakens nothing the
+ * caller could observe. Callers that need delivery attempted before they
+ * answer (the provider webhook routes, whose retries are the safety net) simply
+ * don't pass it.
  */
 export async function recordPaidWebhookOrder(
   result: WebhookResult,
   origin: string,
   paymentMethod: string,
   settings?: StoreSettings,
+  waitUntil?: (promise: Promise<unknown>) => void,
 ): Promise<void> {
   const markPending = async () => {
     if (result.settlePendingPaymentId) {
@@ -112,33 +121,39 @@ export async function recordPaidWebhookOrder(
   // carry a settle id without one (none today — belt and braces).
   if (!paidOrder.settlePaymentHash) await markPending();
 
-  // One settings object serves the provider lookup and the three values below,
-  // so a caller that already has it costs us zero reads here.
-  const s = settings ?? (await getStoreSettings(env.DB));
-  const emailer = await getEmailProvider(s);
-  if (!emailer) return;
-  const order = await getOrder(env.DB, orderId);
-  if (!order) return;
+  const notify = async () => {
+    // One settings object serves the provider lookup and the three values below,
+    // so a caller that already has it costs us zero reads here.
+    const s = settings ?? (await getStoreSettings(env.DB));
+    const emailer = await getEmailProvider(s);
+    if (!emailer) return;
+    const order = await getOrder(env.DB, orderId);
+    if (!order) return;
 
-  const items = await listOrderItemsWithImages(env.DB, orderId);
-  // Dashboard setting (Settings → Email) wins; falls back to store.config.ts notifyTo.
-  const notifyTo = s.emailNotifyTo || getConfig().email.notifyTo;
-  // Runtime store name (Settings) wins over the build-time default in email copy.
-  const storeName = s.storeName || getConfig().storeName;
-  const imageDelivery = s.imageDelivery;
-  const messages = [
-    ...(order.email && shouldSendCustomerOrderEmail(paymentMethod)
-      ? [orderConfirmationEmail(order, items, origin, storeName, imageDelivery)]
-      : []),
-    ...(notifyTo
-      ? [orderNotificationEmail(order, items, notifyTo, origin, storeName, imageDelivery)]
-      : []),
-  ];
-  for (const msg of messages) {
-    try {
-      await emailer.send(msg);
-    } catch (err) {
-      console.error('Order email failed:', err);
+    const items = await listOrderItemsWithImages(env.DB, orderId);
+    // Dashboard setting (Settings → Email) wins; falls back to store.config.ts notifyTo.
+    const notifyTo = s.emailNotifyTo || getConfig().email.notifyTo;
+    // Runtime store name (Settings) wins over the build-time default in email copy.
+    const storeName = s.storeName || getConfig().storeName;
+    const imageDelivery = s.imageDelivery;
+    const messages = [
+      ...(order.email && shouldSendCustomerOrderEmail(paymentMethod)
+        ? [orderConfirmationEmail(order, items, origin, storeName, imageDelivery)]
+        : []),
+      ...(notifyTo
+        ? [orderNotificationEmail(order, items, notifyTo, origin, storeName, imageDelivery)]
+        : []),
+    ];
+    // Concurrent, and a failed send never blocks or hides the other.
+    const results = await Promise.allSettled(messages.map((msg) => emailer.send(msg)));
+    for (const r of results) {
+      if (r.status === 'rejected') console.error('Order email failed:', r.reason);
     }
-  }
+  };
+
+  // Backgrounded: catch so a failed read/send logs instead of surfacing as an
+  // unhandled rejection. Awaited (webhook rails): failures propagate exactly as
+  // they did before this function existed.
+  if (waitUntil) waitUntil(notify().catch((err) => console.error('Order notification failed:', err)));
+  else await notify();
 }

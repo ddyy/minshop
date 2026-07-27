@@ -28,12 +28,16 @@ if (!isDemo && !isLightning) return Astro.redirect(`/order/${pending.public_id}`
 let declined: string | null = null;
 if (isDemo && Astro.request.method === 'POST') {
   // Middleware already loaded the settings overlay for this document — hand it
-  // down so settlement doesn't re-read it (and the three keys it derives).
+  // down so settlement doesn't re-read it (and the three keys it derives). The
+  // execution context lets the confirmation emails finish after the redirect:
+  // demo receipts are best-effort by design, so the shopper never waits on them.
+  const ctx = Astro.locals.cfContext;
   const result = await settleDemoCheckout(
     pending,
     await Astro.request.formData(),
     Astro.url.origin,
     Astro.locals.settings,
+    ctx ? ctx.waitUntil.bind(ctx) : undefined,
   );
   if (result.redirect) return Astro.redirect(result.redirect, 303);
   declined = result.declined ?? null;

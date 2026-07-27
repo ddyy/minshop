@@ -34,6 +34,7 @@ export async function settleDemoCheckout(
   form: FormData,
   origin: string,
   settings?: StoreSettings,
+  waitUntil?: (promise: Promise<unknown>) => void,
 ): Promise<DemoSettleResult> {
   const outcome = String(form.get('outcome') ?? 'approve');
   const email = resolveRequiredOrderEmail(String(form.get('email') ?? ''), pending.email);
@@ -41,8 +42,9 @@ export async function settleDemoCheckout(
   if (outcome === 'approve') {
     const order = { ...pendingToPaidOrder(pending), email };
     // pendingToPaidOrder carries settlePaymentHash, so the pending row settles
-    // inside the order batch — no separate markPendingSettled round trip.
-    await recordPaidWebhookOrder({ type: 'demo.paid', order }, origin, 'demo', settings);
+    // inside the order batch — no separate markPendingSettled round trip. With
+    // waitUntil the emails (and their reads) run after the redirect is sent.
+    await recordPaidWebhookOrder({ type: 'demo.paid', order }, origin, 'demo', settings, waitUntil);
     return { redirect: `/order/${pending.public_id}` };
   }
   return { declined: DECLINE[outcome] ?? DECLINE.decline };
