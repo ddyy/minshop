@@ -1,6 +1,7 @@
 ---
 import { getConfig } from '../config';
 import { paymentsInDemoMode } from '../features/payments';
+import { shippingFor } from '../features/shipping/effective';
 import '../styles/global.css';
 
 type Section =
@@ -12,6 +13,7 @@ type Section =
   | 'media'
   | 'pages'
   | 'navigation'
+  | 'shipping'
   | 'settings';
 
 interface Props {
@@ -29,6 +31,12 @@ const showSetupNudge =
 // Cloudflare Access or local dev there's no minshop session to clear.
 const showLogout = !!Astro.cookies.get('admin_session')?.value;
 const pageTitle = title ? `${title} — ${storeName} admin` : `${storeName} admin`;
+// Configuration that fails closed blocks checkout for physical orders, and the only
+// other signal is a Worker log nobody is watching. Surface it on EVERY admin page,
+// not just the shipping one — the merchant should not have to go looking to find
+// out that they cannot take orders. Resolution is already loaded for this request,
+// so this costs no query.
+const shippingIssue = shippingFor(Astro.locals.settings).issue;
 
 const nav: { key: Section; label: string; href: string }[] = [
   { key: 'dashboard', label: 'Dashboard', href: '/admin' },
@@ -38,6 +46,7 @@ const nav: { key: Section; label: string; href: string }[] = [
   { key: 'categories', label: 'Categories', href: '/admin/categories' },
   { key: 'pages', label: 'Pages', href: '/admin/pages' },
   { key: 'navigation', label: 'Navigation', href: '/admin/navigation' },
+  { key: 'shipping', label: 'Shipping', href: '/admin/shipping' },
   { key: 'media', label: 'Media', href: '/admin/media' },
   { key: 'settings', label: 'Settings', href: '/admin/settings' },
 ];
@@ -148,6 +157,20 @@ const currentLabel = nav.find((n) => n.key === active)?.label ?? 'Menu';
               <code class="rounded bg-amber-100 px-1 text-xs">demo</code>. Shoppers see setup links
               for Card &amp; Lightning until you add a key. Demo stays available alongside real rails.
             </div>
+          )
+        }
+        {
+          shippingIssue && (
+            <a
+              href="/admin/shipping"
+              class="mb-6 flex items-center justify-between gap-3 rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 transition hover:border-red-500"
+            >
+              <span>
+                <strong class="font-semibold">Shipping checkout is blocked by invalid configuration:</strong>{' '}
+                {shippingIssue.reason}
+              </span>
+              <span aria-hidden="true">&rarr;</span>
+            </a>
           )
         }
         <slot />

@@ -17,6 +17,8 @@ export interface Order {
   email: string | null;
   amount_total_cents: number;
   shipping_cents: number;
+  shipping_label: string | null;
+  shipping_weight_grams: number | null;
   discount_cents: number;
   tax_cents: number;
   currency: string;
@@ -66,6 +68,10 @@ export interface PaidOrderInput {
   email: string | null;
   amountTotalCents: number;
   shippingCents?: number;
+  /** The service the shopper actually chose, and the weight it was priced at.
+   *  Snapshotted so later catalog or rate edits cannot rewrite history. */
+  shippingLabel?: string | null;
+  shippingWeightGrams?: number | null;
   discountCents?: number;
   taxCents?: number;
   shippingAddress?: ShippingAddress | null;
@@ -297,6 +303,8 @@ export async function recordPaidOrder(
     o.email,
     o.amountTotalCents,
     o.shippingCents ?? 0,
+    o.shippingLabel ?? null,
+    o.shippingWeightGrams ?? null,
     o.discountCents ?? 0,
     o.taxCents ?? 0,
     o.currency,
@@ -309,8 +317,8 @@ export async function recordPaidOrder(
   const insertOrder = o.reservationId
     ? db
         .prepare(
-          `INSERT INTO orders (provider_session_id, public_id, email, amount_total_cents, shipping_cents, discount_cents, tax_cents, currency, ship_address, status, payment_method, settlement_token, provider_payment_id)
-           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, NULL, ?
+          `INSERT INTO orders (provider_session_id, public_id, email, amount_total_cents, shipping_cents, shipping_label, shipping_weight_grams, discount_cents, tax_cents, currency, ship_address, status, payment_method, settlement_token, provider_payment_id)
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, NULL, ?
             WHERE EXISTS (
               SELECT 1 FROM checkout_reservations
                WHERE public_id = ? AND status IN ('active', 'payment_pending')
@@ -321,8 +329,8 @@ export async function recordPaidOrder(
         .bind(...orderValues, o.reservationId)
     : db
         .prepare(
-          `INSERT INTO orders (provider_session_id, public_id, email, amount_total_cents, shipping_cents, discount_cents, tax_cents, currency, ship_address, status, payment_method, settlement_token, provider_payment_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, NULL, ?)
+          `INSERT INTO orders (provider_session_id, public_id, email, amount_total_cents, shipping_cents, shipping_label, shipping_weight_grams, discount_cents, tax_cents, currency, ship_address, status, payment_method, settlement_token, provider_payment_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, NULL, ?)
            ON CONFLICT(provider_session_id) DO NOTHING
            RETURNING id`,
         )

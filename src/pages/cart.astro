@@ -1,9 +1,11 @@
 ---
 import { env } from 'cloudflare:workers';
 import Layout from '../layouts/Layout.astro';
-import { formatPrice, getConfig } from '../config';
+import { formatPrice } from '../config';
 import { readCart, resolveCart } from '../features/cart/cart';
 import { allowedCountries } from '../features/shipping/calculator';
+import { shippingFor } from '../features/shipping/effective';
+import { shipmentWeightFor } from '../features/shipping/lines';
 import ProductImage from '../features/products/ProductImage.astro';
 import { enabledMethods, isMethodAvailable } from '../features/payments';
 import { catalogPath } from '../features/settings/home';
@@ -36,10 +38,15 @@ const error = Astro.url.searchParams.get('error');
 // rate list set before it knows the address, so let the shopper pick the country
 // here (defaulted to the first, editable) → Stripe gets that zone's rates. The
 // Lightning path collects the country on its own /checkout page, so skip it there.
-const cfg = getConfig();
+// Effective configuration, not `cfg.shipping` — a saved Admin document owns both
+// the zones and the on/off switch. An all-digital cart never needs a destination,
+// so the selector is also gated on some line actually requiring shipping.
+const effectiveShipping = shippingFor(settings).config;
 const shipCountries =
-  (settings?.shippingEnabled ?? cfg.shipping.enabled) && settings?.paymentProvider !== 'lightning'
-    ? allowedCountries(cfg.shipping)
+  effectiveShipping.enabled &&
+  shipmentWeightFor(lines).shippingRequired &&
+  settings?.paymentProvider !== 'lightning'
+    ? allowedCountries(effectiveShipping)
     : [];
 const showCountry = shipCountries.length > 1;
 // The catalog is at / until the home page is pointed elsewhere.

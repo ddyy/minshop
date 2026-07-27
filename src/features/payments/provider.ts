@@ -40,7 +40,12 @@ export interface CreateCheckoutParams {
   /** When set, collect a shipping address (allowed countries) + offer these rates. */
   shipping?: {
     addressCountries: string[];
+    /** A "rest of world" zone matched: providers expand this into their own
+     *  supported-country list rather than receiving an empty allow-list. */
+    hasCatchAll?: boolean;
     options: ShippingOption[];
+    /** Priced-at weight, snapshotted so the order can explain its shipping line. */
+    shipmentWeightGrams?: number | null;
   };
 }
 

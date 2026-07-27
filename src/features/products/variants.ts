@@ -1,6 +1,7 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import { listProductImages } from './db';
 import { toMinorUnits } from '../../money';
+import { toGrams, type WeightUnit } from '../shipping/weight';
 
 /** A purchasable variant (the SKU/inventory unit). A product has 0 or N. */
 export interface ProductVariant {
@@ -13,6 +14,9 @@ export interface ProductVariant {
   position: number;
   active: number;
   image_id: number | null; // → product_images.id; NULL = use the gallery primary
+  /** Overrides the product's weight in grams; NULL inherits it. An explicit 0 is a
+   *  known weight, so this is `?? product.weight_grams`, never `|| `. */
+  weight_grams: number | null;
 }
 
 /** A checkbox add-on: a price delta on top of the line, no stock of its own. */
@@ -133,16 +137,17 @@ export async function createVariant(
     sku: string | null;
     image_id?: number | null;
     position?: number;
+    weight_grams?: number | null;
   },
 ): Promise<void> {
   // Default position appends to the end of the list (so new rows don't jump up top).
   const position = v.position ?? (await nextPosition(db, 'product_variants', productId));
   await db
     .prepare(
-      `INSERT INTO product_variants (product_id, label, price_cents, stock, sku, image_id, position)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO product_variants (product_id, label, price_cents, stock, sku, image_id, position, weight_grams)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(productId, v.label, v.price_cents, v.stock, v.sku, v.image_id ?? null, position)
+    .bind(productId, v.label, v.price_cents, v.stock, v.sku, v.image_id ?? null, position, v.weight_grams ?? null)
     .run();
 }
 
@@ -155,13 +160,14 @@ export async function updateVariant(
     stock: number;
     sku: string | null;
     image_id?: number | null;
+    weight_grams?: number | null;
   },
 ): Promise<void> {
   await db
     .prepare(
-      `UPDATE product_variants SET label = ?, price_cents = ?, stock = ?, sku = ?, image_id = ? WHERE id = ?`,
+      `UPDATE product_variants SET label = ?, price_cents = ?, stock = ?, sku = ?, image_id = ?, weight_grams = ? WHERE id = ?`,
     )
-    .bind(v.label, v.price_cents, v.stock, v.sku, v.image_id ?? null, id)
+    .bind(v.label, v.price_cents, v.stock, v.sku, v.image_id ?? null, v.weight_grams ?? null, id)
     .run();
 }
 
@@ -229,7 +235,7 @@ export async function deleteExtra(db: D1Database, id: number): Promise<void> {
  *
  *   variant_group_label                          → the group display name ("Size")
  *   v_id[], v_label[], v_price[], v_stock[],
- *   v_sku[], v_image[]                           → one entry per variant row
+ *   v_sku[], v_image[], v_weight[]               → one entry per variant row
  *   v_remove[]                                   → variant ids to delete
  *   e_id[], e_label[], e_price[]                 → one entry per extra row
  *   e_remove[]                                   → extra ids to delete
@@ -241,6 +247,7 @@ export async function applyVariantForm(
   productId: number,
   form: FormData,
   currency: string,
+  weightUnit: WeightUnit = 'g',
 ): Promise<void> {
   const str = (name: string) => form.getAll(name).map((v) => String(v));
   const ids = (name: string) =>
@@ -252,6 +259,15 @@ export async function applyVariantForm(
   const count = (s: string) => {
     const n = Number(String(s).trim());
     return Number.isInteger(n) && n > 0 ? n : 0;
+  };
+  // Blank inherits the product's weight; an explicit 0 is a known weight and must
+  // survive as 0 rather than collapsing back to "inherit". Unparseable input keeps
+  // the row's existing value rather than silently zeroing it.
+  const weight = (s: string): number | null | undefined => {
+    const parsed = toGrams(String(s ?? ''), weightUnit);
+    if (parsed.status === 'blank') return null;
+    if (parsed.status === 'ok') return parsed.grams;
+    return undefined;
   };
 
   // The variant group label (null clears it).
@@ -276,21 +292,29 @@ export async function applyVariantForm(
   const vStocks = str('v_stock');
   const vSkus = str('v_sku');
   const vImages = str('v_image');
+  const vWeights = str('v_weight');
   for (let i = 0; i < vLabels.length; i++) {
     const id = Number(vIds[i]);
     const label = (vLabels[i] ?? '').trim();
     if (Number.isInteger(id) && vRemove.has(id)) continue; // already deleted
+    const parsedWeight = weight(vWeights[i] ?? '');
     const fields = {
       label,
       price_cents: price(vPrices[i] ?? ''),
       stock: count(vStocks[i] ?? ''),
       sku: (vSkus[i] ?? '').trim() || null,
       image_id: pickImage(vImages[i] ?? ''),
+      weight_grams: parsedWeight ?? null,
     };
     if (Number.isInteger(id) && id > 0) {
       if (!label) continue; // a cleared label on an existing row → ignore (use Remove to delete)
       const v = await getVariant(db, id);
-      if (v && v.product_id === productId) await updateVariant(db, id, fields);
+      if (v && v.product_id === productId) {
+        await updateVariant(db, id, {
+          ...fields,
+          weight_grams: parsedWeight === undefined ? v.weight_grams : parsedWeight,
+        });
+      }
     } else if (label) {
       await createVariant(db, productId, fields);
     }

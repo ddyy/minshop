@@ -1,0 +1,514 @@
+---
+import { env } from 'cloudflare:workers';
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { getConfig } from '../../config';
+import { zonesRequireWeight, type ShippingConfig } from '../../features/shipping/calculator';
+import { countProductsMissingWeight, sampleProductsMissingWeight } from '../../features/shipping/sellability';
+import { formatWeightValue, type WeightUnit } from '../../features/shipping/weight';
+import { countryOptions } from '../../features/shipping/countries';
+import {
+  SHIPPING_LIMITS,
+  documentToForm,
+  errorsFor,
+  fingerprintRawConfig,
+  migrationCandidate,
+  parseShippingForm,
+  replaceInvalidShippingConfig,
+  saveRuntimeShippingConfig,
+  validateShippingDocument,
+  type ShippingFormModel,
+  type ShippingValidationError,
+} from '../../features/shipping/settings';
+
+export const prerender = false;
+
+const settings = Astro.locals.settings;
+const config = getConfig();
+const currency = config.currency;
+const unit: WeightUnit = settings?.weightUnit ?? 'g';
+const parsed = settings?.shippingConfig ?? { status: 'absent' as const };
+
+// The invalid document's raw value never leaves the server; the form carries only
+// a fingerprint of it, which is what the guarded replacement compares against.
+const invalidFingerprint =
+  parsed.status === 'invalid' ? await fingerprintRawConfig(parsed.raw) : null;
+
+const countries = countryOptions();
+let errors: ShippingValidationError[] = [];
+let notice: string | null = null;
+let conflict = false;
+let saved = Astro.url.searchParams.get('saved') === '1';
+
+function blankRate(token: string) {
+  return { token, label: '', mode: 'flat' as const, amountValue: '', bands: [] };
+}
+function blankZone(token: string) {
+  return {
+    token,
+    name: '',
+    countries: [] as string[],
+    rates: [blankRate(`${token}_r1`)],
+    freeOverValue: '',
+  };
+}
+
+/**
+ * First render on build-time configuration is a MIGRATION UI, not a blank slate.
+ * It is built from the raw build-time values (not the fail-closed effective result)
+ * so a merchant whose storefront is currently showing no shipping can still see and
+ * repair the values that caused it, and it is validated before they touch anything
+ * so the first POST is never their first hint that inherited config is invalid.
+ */
+function initialModel(): ShippingFormModel {
+  if (parsed.status === 'valid') {
+    return documentToForm(parsed.config, currency, unit, formatWeightValue);
+  }
+  return migrationCandidate(config.shipping, settings?.shippingEnabled ?? null, currency);
+}
+
+let model: ShippingFormModel = initialModel();
+let prepopulated = false;
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const action = String(form.get('_action') ?? 'save');
+  const parsedForm = parseShippingForm(form, { currency, unit });
+  model = parsedForm.model;
+
+  // Structural row actions re-render without touching D1, so the editor works with
+  // JavaScript disabled and a half-finished document is never persisted.
+  if (action === 'add_zone') {
+    model.zones = [...model.zones, blankZone(`z${model.zones.length + 1}_${Date.now()}`)].slice(
+      0,
+      SHIPPING_LIMITS.zones,
+    );
+  } else if (action.startsWith('remove_zone:')) {
+    const token = action.slice('remove_zone:'.length);
+    model.zones = model.zones.filter((z) => z.token !== token);
+  } else if (action.startsWith('move_zone:')) {
+    const [token, dir] = action.slice('move_zone:'.length).split(':');
+    const i = model.zones.findIndex((z) => z.token === token);
+    const j = dir === 'up' ? i - 1 : i + 1;
+    if (i >= 0 && j >= 0 && j < model.zones.length) {
+      const next = [...model.zones];
+      [next[i], next[j]] = [next[j]!, next[i]!];
+      model.zones = next;
+    }
+  } else if (action.startsWith('add_rate:')) {
+    const token = action.slice('add_rate:'.length);
+    model.zones = model.zones.map((z) =>
+      z.token === token
+        ? { ...z, rates: [...z.rates, blankRate(`${z.token}_r${z.rates.length + 1}_${Date.now()}`)] }
+        : z,
+    );
+  } else if (action.startsWith('remove_rate:')) {
+    const [zoneToken, rateToken] = action.slice('remove_rate:'.length).split(':');
+    model.zones = model.zones.map((z) =>
+      z.token === zoneToken ? { ...z, rates: z.rates.filter((r) => r.token !== rateToken) } : z,
+    );
+  } else if (action.startsWith('add_band:')) {
+    const [zoneToken, rateToken] = action.slice('add_band:'.length).split(':');
+    model.zones = model.zones.map((z) =>
+      z.token !== zoneToken
+        ? z
+        : {
+            ...z,
+            rates: z.rates.map((r) =>
+              r.token !== rateToken
+                ? r
+                : {
+                    ...r,
+                    bands: [
+                      ...r.bands,
+                      {
+                        token: `${r.token}_b${r.bands.length + 1}_${Date.now()}`,
+                        upToValue: '',
+                        noMax: false,
+                        amountValue: '',
+                      },
+                    ].slice(0, SHIPPING_LIMITS.bandsPerRate),
+                  },
+            ),
+          },
+    );
+  } else if (action.startsWith('remove_band:')) {
+    const [zoneToken, rateToken, bandToken] = action.slice('remove_band:'.length).split(':');
+    model.zones = model.zones.map((z) =>
+      z.token !== zoneToken
+        ? z
+        : {
+            ...z,
+            rates: z.rates.map((r) =>
+              r.token !== rateToken ? r : { ...r, bands: r.bands.filter((b) => b.token !== bandToken) },
+            ),
+          },
+    );
+  } else {
+    errors = parsedForm.errors;
+
+    // A weight-only zone plus products without weights would quietly stop those
+    // sales. Refuse the save instead of reporting it after the fact.
+    if (errors.length === 0 && zonesRequireWeight({ ...parsedForm.document } as ShippingConfig)) {
+      const missing = await countProductsMissingWeight(env.DB);
+      if (missing > 0) {
+        const names = await sampleProductsMissingWeight(env.DB);
+        errors = [
+          {
+            field: 'document',
+            message:
+              `${missing} product${missing === 1 ? '' : 's'} (${names.join(', ')}${
+                missing > names.length ? ', …' : ''
+              }) have no shipping weight and could not be purchased. ` +
+              'Set weights or keep a flat rate in every zone.',
+          },
+        ];
+      }
+    }
+
+    if (errors.length === 0) {
+      const result =
+        action === 'replace' && invalidFingerprint
+          ? await replaceInvalidShippingConfig(env.DB, String(form.get('fingerprint') ?? ''), parsedForm.document)
+          : await saveRuntimeShippingConfig(env.DB, parsedForm.revision, parsedForm.document);
+
+      if (result.ok) return Astro.redirect('/admin/shipping?saved=1', 303);
+      if (result.reason === 'conflict') {
+        conflict = true;
+        notice = 'Shipping changed in another tab. Reload and review those changes before saving yours.';
+      } else if (result.reason === 'too_large') {
+        notice = 'That configuration is too large to store. Remove some zones or countries.';
+      } else {
+        errors = result.errors ?? [];
+      }
+    }
+    saved = false;
+  }
+} else if (parsed.status !== 'valid') {
+  // Pre-populate errors on the inherited configuration so the merchant sees what
+  // needs fixing before they submit anything.
+  const preview = parseModelForPreview(model);
+  errors = preview;
+  prepopulated = preview.length > 0;
+}
+
+function parseModelForPreview(m: ShippingFormModel): ShippingValidationError[] {
+  return validateShippingDocument({
+    schema: 2,
+    revision: m.revision + 1,
+    enabled: m.enabled,
+    packageWeightGrams: 0,
+    zones: m.zones.map((z) => ({
+      name: z.name,
+      countries: z.countries,
+      freeOverCents: z.freeOverValue === '' ? null : Math.round(Number(z.freeOverValue) * 100),
+      rates: z.rates.map((r) => ({
+        label: r.label,
+        pricing:
+          r.mode === 'weight'
+            ? {
+                type: 'weight' as const,
+                bands: r.bands.map((b) => ({
+                  upToGrams: b.noMax ? null : Number(b.upToValue),
+                  amountCents: Math.round(Number(b.amountValue) * 100),
+                })),
+              }
+            : { type: 'flat' as const, amountCents: Math.round(Number(r.amountValue) * 100) },
+      })),
+    })),
+  });
+}
+
+const documentErrors = errorsFor(errors).filter((e) => e.field === 'document' || e.field === 'packageWeight');
+const isFirstSave = parsed.status !== 'valid';
+const label = (path: string) => `text-xs uppercase tracking-widest text-gray-500 ${path}`;
+---
+
+<AdminLayout title="Shipping" active="shipping">
+  <div class="mb-8 flex flex-wrap items-end justify-between gap-4">
+    <div>
+      <h1 class="font-serif text-3xl tracking-tight">Shipping</h1>
+      <p class="mt-2 text-sm text-gray-500">
+        Zones, rates, and free-shipping thresholds. Amounts are in {currency.toUpperCase()};
+        weights are entered in {unit} and stored in grams.
+      </p>
+    </div>
+    <a href="/cart" class="text-xs uppercase tracking-widest text-gray-500 hover:text-brand">
+      View cart checkout &rarr;
+    </a>
+  </div>
+
+  {saved && (
+    <p class="mb-6 rounded-md border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-800">
+      Shipping saved.
+    </p>
+  )}
+  {notice && (
+    <p class={`mb-6 rounded-md border px-4 py-3 text-sm ${conflict ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-red-300 bg-red-50 text-red-800'}`}>
+      {notice}
+    </p>
+  )}
+  {parsed.status === 'invalid' && (
+    <div class="mb-6 rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+      <strong class="font-semibold">The saved shipping configuration could not be read:</strong>{' '}
+      {parsed.error}
+      <p class="mt-2">
+        Checkout is blocked for physical orders until this is replaced. Review the values below
+        and use <strong>Replace invalid configuration</strong> to overwrite it.
+      </p>
+    </div>
+  )}
+  {prepopulated && (
+    <div class="mb-6 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+      This store still uses the shipping configuration from <code class="text-xs">store.config.ts</code>,
+      which allows things the editor does not. The problems are marked below — fix them, then save
+      to take ownership in Admin.
+    </div>
+  )}
+  {isFirstSave && !prepopulated && (
+    <p class="mb-6 rounded-md border border-line bg-white/60 px-4 py-3 text-sm text-gray-600">
+      Shipping currently comes from <code class="text-xs">store.config.ts</code>. Saving here moves
+      ownership to Admin — from then on this page is the source of truth.
+    </p>
+  )}
+
+  <form method="POST" class="space-y-8">
+    <input type="hidden" name="revision" value={model.revision} />
+    {invalidFingerprint && <input type="hidden" name="fingerprint" value={invalidFingerprint} />}
+    <input type="hidden" name="zone_order" value={model.zones.map((z) => z.token).join(',')} />
+
+    <section class="rounded-md border border-line bg-white/60 p-4">
+      <label class="flex items-center gap-3 text-sm">
+        <input type="checkbox" name="enabled" value="1" checked={model.enabled} class="size-4" />
+        <span><strong class="font-semibold">Offer shipping</strong> — collect an address and charge for delivery.</span>
+      </label>
+      <div class="mt-4 flex flex-wrap items-end gap-3">
+        <label class="block">
+          <span class={label('')}>Packaging weight ({unit})</span>
+          <input
+            type="text"
+            name="package_weight"
+            value={model.packageWeightValue}
+            inputmode="decimal"
+            class="mt-1 w-32 rounded border border-line px-2 py-1 text-sm"
+          />
+        </label>
+        <p class="text-xs text-gray-500">
+          Box, mailer, padding and label. Added once per order, on top of item weights.
+        </p>
+      </div>
+      {documentErrors.map((e) => (
+        <p class="mt-3 text-sm text-red-700">{e.message}</p>
+      ))}
+    </section>
+
+    {model.zones.map((zone, zoneIndex) => (
+      <section class="rounded-md border border-line bg-white/60 p-4">
+        <input type="hidden" name={`zone[${zone.token}][rate_order]`} value={zone.rates.map((r) => r.token).join(',')} />
+        <div class="flex flex-wrap items-end justify-between gap-3">
+          <label class="block flex-1">
+            <span class={label('')}>Zone name</span>
+            <input
+              type="text"
+              name={`zone[${zone.token}][name]`}
+              value={zone.name}
+              maxlength={SHIPPING_LIMITS.zoneName}
+              class="mt-1 w-full rounded border border-line px-2 py-1 text-sm"
+            />
+          </label>
+          <div class="flex gap-2 text-xs uppercase tracking-widest">
+            <button name="_action" value={`move_zone:${zone.token}:up`} class="text-gray-500 hover:text-brand" disabled={zoneIndex === 0}>Up</button>
+            <button name="_action" value={`move_zone:${zone.token}:down`} class="text-gray-500 hover:text-brand" disabled={zoneIndex === model.zones.length - 1}>Down</button>
+            <button name="_action" value={`remove_zone:${zone.token}`} class="text-red-600 hover:text-red-800">Remove zone</button>
+          </div>
+        </div>
+        {errorsFor(errors, zoneIndex).map((e) => (
+          <p class="mt-2 text-sm text-red-700">{e.message}</p>
+        ))}
+
+        <div class="mt-4 grid gap-4 sm:grid-cols-2">
+          <label class="block">
+            <span class={label('')}>Destinations</span>
+            <select
+              name={`zone[${zone.token}][countries][]`}
+              multiple
+              size="6"
+              class="mt-1 w-full rounded border border-line px-2 py-1 text-sm"
+            >
+              <option value="*" selected={zone.countries.includes('*')}>Rest of world</option>
+              {countries.map((c) => (
+                <option value={c.code} selected={zone.countries.includes(c.code)}>{c.name}</option>
+              ))}
+            </select>
+            {/* Legacy codes that are not real countries would vanish from a select,
+                hiding the very value the merchant has to fix — keep them visible. */}
+            {zone.countries.filter((c) => c !== '*' && !countries.some((k) => k.code === c)).map((c) => (
+              <span class="mt-1 inline-block rounded bg-red-100 px-2 py-0.5 text-xs text-red-800">
+                Unknown code: {c}
+                <input type="hidden" name={`zone[${zone.token}][countries][]`} value={c} />
+              </span>
+            ))}
+          </label>
+          <label class="block">
+            <span class={label('')}>Free shipping over ({currency.toUpperCase()})</span>
+            <input
+              type="text"
+              name={`zone[${zone.token}][free_over]`}
+              value={zone.freeOverValue}
+              inputmode="decimal"
+              class="mt-1 w-full rounded border border-line px-2 py-1 text-sm"
+            />
+            <span class="mt-1 block text-xs text-gray-500">Blank disables it.</span>
+          </label>
+        </div>
+
+        <div class="mt-5 space-y-4">
+          {zone.rates.map((rate, rateIndex) => (
+            <div class="rounded border border-line bg-paper p-3">
+              <div class="flex flex-wrap items-end gap-3">
+                <label class="block">
+                  <span class={label('')}>Rate label</span>
+                  <input
+                    type="text"
+                    name={`zone[${zone.token}][rate][${rate.token}][label]`}
+                    value={rate.label}
+                    maxlength={SHIPPING_LIMITS.rateLabel}
+                    class="mt-1 w-40 rounded border border-line px-2 py-1 text-sm"
+                  />
+                </label>
+                <label class="block">
+                  <span class={label('')}>Pricing</span>
+                  <select
+                    name={`zone[${zone.token}][rate][${rate.token}][mode]`}
+                    class="mt-1 rounded border border-line px-2 py-1 text-sm"
+                  >
+                    <option value="flat" selected={rate.mode === 'flat'}>Flat price</option>
+                    <option value="weight" selected={rate.mode === 'weight'}>By order weight</option>
+                  </select>
+                </label>
+                {rate.mode === 'flat' && (
+                  <label class="block">
+                    <span class={label('')}>Price</span>
+                    <input
+                      type="text"
+                      name={`zone[${zone.token}][rate][${rate.token}][amount]`}
+                      value={rate.amountValue}
+                      inputmode="decimal"
+                      class="mt-1 w-28 rounded border border-line px-2 py-1 text-sm"
+                    />
+                  </label>
+                )}
+                <button
+                  name="_action"
+                  value={`remove_rate:${zone.token}:${rate.token}`}
+                  class="ml-auto text-xs uppercase tracking-widest text-red-600 hover:text-red-800"
+                >
+                  Remove rate
+                </button>
+              </div>
+              {errorsFor(errors, zoneIndex, rateIndex).map((e) => (
+                <p class="mt-2 text-sm text-red-700">{e.message}</p>
+              ))}
+
+              {rate.mode === 'weight' && (
+                <div class="mt-3 border-t border-line pt-3">
+                  <input
+                    type="hidden"
+                    name={`zone[${zone.token}][rate][${rate.token}][band_order]`}
+                    value={rate.bands.map((b) => b.token).join(',')}
+                  />
+                  <p class={label('mb-2 block')}>Weight bands</p>
+                  {rate.bands.map((band, bandIndex) => (
+                    <div class="mb-2 flex flex-wrap items-end gap-3">
+                      <label class="block">
+                        <span class="text-xs text-gray-500">Up to ({unit})</span>
+                        <input
+                          type="text"
+                          name={`zone[${zone.token}][rate][${rate.token}][band][${band.token}][up_to]`}
+                          value={band.upToValue}
+                          disabled={band.noMax}
+                          inputmode="decimal"
+                          class="mt-1 w-28 rounded border border-line px-2 py-1 text-sm disabled:bg-gray-100"
+                        />
+                      </label>
+                      {bandIndex === rate.bands.length - 1 && (
+                        <label class="flex items-center gap-2 pb-1 text-xs text-gray-600">
+                          <input
+                            type="checkbox"
+                            name={`zone[${zone.token}][rate][${rate.token}][band][${band.token}][no_max]`}
+                            value="1"
+                            checked={band.noMax}
+                            class="size-4"
+                          />
+                          No maximum
+                        </label>
+                      )}
+                      <label class="block">
+                        <span class="text-xs text-gray-500">Price</span>
+                        <input
+                          type="text"
+                          name={`zone[${zone.token}][rate][${rate.token}][band][${band.token}][amount]`}
+                          value={band.amountValue}
+                          inputmode="decimal"
+                          class="mt-1 w-28 rounded border border-line px-2 py-1 text-sm"
+                        />
+                      </label>
+                      <button
+                        name="_action"
+                        value={`remove_band:${zone.token}:${rate.token}:${band.token}`}
+                        class="pb-1 text-xs uppercase tracking-widest text-red-600 hover:text-red-800"
+                      >
+                        Remove
+                      </button>
+                      {errorsFor(errors, zoneIndex, rateIndex, bandIndex).map((e) => (
+                        <p class="w-full text-sm text-red-700">{e.message}</p>
+                      ))}
+                    </div>
+                  ))}
+                  <button
+                    name="_action"
+                    value={`add_band:${zone.token}:${rate.token}`}
+                    class="text-xs uppercase tracking-widest text-gray-500 hover:text-brand"
+                  >
+                    + Add band
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+          <button
+            name="_action"
+            value={`add_rate:${zone.token}`}
+            class="text-xs uppercase tracking-widest text-gray-500 hover:text-brand"
+          >
+            + Add rate
+          </button>
+        </div>
+      </section>
+    ))}
+
+    <div class="flex flex-wrap items-center gap-4">
+      <button
+        name="_action"
+        value={parsed.status === 'invalid' ? 'replace' : 'save'}
+        class="rounded bg-brand px-5 py-2 text-sm font-medium text-white transition hover:opacity-90"
+      >
+        {parsed.status === 'invalid'
+          ? 'Replace invalid configuration'
+          : isFirstSave
+            ? 'Manage shipping in Admin'
+            : 'Save shipping'}
+      </button>
+      <button
+        name="_action"
+        value="add_zone"
+        class="text-xs uppercase tracking-widest text-gray-500 hover:text-brand"
+      >
+        + Add zone
+      </button>
+      <p class="text-xs text-gray-500">
+        Stripe shows the rates for the country chosen in the cart; the final address is confirmed
+        on its hosted page. Other rails collect the address before payment.
+      </p>
+    </div>
+  </form>
+</AdminLayout>

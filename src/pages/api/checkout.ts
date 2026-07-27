@@ -22,6 +22,8 @@ import {
 } from '../../features/payments';
 import { getStoreSettings } from '../../features/settings/db';
 import { createConfigRatesCalculator } from '../../features/shipping/calculator';
+import { shippingFor } from '../../features/shipping/effective';
+import { shipmentWeightFor } from '../../features/shipping/lines';
 import { getConfig } from '../../config';
 import {
   reserveInventory,
@@ -230,7 +232,13 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
   // the order (zone-accurate shipping), so route to the own-checkout page. Carry the
   // buy-now product + variant/extras so it prices the same line. Stripe & OpenNode
   // collect/handle shipping on their own hosted page, so they continue below.
-  if (selected === 'lightning' && (settings.shippingEnabled ?? cfg.shipping.enabled)) {
+  const effectiveShipping = shippingFor(settings).config;
+  // Digital-only baskets never collect an address or pay for delivery, whatever
+  // the store's shipping setting says.
+  const shipment = shipmentWeightFor(lines);
+  const shippingApplies = effectiveShipping.enabled && shipment.shippingRequired;
+
+  if (selected === 'lightning' && shippingApplies) {
     if (Number.isInteger(productId) && productId > 0) {
       const params = new URLSearchParams({ product_id: String(productId) });
       const vid = form.get('variant_id');
@@ -251,18 +259,55 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
   // it gets the primary zone's options; zone-accurate per-address shipping is the
   // own-checkout (Lightning) path's job — Stripe can't recompute mid-session.
   const subtotalCents = lines.reduce((s, l) => s + l.unitPriceCents * l.qty, 0);
-  const shipCalc = createConfigRatesCalculator(cfg.shipping);
+  const shipCalc = createConfigRatesCalculator(effectiveShipping);
   // The shopper pre-selects a destination on the cart (defaulted, editable), so
   // Stripe gets that zone's rates instead of always the first zone's. Stripe still
   // collects + confirms the full address on its page; this just sets which rates
   // it shows. Falls back to the first zone's country (e.g. buy-now, no selector).
   const selectedCountry = (form.get('country') ?? '').toString().trim().toUpperCase();
   const shipCountry =
-    selectedCountry.length === 2 ? selectedCountry : (cfg.shipping.zones[0]?.countries[0] ?? 'US');
-  const shipping = (settings.shippingEnabled ?? cfg.shipping.enabled)
+    selectedCountry.length === 2
+      ? selectedCountry
+      : (effectiveShipping.zones[0]?.countries[0] ?? 'US');
+  const quote = shippingApplies
+    ? shipCalc.quoteFor({
+        subtotalCents,
+        country: shipCountry,
+        itemWeightGrams: shipment.itemWeightGrams,
+        missingWeight: shipment.missingWeight,
+      })
+    : null;
+  // No options for a REQUIRED shipment blocks the order — sending Stripe an empty
+  // option list (or an empty allowed_countries) is an API error, not "no shipping".
+  if (quote && quote.options.length === 0) {
+    const missing = quote.omitted.some((o) => o.reason === 'missing_weight');
+    if (missing) {
+      console.error(
+        JSON.stringify({
+          event: 'shipping_quote_blocked',
+          reason: 'missing_weight',
+          country: shipCountry,
+          product_ids: quote.missingWeight.map((m) => m.productId),
+        }),
+      );
+    }
+    return redirect(
+      `${errorPath}?error=${encodeURIComponent(
+        missing
+          ? "We can't calculate shipping for one of these items right now. Please contact us to complete this order."
+          : quote.omitted.some((o) => o.reason === 'overweight')
+            ? 'This order is too heavy for the available shipping services.'
+            : `Sorry, we don't ship to ${shipCountry} yet.`,
+      )}`,
+      303,
+    );
+  }
+  const shipping = quote
     ? {
         addressCountries: shipCalc.allowedCountries(),
-        options: shipCalc.optionsFor({ subtotalCents, country: shipCountry }),
+        hasCatchAll: shipCalc.hasCatchAll(),
+        options: quote.options,
+        shipmentWeightGrams: quote.shipmentWeightGrams,
       }
     : undefined;
 
@@ -379,7 +424,7 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
   const method: PaymentMethod = requested ?? available[0] ?? defaultMethod(jsonSettings);
 
   const cfg = getConfig();
-  const shippingOn = jsonSettings.shippingEnabled ?? cfg.shipping.enabled;
+  const effectiveShipping = shippingFor(jsonSettings).config;
 
   // Resolve each { slug, quantity, variant_id?, extras? } → a priced line,
   // validating active + variant choice + stock. Variant/extra ids come from the
@@ -449,10 +494,64 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
 
   const storeCurrency = cfg.currency;
   const subtotalCents = lines.reduce((s, l) => s + l.unitPriceCents * l.qty, 0);
-  const shipCalc = createConfigRatesCalculator(cfg.shipping);
-  const shipCountry = cfg.shipping.zones[0]?.countries[0] ?? 'US';
-  const shipping = shippingOn
-    ? { addressCountries: shipCalc.allowedCountries(), options: shipCalc.optionsFor({ subtotalCents, country: shipCountry }) }
+  const shipCalc = createConfigRatesCalculator(effectiveShipping);
+  const shipCountry = effectiveShipping.zones[0]?.countries[0] ?? 'US';
+  // Weight comes from the D1 rows resolved above; a request body never supplies it.
+  const shipment = shipmentWeightFor(lines);
+  const shippingOn = effectiveShipping.enabled && shipment.shippingRequired;
+  const quoteFor = (country: string) =>
+    shipCalc.quoteFor({
+      subtotalCents,
+      country,
+      itemWeightGrams: shipment.itemWeightGrams,
+      missingWeight: shipment.missingWeight,
+    });
+  /** 422 with a reason an agent can act on, from the same quote the browser uses. */
+  const shippingProblem = (country: string, quote: ReturnType<typeof quoteFor>) => {
+    if (quote.omitted.some((o) => o.reason === 'missing_weight')) {
+      console.error(
+        JSON.stringify({
+          event: 'shipping_quote_blocked',
+          reason: 'missing_weight',
+          country: country.toUpperCase(),
+          product_ids: quote.missingWeight.map((m) => m.productId),
+        }),
+      );
+      return cjson(
+        {
+          error: 'Shipping cannot be calculated: some items have no shipping weight recorded.',
+          reason: 'missing_weight',
+          items: quote.missingWeight.map((m) => ({ product_id: m.productId, name: m.name })),
+        },
+        422,
+      );
+    }
+    if (quote.omitted.some((o) => o.reason === 'overweight')) {
+      return cjson(
+        {
+          error: 'This order is too heavy for the available shipping services.',
+          reason: 'overweight',
+          shipment_weight_grams: quote.shipmentWeightGrams,
+        },
+        422,
+      );
+    }
+    return cjson(
+      { error: `This store does not ship to ${country.toUpperCase()}.`, reason: 'destination' },
+      422,
+    );
+  };
+  const hostedQuote = shippingOn ? quoteFor(shipCountry) : null;
+  if (hostedQuote && hostedQuote.options.length === 0 && method !== 'lightning') {
+    return shippingProblem(shipCountry, hostedQuote);
+  }
+  const shipping = hostedQuote
+    ? {
+        addressCountries: shipCalc.allowedCountries(),
+        hasCatchAll: shipCalc.hasCatchAll(),
+        options: hostedQuote.options,
+        shipmentWeightGrams: hostedQuote.shipmentWeightGrams,
+      }
     : undefined;
 
   // Lightning + shipping: the agent supplies a `ship_to` address (the JSON API has
@@ -469,10 +568,9 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
         400,
       );
     }
-    const shipOptions = shipCalc.optionsFor({ subtotalCents, country: shipTo.country });
-    if (shipOptions.length === 0) {
-      return cjson({ error: `This store does not ship to ${shipTo.country}.` }, 409);
-    }
+    const lnQuote = quoteFor(shipTo.country);
+    const shipOptions = lnQuote.options;
+    if (shipOptions.length === 0) return shippingProblem(shipTo.country, lnQuote);
     const wantLabel =
       typeof (body as { shipping_label?: unknown }).shipping_label === 'string'
         ? (body as { shipping_label: string }).shipping_label
@@ -503,6 +601,8 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
         currency: storeCurrency,
         subtotalCents,
         shippingCents: chosen.amountCents,
+        shippingLabel: chosen.label,
+        shippingWeightGrams: lnQuote.shipmentWeightGrams,
         itemsJson: JSON.stringify(
           lines.map((l) => ({ id: l.product.id, v: l.variantId, q: l.qty, n: l.name, p: l.unitPriceCents })),
         ),

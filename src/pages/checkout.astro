@@ -5,9 +5,11 @@ import Layout from '../layouts/Layout.astro';
 import { getConfig, formatPrice } from '../config';
 import { readCart, resolveCart } from '../features/cart/cart';
 import { getProduct, type Product } from '../features/products/db';
-import { listVariants, getExtrasByIds } from '../features/products/variants';
+import { listVariants, getExtrasByIds, type ProductVariant } from '../features/products/variants';
 import { lineUnitPriceCents } from '../features/cart/key';
-import { computeShipping, allowedCountries } from '../features/shipping/calculator';
+import { quoteShipping, allowedCountries } from '../features/shipping/calculator';
+import { shippingFor } from '../features/shipping/effective';
+import { shipmentWeightFor } from '../features/shipping/lines';
 import { getLightningBackend } from '../features/payments/lightning';
 import { mintLightningOrder } from '../features/payments/lightning-provider';
 import { isMethodAvailable } from '../features/payments';
@@ -45,6 +47,9 @@ interface CheckoutLine {
   name: string;
   unitPriceCents: number;
   variantId: number | null;
+  /** Carried (not just its id) because shipment weight needs the variant's own
+   *  weight, which overrides the product's. */
+  variant: ProductVariant | null;
 }
 let lines: CheckoutLine[] = [];
 if (Number.isInteger(productId) && productId > 0) {
@@ -63,6 +68,7 @@ if (Number.isInteger(productId) && productId > 0) {
           (extras.length ? ` (${extras.map((e) => e.label).join(', ')})` : ''),
         unitPriceCents: lineUnitPriceCents(product.price_cents, variant, extras),
         variantId: variant?.id ?? null,
+        variant,
       },
     ];
   }
@@ -77,13 +83,18 @@ if (Number.isInteger(productId) && productId > 0) {
       (l.extras.length ? ` (${l.extras.map((e) => e.label).join(', ')})` : ''),
     unitPriceCents: l.unitPriceCents,
     variantId: l.variant?.id ?? null,
+    variant: l.variant,
   }));
 }
 if (lines.length === 0) return Astro.redirect('/cart', 303);
 
 const subtotalCents = lines.reduce((s, l) => s + l.unitPriceCents * l.qty, 0);
 const currency = cfg.currency;
-const knownCountries = allowedCountries(cfg.shipping);
+const effectiveShipping = shippingFor(Astro.locals.settings).config;
+const knownCountries = allowedCountries(effectiveShipping);
+// Weight (and whether shipping applies at all) always comes from the current D1
+// rows resolved above — never from the posted form.
+const shipment = shipmentWeightFor(lines);
 const carry = Number.isInteger(productId) && productId > 0 ? String(productId) : '';
 const carryVariantId = buyNowVariantId > 0 ? String(buyNowVariantId) : '';
 const carryExtraIds = buyNowExtraIds;
@@ -112,9 +123,35 @@ if (isPost) {
   if (addr.country.length !== 2) errors.push('Use a 2-letter country code (e.g. US).');
 
   if (errors.length === 0) {
-    options = computeShipping(subtotalCents, addr.country, cfg.shipping);
+    const quote = quoteShipping(effectiveShipping, {
+      subtotalCents,
+      country: addr.country,
+      itemWeightGrams: shipment.itemWeightGrams,
+      missingWeight: shipment.missingWeight,
+    });
+    options = quote.options;
     if (options.length === 0) {
-      errors.push(`Sorry, we don't ship to ${addr.country} yet.`);
+      // Distinguish "we don't ship there" from "we can't price this basket", so the
+      // shopper is told something they can act on.
+      const missing = quote.omitted.some((o) => o.reason === 'missing_weight');
+      const overweight = quote.omitted.some((o) => o.reason === 'overweight');
+      if (missing) {
+        console.error(
+          JSON.stringify({
+            event: 'shipping_quote_blocked',
+            reason: 'missing_weight',
+            country: addr.country.toUpperCase(),
+            product_ids: quote.missingWeight.map((m) => m.productId),
+          }),
+        );
+        errors.push(
+          `We can't calculate shipping for ${quote.missingWeight.map((m) => m.name).join(', ')} right now. Please contact us to complete this order.`,
+        );
+      } else if (overweight) {
+        errors.push('This order is too heavy for the available shipping services.');
+      } else {
+        errors.push(`Sorry, we don't ship to ${addr.country} yet.`);
+      }
     } else {
       stage = 'shipping';
       const chosenLabel = fld('shipping_label');
@@ -149,6 +186,8 @@ if (isPost) {
                 currency,
                 subtotalCents,
                 shippingCents: chosen.amountCents,
+                shippingLabel: chosen.label,
+                shippingWeightGrams: quote.shipmentWeightGrams,
                 itemsJson: JSON.stringify(
                   lines.map((l) => ({ id: l.product.id, v: l.variantId, q: l.qty, n: l.name, p: l.unitPriceCents })),
                 ),

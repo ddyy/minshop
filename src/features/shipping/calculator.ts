@@ -205,6 +205,20 @@ export function allowedCountries(cfg: ShippingConfig): string[] {
   return [...set];
 }
 
+/**
+ * True when some enabled zone can only be priced by weight — i.e. when a product
+ * without a weight becomes unsellable to that destination. Admin uses this to make
+ * the broken state unreachable (required field on the product form, rejected save
+ * on the shipping form) instead of letting it surface as lost checkouts.
+ */
+export function zonesRequireWeight(cfg: ShippingConfig): boolean {
+  if (!cfg.enabled) return false;
+  return cfg.zones.some((zone) => {
+    const rates = zone.rates.map(normalizeRate);
+    return rates.length > 0 && rates.every((rate) => rate.pricing.type === 'weight');
+  });
+}
+
 /** Whether any zone accepts the rest of the world. Providers expand this into their
  *  own supported-country list; the core calculator stays provider-neutral. */
 export function hasCatchAllZone(cfg: ShippingConfig): boolean {
