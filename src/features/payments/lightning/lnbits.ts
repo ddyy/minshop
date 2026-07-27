@@ -5,6 +5,7 @@ import type {
   IncomingStatus,
   LightningWebhookEvent,
 } from './backend';
+import { POLL_TIMEOUT_MS } from './backend';
 
 /**
  * LNbits backend — works against a self-hosted instance or a hosted/community
@@ -69,8 +70,10 @@ export function createLnbitsBackend(baseUrl: string, apiKey: string): LightningB
     },
 
     async getIncoming(paymentHash: string): Promise<IncomingStatus> {
+      // Bounded like phoenixd's — see POLL_TIMEOUT_MS in backend.ts.
       const res = await fetch(`${base}/api/v1/payments/${encodeURIComponent(paymentHash)}`, {
         headers: { 'X-Api-Key': apiKey },
+        signal: AbortSignal.timeout(POLL_TIMEOUT_MS),
       });
       if (res.status === 404) return { paid: false };
       if (!res.ok) throw new Error(`LNbits getIncoming failed: ${res.status}`);

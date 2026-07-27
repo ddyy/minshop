@@ -5,6 +5,7 @@ import type {
   IncomingStatus,
   LightningWebhookEvent,
 } from './backend';
+import { POLL_TIMEOUT_MS } from './backend';
 
 /**
  * phoenixd backend — ACINQ's self-custodial headless Lightning daemon.
@@ -59,8 +60,13 @@ export function createPhoenixdBackend(baseUrl: string, password: string): Lightn
     },
 
     async getIncoming(paymentHash: string): Promise<IncomingStatus> {
+      // Bounded: /pay awaits this before RENDERING (settle-on-load), and the QR
+      // page re-polls on a refresh loop — an unbounded fetch against a slow node
+      // held the page for 19s+ in production. A timeout throws, the caller's
+      // catch renders the page, and the refresh loop retries.
       const res = await fetch(`${base}/payments/incoming/${encodeURIComponent(paymentHash)}`, {
         headers: { Authorization: auth },
+        signal: AbortSignal.timeout(POLL_TIMEOUT_MS),
       });
       if (res.status === 404) return { paid: false };
       if (!res.ok) throw new Error(`phoenixd getIncoming failed: ${res.status}`);

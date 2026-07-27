@@ -25,6 +25,15 @@ export interface Invoice {
   paymentHash: string;
 }
 
+/**
+ * Ceiling on a single settlement poll (getIncoming). The /pay page awaits one
+ * poll before rendering and its refresh loop repeats it, so node latency is
+ * page latency: an unbounded fetch against a slow node held the page 19s+ in
+ * production. 5s passes any healthy node with room to spare; on timeout the
+ * poll throws, the page renders unsettled, and the refresh loop retries.
+ */
+export const POLL_TIMEOUT_MS = 5000;
+
 export interface IncomingStatus {
   paid: boolean;
   amountSat?: number;
