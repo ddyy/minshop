@@ -166,6 +166,11 @@ export class StoreMcp extends McpAgent<Env, Record<string, never>, Record<string
           image_key: null,
           stock,
           active: active ? 1 : 0,
+          // Weight is set in Admin (it needs the store's display unit); a new
+          // product starts shippable with an unknown weight, which is harmless
+          // until a weight-priced rate exists.
+          weight_grams: null,
+          requires_shipping: 1,
         };
         const id = await createProduct(db, input);
         return result({ created: id, slug });
@@ -198,6 +203,10 @@ export class StoreMcp extends McpAgent<Env, Record<string, never>, Record<string
           image_key: cur.image_key,
           stock: stock ?? cur.stock,
           active: active !== undefined ? (active ? 1 : 0) : cur.active,
+          // Not editable here, but must be carried: updateProduct writes every
+          // column, so omitting these would silently clear them.
+          weight_grams: cur.weight_grams,
+          requires_shipping: cur.requires_shipping,
         };
         await updateProduct(db, id, input);
         return result({ updated: id });

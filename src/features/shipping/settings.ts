@@ -17,10 +17,10 @@ import {
   type RatePricing,
   type ShippingConfig,
   type WeightBand,
-} from './calculator';
-import { CATCH_ALL, countryName, isCountryCode } from './countries';
-import { toGrams, type WeightUnit } from './weight';
-import { toMinorUnits } from '../../money';
+} from './calculator.ts';
+import { CATCH_ALL, countryName, isCountryCode } from './countries.ts';
+import { toGrams, type WeightUnit } from './weight.ts';
+import { toMinorUnits } from '../../money.ts';
 
 export const SHIPPING_CONFIG_KEY = 'shipping_config';
 

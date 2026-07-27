@@ -18,18 +18,7 @@ export const storeOverrides: DeepPartial<SiteConfig> = {
   //
   // orderNumber: { offset: 1000, step: 1, randomStep: 0 },
   //
-  // shipping: {
-  //   // Shipping on/off lives in Admin; zones and rates remain build-time.
-  //   zones: [                        // first zone matching the country wins ('*' last)
-  //     {
-  //       countries: ['US'],
-  //       rates: [
-  //         { label: 'Standard', amountCents: 500 },
-  //         { label: 'Express', amountCents: 1500 },
-  //       ],
-  //       freeOverCents: 5000,        // null to disable free shipping
-  //     },
-  //     { countries: ['*'], rates: [{ label: 'International', amountCents: 3000 }], freeOverCents: null },
-  //   ],
-  // },
+  // Shipping (zones, rates, weight bands, free-over thresholds) is managed in
+  // Admin → Shipping. The block that used to live here is only the default for a
+  // brand-new store; editing it after the first Admin save has no effect.
 };
