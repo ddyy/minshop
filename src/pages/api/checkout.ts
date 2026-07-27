@@ -24,7 +24,7 @@ import { getStoreSettings } from '../../features/settings/db';
 import { createConfigRatesCalculator } from '../../features/shipping/calculator';
 import { shippingFor } from '../../features/shipping/effective';
 import { shipmentWeightFor } from '../../features/shipping/lines';
-import { stripeAllowedCountries } from '../../features/payments/stripeCountries.ts';
+import { stripeAllowedCountries, stripeSessionDestination } from '../../features/payments/stripeCountries.ts';
 import { getConfig } from '../../config';
 import {
   reserveInventory,
@@ -308,24 +308,30 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
       303,
     );
   }
-  const shipping = quote
-    ? {
-        addressCountries: shipCalc.allowedCountries(),
-        hasCatchAll: shipCalc.hasCatchAll(),
-        options: quote.options,
-        shipmentWeightGrams: quote.shipmentWeightGrams,
-      }
-    : undefined;
-  if (shipping && stripeAllowedCountries(shipping.addressCountries, shipping.hasCatchAll).length === 0) {
-    // Stripe rejects an empty allowed_countries at session creation — after the
-    // reservation. Refuse first, with a message the merchant can act on.
+  // The session collects an address ONLY for the country the rates were priced
+  // against. Any wider list lets the shopper keep a cheap zone's rate while
+  // entering an address in an expensive one; a crafted country in the POST is
+  // refused here, before inventory is reserved.
+  const sessionCountries = quote
+    ? stripeSessionDestination(shipCountry, shipCalc.allowedCountries(), shipCalc.hasCatchAll())
+    : null;
+  if (quote && !sessionCountries) {
     return redirect(
       `${errorPath}?error=${encodeURIComponent(
-        'The configured shipping destinations are not supported by card checkout. Please contact us to complete this order.',
+        `Sorry, card checkout can't ship to ${shipCountry}.`,
       )}`,
       303,
     );
   }
+  const shipping =
+    quote && sessionCountries
+      ? {
+          addressCountries: sessionCountries,
+          hasCatchAll: false,
+          options: quote.options,
+          shipmentWeightGrams: quote.shipmentWeightGrams,
+        }
+      : undefined;
 
   // Pre-generate the order's public token here so success_url can point straight
   // at the confirmation page. The webhook stores this same id on the order.
@@ -562,26 +568,40 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
   // needs (its hosted page takes a fixed list before knowing the address). The
   // in-app rails must be judged solely on the ship_to they submit — quoting the
   // first zone here rejected orders that their own destination could serve.
-  const hostedQuote = shippingOn && method === 'stripe' ? quoteFor(shipCountry) : null;
+  // Agents may choose the destination the Stripe session is priced for; without
+  // one the first Stripe-supported configured country is used.
+  const requestedCountry =
+    typeof (body as { ship_country?: unknown }).ship_country === 'string'
+      ? (body as { ship_country: string }).ship_country.trim().toUpperCase()
+      : '';
+  const stripeCountry = requestedCountry.length === 2 ? requestedCountry : shipCountry;
+  const hostedQuote = shippingOn && method === 'stripe' ? quoteFor(stripeCountry) : null;
   if (hostedQuote && hostedQuote.options.length === 0) {
-    return shippingProblem(shipCountry, hostedQuote);
+    return shippingProblem(stripeCountry, hostedQuote);
   }
-  const shipping = hostedQuote
-    ? {
-        addressCountries: shipCalc.allowedCountries(),
-        hasCatchAll: shipCalc.hasCatchAll(),
-        options: hostedQuote.options,
-        shipmentWeightGrams: hostedQuote.shipmentWeightGrams,
-      }
-    : undefined;
-  if (shipping && stripeAllowedCountries(shipping.addressCountries, shipping.hasCatchAll).length === 0) {
-    // e.g. a zone whose only country Stripe cannot collect an address for. Stripe
-    // rejects an empty allowed_countries outright, so refuse before reserving.
+  // Narrow the session to the quoted country (see the form path): a wider list
+  // would let the payer keep this zone's rate while shipping to another.
+  const sessionCountries = hostedQuote
+    ? stripeSessionDestination(stripeCountry, shipCalc.allowedCountries(), shipCalc.hasCatchAll())
+    : null;
+  if (hostedQuote && !sessionCountries) {
     return cjson(
-      { error: 'None of the configured shipping destinations are supported by Stripe checkout.', reason: 'destination' },
+      {
+        error: `Stripe checkout cannot collect an address in ${stripeCountry}.`,
+        reason: 'destination',
+      },
       422,
     );
   }
+  const shipping =
+    hostedQuote && sessionCountries
+      ? {
+          addressCountries: sessionCountries,
+          hasCatchAll: false,
+          options: hostedQuote.options,
+          shipmentWeightGrams: hostedQuote.shipmentWeightGrams,
+        }
+      : undefined;
 
   // The JSON API has no interactive step, so every rail that cannot collect an
   // address on a hosted page takes it as `ship_to` here: the agent supplies the

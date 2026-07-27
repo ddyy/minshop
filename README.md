@@ -173,7 +173,7 @@ Two ports, nested: the outer `PaymentProvider` (stripe / lightning / opennode) a
 
 **How settlement is trusted.** Lightning webhooks are treated as an untrusted *nudge* — on receipt minshop **re-polls the node** for the payment (the authority), so a forged webhook can't fake a sale. The `/pay` page also settles on load by polling, so it works even with no public webhook (e.g. local dev). Orders stay "paid-only": unpaid invoices live in a `pending_payments` table, never in `orders`.
 
-**Shipping (Lightning).** When shipping is enabled in Admin, the Lightning cart routes through minshop's own `/checkout` page — a server-rendered address + shipping-option step (zone-based rates from `store.config.ts`, see [Shipping](#shipping-and-order-email)) — so the invoice total includes shipping and the address + email land on the order, same as Stripe. Programmatic checkout accepts the same address as a `ship_to` object. (Stripe keeps its own hosted address/shipping collection, unchanged.)
+**Shipping (in-app rails).** When shipping is enabled in Admin, the Lightning, OpenNode, and Demo carts route through minshop's own `/checkout` page — a server-rendered address + shipping-option step (zone-based rates from `store.config.ts`, see [Shipping](#shipping-and-order-email)) — so the invoice total includes shipping and the address + email land on the order, same as Stripe. Programmatic checkout accepts the same address as a `ship_to` object. (Stripe keeps its own hosted address/shipping collection, unchanged.)
 
 **Limitations (Lightning).** **Tax** and promo codes are still Stripe-Checkout features and are skipped on the Lightning path — to charge tax on a non-Stripe rail you'd compute it yourself (e.g. Stripe's Tax *Calculation* API) and add it to the total. No automatic refunds (Lightning can't reverse in place). Invoices are priced in sats from a BTC spot rate fetched at checkout (`payments.lightning.rateUrl`, default Coinbase — no key).
 
@@ -486,7 +486,7 @@ Each product is self-describing, price in both major + minor units:
 }
 ```
 
-When shipping is enabled, `ship_to` is required for Lightning; `shipping_label` is optional and defaults to the first rate for `ship_to.country`. When shipping is off, omit both fields. A successful Lightning response includes:
+When shipping is enabled, `ship_to` is required for every rail that collects the address itself (Lightning, OpenNode, Demo); `shipping_label` is optional and defaults to the first rate for `ship_to.country`. For **Stripe**, pass an optional `ship_country` (ISO alpha-2) instead — the session is priced for that country and Stripe collects an address only there; without it the first Stripe-supported configured country is used. When shipping is off, omit these fields. A successful Lightning response includes:
 
 ```json
 {

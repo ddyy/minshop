@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { COUNTRY_CODES } from '../shipping/countries';
-import { STRIPE_UNSUPPORTED, stripeAllowedCountries } from './stripeCountries';
+import { STRIPE_UNSUPPORTED, stripeAllowedCountries, stripeSessionDestination } from './stripeCountries';
 
 describe('stripeAllowedCountries', () => {
   it('passes explicit zone countries straight through', () => {
@@ -29,5 +29,36 @@ describe('stripeAllowedCountries', () => {
 
   it('still filters an explicit list that names an unsupported code', () => {
     expect(stripeAllowedCountries(['US', 'CU'], false)).toEqual(['US']);
+  });
+});
+
+describe('stripeSessionDestination', () => {
+  // Two zones: an unsupported first country and a supported second. The session
+  // must be pinned to the QUOTED country — never widened to the configured list,
+  // which would let a US-priced session collect a Canadian address.
+  const configured = ['CU', 'US'];
+
+  it('narrows the session to exactly the quoted country', () => {
+    expect(stripeSessionDestination('US', configured, false)).toEqual(['US']);
+    expect(stripeSessionDestination('us', configured, false)).toEqual(['US']);
+  });
+  it('never returns the whole configured list', () => {
+    const result = stripeSessionDestination('US', configured, false);
+    expect(result).not.toContain('CU');
+    expect(result).toHaveLength(1);
+  });
+  it('refuses a country outside the configured zones', () => {
+    expect(stripeSessionDestination('CA', configured, false)).toBeNull();
+  });
+  it('refuses a configured but Stripe-unsupported country', () => {
+    expect(stripeSessionDestination('CU', configured, false)).toBeNull();
+  });
+  it('refuses a crafted non-country code', () => {
+    expect(stripeSessionDestination('ZZ', configured, false)).toBeNull();
+    expect(stripeSessionDestination('', configured, false)).toBeNull();
+  });
+  it('accepts any supported country under a catch-all zone', () => {
+    expect(stripeSessionDestination('CA', ['US'], true)).toEqual(['CA']);
+    expect(stripeSessionDestination('KP', ['US'], true)).toBeNull();
   });
 });
