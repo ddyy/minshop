@@ -126,15 +126,32 @@ const RAIL_LABEL: Record<InAppRail, string> = {
   demo: 'Place demo order',
 };
 
+/**
+ * Demo orders don't ship anywhere, so the address step arrives prefilled with an
+ * obviously-fake sample — the point of the demo rail is exercising the flow, not
+ * typing. Everything stays editable, POSTs keep whatever was submitted, and the
+ * real-money rails (Lightning/OpenNode) are never prefilled.
+ */
+const DEMO_ADDRESS = {
+  email: 'demo@example.com',
+  name: 'Demo Shopper',
+  line1: '123 Example Street',
+  line2: '',
+  city: 'Springfield',
+  state: '',
+  postal: '12345',
+  country: (knownCountries[0] || 'US').toUpperCase(),
+};
+const prefill = rail === 'demo' && !isPost ? DEMO_ADDRESS : null;
 const addr = {
-  email: fld('email'),
-  name: fld('name'),
-  line1: fld('line1'),
-  line2: fld('line2'),
-  city: fld('city'),
-  state: fld('state'),
-  postal: fld('postal'),
-  country: (fld('country') || knownCountries[0] || 'US').toUpperCase(),
+  email: fld('email') || (prefill?.email ?? ''),
+  name: fld('name') || (prefill?.name ?? ''),
+  line1: fld('line1') || (prefill?.line1 ?? ''),
+  line2: fld('line2') || (prefill?.line2 ?? ''),
+  city: fld('city') || (prefill?.city ?? ''),
+  state: fld('state') || (prefill?.state ?? ''),
+  postal: fld('postal') || (prefill?.postal ?? ''),
+  country: (fld('country') || prefill?.country || knownCountries[0] || 'US').toUpperCase(),
 };
 
 let stage: 'address' | 'shipping' = 'address';
