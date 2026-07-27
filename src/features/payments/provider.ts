@@ -1,4 +1,4 @@
-import type { PaidOrderInput } from '../orders/db';
+import type { PaidOrderInput, ShippingAddress } from '../orders/db';
 
 /** Keep anonymous hosted inventory holds short and aligned with provider expiry. */
 export const STRIPE_CHECKOUT_TTL_SECONDS = 30 * 60;
@@ -46,6 +46,19 @@ export interface CreateCheckoutParams {
     options: ShippingOption[];
     /** Priced-at weight, snapshotted so the order can explain its shipping line. */
     shipmentWeightGrams?: number | null;
+  };
+  /**
+   * Set when the in-app step has ALREADY collected an address and a chosen rate
+   * (Lightning, OpenNode, Demo). Adapters charge and snapshot exactly this instead
+   * of guessing from an unselected list — picking `options[0]` was how the demo
+   * rail silently charged the wrong rate and OpenNode charged none at all.
+   */
+  selectedShipping?: {
+    label: string;
+    amountCents: number;
+    weightGrams: number | null;
+    address: ShippingAddress;
+    email: string | null;
   };
 }
 

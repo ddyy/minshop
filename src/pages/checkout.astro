@@ -12,7 +12,7 @@ import { shippingFor } from '../features/shipping/effective';
 import { shipmentWeightFor } from '../features/shipping/lines';
 import { getLightningBackend } from '../features/payments/lightning';
 import { mintLightningOrder } from '../features/payments/lightning-provider';
-import { isMethodAvailable } from '../features/payments';
+import { isMethodAvailable, getPaymentProvider } from '../features/payments';
 import {
   reserveInventory,
   releaseInventoryReservation,
@@ -20,15 +20,29 @@ import {
 } from '../features/orders/reservations';
 
 const cfg = getConfig();
-// This own-checkout page is the self-rendered Lightning flow. Gate on Lightning
-// being AVAILABLE (configured) — not on it being the default — so the method
-// picker can route here even when another rail (e.g. Stripe) is the default.
-if (!Astro.locals.settings || !isMethodAvailable('lightning', Astro.locals.settings))
-  return Astro.redirect('/cart', 303);
-
 const isPost = Astro.request.method === 'POST';
 const form = isPost ? await Astro.request.formData() : null;
 const fld = (name: string) => (form?.get(name) ?? '').toString().trim();
+
+/**
+ * The in-app shipping checkout, shared by every rail that cannot collect a
+ * destination on its own hosted page: Lightning has no hosted page at all,
+ * OpenNode's ignores addresses, and Demo has none. Stripe skips this — it collects
+ * the address itself, after the session is created.
+ *
+ * Gate on the chosen rail being AVAILABLE (configured), not on it being the
+ * default, so the method picker can route here whatever the store's default is.
+ * The rail arrives as a query param on the first hop and as a hidden field across
+ * the address → shipping steps (the forms post to a bare /checkout).
+ */
+const IN_APP_RAILS = ['lightning', 'opennode', 'demo'] as const;
+type InAppRail = (typeof IN_APP_RAILS)[number];
+const requestedRail = (fld('method') || Astro.url.searchParams.get('method') || '').trim();
+const rail: InAppRail = (IN_APP_RAILS as readonly string[]).includes(requestedRail)
+  ? (requestedRail as InAppRail)
+  : 'lightning';
+if (!Astro.locals.settings || !isMethodAvailable(rail, Astro.locals.settings))
+  return Astro.redirect('/cart', 303);
 
 // Order lines: buy-now (product_id [+ variant/extras]) or the whole cart.
 const productIdRaw = fld('product_id') || (Astro.url.searchParams.get('product_id') ?? '');
@@ -169,17 +183,59 @@ if (isPost) {
             priceCents: line.unitPriceCents,
             quantity: line.qty,
           }));
-          const reserved = await reserveInventory(
-            env.DB,
-            publicId,
-            reservedItems,
-            cfg.payments.lightning.invoiceExpiryMinutes * 60 + 5 * 60,
-            'lightning',
-          );
+          // Demo is a simulation and never holds real stock (recordPaidOrder skips
+          // it too), so there is nothing to reserve for that rail.
+          const reserved =
+            rail === 'demo' ||
+            (await reserveInventory(
+              env.DB,
+              publicId,
+              reservedItems,
+              cfg.payments.lightning.invoiceExpiryMinutes * 60 + 5 * 60,
+              rail,
+            ));
           if (!reserved) {
             errors.push('Some inventory just sold out — please review your cart.');
           } else {
+            const shippingAddress = {
+              name: addr.name,
+              line1: addr.line1,
+              line2: addr.line2 || null,
+              city: addr.city,
+              state: addr.state || null,
+              postal: addr.postal,
+              country: addr.country,
+            };
+            const itemsJson = JSON.stringify(
+              lines.map((l) => ({ id: l.product.id, v: l.variantId, q: l.qty, n: l.name, p: l.unitPriceCents })),
+            );
             try {
+              // OpenNode and Demo reach their adapters with the rate ALREADY chosen,
+              // so they charge and snapshot the merchant's real configuration
+              // instead of ignoring shipping or guessing at the first option.
+              if (rail !== 'lightning') {
+                const provider = await getPaymentProvider(rail);
+                const result = await provider.createCheckout({
+                  lineItems: lines.map((l) => ({
+                    name: l.name,
+                    amountCents: l.unitPriceCents,
+                    currency,
+                    quantity: l.qty,
+                  })),
+                  successUrl: `${Astro.url.origin}/order/${publicId}`,
+                  cancelUrl: `${Astro.url.origin}/cart`,
+                  orderItemsJson: itemsJson,
+                  metadata: { public_id: publicId, reservation_id: publicId },
+                  selectedShipping: {
+                    label: chosen.label,
+                    amountCents: chosen.amountCents,
+                    weightGrams: quote.shipmentWeightGrams,
+                    address: shippingAddress,
+                    email: addr.email,
+                  },
+                });
+                return Astro.redirect(result.url, 303);
+              }
               const minted = await mintLightningOrder(env.DB, await getLightningBackend(), {
                 origin: Astro.url.origin,
                 publicId,
@@ -188,19 +244,9 @@ if (isPost) {
                 shippingCents: chosen.amountCents,
                 shippingLabel: chosen.label,
                 shippingWeightGrams: quote.shipmentWeightGrams,
-                itemsJson: JSON.stringify(
-                  lines.map((l) => ({ id: l.product.id, v: l.variantId, q: l.qty, n: l.name, p: l.unitPriceCents })),
-                ),
+                itemsJson,
                 email: addr.email,
-                shippingAddress: {
-                  name: addr.name,
-                  line1: addr.line1,
-                  line2: addr.line2 || null,
-                  city: addr.city,
-                  state: addr.state || null,
-                  postal: addr.postal,
-                  country: addr.country,
-                },
+                shippingAddress,
                 reservationId: publicId,
               });
               if (!minted.payUrl) throw new Error('Lightning backend did not return a payment URL.');
@@ -212,11 +258,16 @@ if (isPost) {
               await releaseInventoryReservation(env.DB, publicId);
               console.error(
                 JSON.stringify({
-                  event: 'lightning_invoice_failed',
+                  event: rail === 'lightning' ? 'lightning_invoice_failed' : 'checkout_create_failed',
+                  rail,
                   message: error instanceof Error ? error.message : String(error),
                 }),
               );
-              errors.push('Lightning is temporarily unavailable. Please try again in a moment, or choose another payment method.');
+              errors.push(
+                rail === 'lightning'
+                  ? 'Lightning is temporarily unavailable. Please try again in a moment, or choose another payment method.'
+                  : 'That payment method is temporarily unavailable. Please try again in a moment, or choose another.',
+              );
             }
           }
         }
@@ -249,6 +300,7 @@ const hasErrors = errors.length > 0;
     {
       showShipping ? (
         <form method="POST" action="/checkout" class="space-y-4">
+          <input type="hidden" name="method" value={rail} />
           <input type="hidden" name="product_id" value={carry} />
           {carryVariantId && <input type="hidden" name="variant_id" value={carryVariantId} />}
           {carryExtraIds.map((id) => (
@@ -299,6 +351,7 @@ const hasErrors = errors.length > 0;
         </form>
       ) : (
         <form method="POST" action="/checkout" class="space-y-3">
+          <input type="hidden" name="method" value={rail} />
           <input type="hidden" name="product_id" value={carry} />
           {carryVariantId && <input type="hidden" name="variant_id" value={carryVariantId} />}
           {carryExtraIds.map((id) => (

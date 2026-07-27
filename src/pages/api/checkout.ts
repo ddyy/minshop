@@ -238,15 +238,21 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
   const shipment = shipmentWeightFor(lines);
   const shippingApplies = effectiveShipping.enabled && shipment.shippingRequired;
 
-  if (selected === 'lightning' && shippingApplies) {
+  // Rails that cannot collect a destination on their own hosted page go through the
+  // in-app step first: Lightning has no hosted page, OpenNode's ignores addresses,
+  // and Demo has none. Without this, OpenNode charged no shipping at all and Demo
+  // billed whichever rate sorted first — both silently wrong once a merchant can
+  // edit rates. Stripe collects the address itself and continues below.
+  const IN_APP_SHIPPING_RAILS = ['lightning', 'opennode', 'demo'];
+  if (IN_APP_SHIPPING_RAILS.includes(selected) && shippingApplies) {
+    const params = new URLSearchParams({ method: selected });
     if (Number.isInteger(productId) && productId > 0) {
-      const params = new URLSearchParams({ product_id: String(productId) });
+      params.set('product_id', String(productId));
       const vid = form.get('variant_id');
       if (vid) params.set('variant_id', String(vid));
       for (const ex of form.getAll('extra')) params.append('extra', String(ex));
-      return redirect(`/checkout?${params}`, 303);
     }
-    return redirect('/checkout', 303);
+    return redirect(`/checkout?${params}`, 303);
   }
 
   const provider = await getPaymentProvider(selected);
