@@ -74,8 +74,15 @@ try {
   )}
 
   <form method="POST" class="space-y-4">
+    {/* Demo skips the address step (checkout.astro auto-submits a sample
+        address), so this is the shopper's only chance to set an email —
+        prefilled with the sample, editable for anyone who wants the receipt
+        for real. Settlement prefers the submitted value
+        (resolveRequiredOrderEmail). */}
     <div>
-      <label class="mb-1 block text-xs font-medium text-gray-500" for="email">Email</label>
+      <label class="mb-1 block text-xs font-medium text-gray-500" for="email">
+        Email for the order confirmation
+      </label>
       <input
         id="email"
         name="email"

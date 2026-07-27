@@ -144,10 +144,12 @@ const RAIL_LABEL: Record<InAppRail, string> = {
 };
 
 /**
- * Demo orders don't ship anywhere, so the address step arrives prefilled with an
- * obviously-fake sample — the point of the demo rail is exercising the flow, not
- * typing. Everything stays editable, POSTs keep whatever was submitted, and the
- * real-money rails (Lightning/OpenNode) are never prefilled.
+ * Demo orders don't ship anywhere, so the demo rail skips this page entirely:
+ * the first GET is treated as a submission of this hard-coded sample address
+ * with the first quoted rate, and the shopper lands straight on /pay — one
+ * click (Approve) end to end, with the demo banner as the first thing they
+ * see. The form only renders for demo in the error fallback (e.g. shipping
+ * cannot be quoted). The real-money rails (Lightning/OpenNode) always type.
  */
 const DEMO_ADDRESS = {
   email: 'demo@example.com',
@@ -175,7 +177,9 @@ let stage: 'address' | 'shipping' = 'address';
 let options: { label: string; amountCents: number }[] = [];
 const errors: string[] = [];
 
-if (isPost) {
+// Demo submits itself: the sample address on the first GET, no typing.
+const submitted = isPost || rail === 'demo';
+if (submitted) {
   if (!/.+@.+\..+/.test(addr.email)) errors.push('A valid email is required.');
   if (!addr.name) errors.push('Name is required.');
   if (!addr.line1) errors.push('Address is required.');
@@ -215,7 +219,8 @@ if (isPost) {
       }
     } else {
       stage = 'shipping';
-      const chosenLabel = fld('shipping_label');
+      // Demo auto-picks the first rate — the rate step is also skipped.
+      const chosenLabel = fld('shipping_label') || (rail === 'demo' ? (options[0]?.label ?? '') : '');
       if (chosenLabel) {
         const chosen = options.find((o) => o.label === chosenLabel);
         if (!chosen) {
@@ -329,6 +334,17 @@ const hasErrors = errors.length > 0;
 
 <Layout title="Checkout" description="Enter your shipping details.">
   <div class="mx-auto max-w-lg">
+    {
+      rail === 'demo' && (
+        <div class="mb-6 rounded-lg border-2 border-amber-400 bg-amber-50 px-4 py-4 text-center text-amber-900">
+          <p class="text-base font-bold uppercase tracking-wide">⚠️ Demo checkout — not a real payment</p>
+          <p class="mt-1 text-sm">
+            No card is charged. Completing it places a real order tagged
+            <code class="rounded bg-amber-100 px-1">demo</code> so you can see the full flow.
+          </p>
+        </div>
+      )
+    }
     <h1 class="mb-1 font-serif text-3xl tracking-tight sm:text-4xl">Checkout</h1>
     <p class="mb-6 text-sm text-gray-500">
       Subtotal {formatPrice(subtotalCents, currency)} · {lines.length} item{lines.length === 1 ? '' : 's'}
