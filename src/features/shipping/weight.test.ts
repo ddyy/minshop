@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   MAX_WEIGHT_GRAMS,
+  defaultWeightUnit,
   WEIGHT_UNITS,
   formatWeight,
   formatWeightValue,
@@ -151,5 +152,27 @@ describe('resolveShipmentWeight', () => {
   });
   it('treats an empty cart as not requiring shipping', () => {
     expect(resolveShipmentWeight([]).shippingRequired).toBe(false);
+  });
+});
+
+describe('defaultWeightUnit', () => {
+  it('defaults US-time-zone stores to pounds', () => {
+    expect(defaultWeightUnit('America/New_York')).toBe('lb');
+    expect(defaultWeightUnit('America/Chicago')).toBe('lb');
+    expect(defaultWeightUnit('America/Los_Angeles')).toBe('lb');
+    expect(defaultWeightUnit('Pacific/Honolulu')).toBe('lb');
+    expect(defaultWeightUnit('America/Indiana/Indianapolis')).toBe('lb');
+    expect(defaultWeightUnit('US/Eastern')).toBe('lb');
+  });
+  it('keeps metric elsewhere — America/* alone is not the United States', () => {
+    expect(defaultWeightUnit('America/Toronto')).toBe('g');
+    expect(defaultWeightUnit('America/Mexico_City')).toBe('g');
+    expect(defaultWeightUnit('America/Sao_Paulo')).toBe('g');
+    expect(defaultWeightUnit('Europe/Berlin')).toBe('g');
+    expect(defaultWeightUnit('UTC')).toBe('g');
+  });
+  it('falls back to grams with no time zone at all', () => {
+    expect(defaultWeightUnit(null)).toBe('g');
+    expect(defaultWeightUnit(undefined)).toBe('g');
   });
 });

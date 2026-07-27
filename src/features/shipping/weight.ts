@@ -34,6 +34,35 @@ const GRAMS_PER_UNIT: Record<WeightUnit, number> = {
  */
 const DECIMALS: Record<WeightUnit, number> = { g: 0, kg: 3, oz: 2, lb: 3 };
 
+/**
+ * IANA zones whose stores near-certainly weigh in pounds: the fifty states plus
+ * the legacy US/* aliases. Deliberately conservative — America/* alone would rope
+ * in Canada and all of Latin America, which are metric.
+ */
+const US_TIME_ZONES = new Set([
+  'America/New_York', 'America/Detroit', 'America/Chicago', 'America/Menominee',
+  'America/Denver', 'America/Boise', 'America/Phoenix', 'America/Los_Angeles',
+  'America/Anchorage', 'America/Juneau', 'America/Sitka', 'America/Metlakatla',
+  'America/Yakutat', 'America/Nome', 'America/Adak', 'Pacific/Honolulu',
+]);
+
+/**
+ * Default display unit for a store that never chose one: lb for US-time-zone
+ * stores, grams otherwise. Derived from the STORE's time zone rather than the
+ * admin request's locale on purpose — the unit shapes how form values are parsed,
+ * so it must be identical for every admin of the same store, every request. An
+ * explicit weight_unit setting always wins, and stored grams are unaffected
+ * either way (forms re-render converted).
+ */
+export function defaultWeightUnit(timeZone: string | null | undefined): WeightUnit {
+  if (!timeZone) return 'g';
+  if (US_TIME_ZONES.has(timeZone)) return 'lb';
+  if (timeZone.startsWith('US/')) return 'lb';
+  if (timeZone.startsWith('America/Indiana/') || timeZone.startsWith('America/Kentucky/')) return 'lb';
+  if (timeZone.startsWith('America/North_Dakota/')) return 'lb';
+  return 'g';
+}
+
 export function isWeightUnit(value: unknown): value is WeightUnit {
   return typeof value === 'string' && (WEIGHT_UNITS as readonly string[]).includes(value);
 }

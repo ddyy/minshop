@@ -4,7 +4,7 @@ import {
   parseRuntimeShippingConfig,
   type ParsedRuntimeShippingConfig,
 } from '../shipping/settings';
-import { isWeightUnit, type WeightUnit } from '../shipping/weight';
+import { defaultWeightUnit, isWeightUnit, type WeightUnit } from '../shipping/weight';
 
 /**
  * Runtime settings — the small set of values the setup wizard persists to D1 so
@@ -209,7 +209,9 @@ export function parseStoreSettings(
     // Parsed from the rows we already have — no extra query, and the storefront
     // never has to decide what a malformed document means on its own.
     shippingConfig: parseRuntimeShippingConfig(map.get('shipping_config')),
-    weightUnit: isWeightUnit(map.get('weight_unit')) ? (map.get('weight_unit') as WeightUnit) : 'g',
+    weightUnit: isWeightUnit(map.get('weight_unit'))
+      ? (map.get('weight_unit') as WeightUnit)
+      : defaultWeightUnit(normalizeTimeZone(map.get('time_zone'))),
     turnstileEnabled: map.get('turnstile_enabled') === '1',
     turnstileSiteKey: map.get('turnstile_site_key') ?? null,
     paymentProvider:
