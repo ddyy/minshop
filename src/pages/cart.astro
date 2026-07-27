@@ -47,6 +47,7 @@ const destination = stripeDestination(
   settings,
   effectiveShipping,
   shipmentWeightFor(lines).shippingRequired,
+  Astro.request.headers.get('cf-ipcountry'),
 );
 // The catalog is at / until the home page is pointed elsewhere.
 const shopHref = catalogPath(Astro.locals.settings?.homePage);
@@ -175,7 +176,9 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
                     class="rounded-md border border-gray-200 px-2 py-1.5 text-sm normal-case tracking-normal text-gray-900"
                   >
                     {destination.countries.map((c) => (
-                      <option value={c}>{destination.label(c)}</option>
+                      <option value={c} selected={c === destination.defaultCountry}>
+                        {destination.label(c)}
+                      </option>
                     ))}
                   </select>
                 </label>

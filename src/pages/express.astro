@@ -119,6 +119,7 @@ const destination = stripeDestination(
   Astro.locals.settings,
   effectiveShipping,
   shipmentWeightFor(weightLines).shippingRequired,
+  Astro.request.headers.get('cf-ipcountry'),
 );
 
 const heading = isBuyNow ? 'Buy now' : 'Checkout';
@@ -183,7 +184,9 @@ const METHOD: Record<string, { label: string; hint: string }> = {
                   class="rounded-md border border-gray-200 px-2 py-1.5 text-sm normal-case tracking-normal text-gray-900"
                 >
                   {destination.countries.map((c) => (
-                    <option value={c}>{destination.label(c)}</option>
+                    <option value={c} selected={c === destination.defaultCountry}>
+                      {destination.label(c)}
+                    </option>
                   ))}
                 </select>
               </label>

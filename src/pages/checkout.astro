@@ -7,7 +7,8 @@ import { readCart, resolveCart } from '../features/cart/cart';
 import { getProduct, type Product } from '../features/products/db';
 import { listVariants, getExtrasByIds, type ProductVariant } from '../features/products/variants';
 import { lineUnitPriceCents } from '../features/cart/key';
-import { quoteShipping, allowedCountries } from '../features/shipping/calculator';
+import { quoteShipping, allowedCountries, hasCatchAllZone } from '../features/shipping/calculator';
+import { countryOptions, countryName, isCountryCode } from '../features/shipping/countries';
 import { shippingFor } from '../features/shipping/effective';
 import { shipmentWeightFor } from '../features/shipping/lines';
 import { getLightningBackend } from '../features/payments/lightning';
@@ -106,6 +107,22 @@ const subtotalCents = lines.reduce((s, l) => s + l.unitPriceCents * l.qty, 0);
 const currency = cfg.currency;
 const effectiveShipping = shippingFor(Astro.locals.settings).config;
 const knownCountries = allowedCountries(effectiveShipping);
+const shipsAnywhere = hasCatchAllZone(effectiveShipping);
+// Cloudflare's GeoIP country (the CF-IPCountry request header): the default
+// destination when it's one we ship to. A guess, so it only seeds the selector —
+// the shopper can always change it. 'XX'/'T1' fail isCountryCode and fall through.
+const geoCountry = String(Astro.request.headers.get('cf-ipcountry') ?? '').toUpperCase();
+const geoDefault =
+  isCountryCode(geoCountry) && (shipsAnywhere || knownCountries.includes(geoCountry))
+    ? geoCountry
+    : null;
+// The choices the address form offers: every shippable country, by name. Explicit
+// zones list their codes; a catch-all store offers the whole ISO list.
+const destinationChoices = shipsAnywhere
+  ? countryOptions()
+  : knownCountries.map((code) => ({ code, name: countryName(code) })).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
 // Weight (and whether shipping applies at all) always comes from the current D1
 // rows resolved above — never from the posted form.
 const shipment = shipmentWeightFor(lines);
@@ -140,7 +157,7 @@ const DEMO_ADDRESS = {
   city: 'Springfield',
   state: '',
   postal: '12345',
-  country: (knownCountries[0] || 'US').toUpperCase(),
+  country: (geoDefault || knownCountries[0] || 'US').toUpperCase(),
 };
 const prefill = rail === 'demo' && !isPost ? DEMO_ADDRESS : null;
 const addr = {
@@ -151,7 +168,7 @@ const addr = {
   city: fld('city') || (prefill?.city ?? ''),
   state: fld('state') || (prefill?.state ?? ''),
   postal: fld('postal') || (prefill?.postal ?? ''),
-  country: (fld('country') || prefill?.country || knownCountries[0] || 'US').toUpperCase(),
+  country: (fld('country') || prefill?.country || geoDefault || knownCountries[0] || 'US').toUpperCase(),
 };
 
 let stage: 'address' | 'shipping' = 'address';
@@ -425,15 +442,21 @@ const hasErrors = errors.length > 0;
               <input type="text" name="postal" value={addr.postal} required class="w-full rounded-md border border-gray-200 px-3 py-2" />
             </label>
             <label class="block text-sm">
-              <span class="mb-1 block font-medium">Country (2-letter)</span>
-              <input
-                type="text"
+              <span class="mb-1 block font-medium">Country</span>
+              {/* A select, not a code field: shoppers should not need to know ISO
+                  codes. Native type-ahead finds a country by typing its name; the
+                  value stays the alpha-2 code the calculator expects. */}
+              <select
                 name="country"
-                value={addr.country}
-                maxlength="2"
                 required
-                class="w-full rounded-md border border-gray-200 px-3 py-2 uppercase"
-              />
+                class="w-full rounded-md border border-gray-200 px-3 py-2 bg-white"
+              >
+                {destinationChoices.map((c) => (
+                  <option value={c.code} selected={c.code === addr.country}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
             </label>
           </div>
           {

@@ -19,8 +19,10 @@ import { allowedCountries, hasCatchAllZone, type ShippingConfig } from './calcul
 import { COUNTRY_CODES, countryName } from './countries';
 
 export interface StripeDestination {
-  /** Stripe-supported destinations, in zone order. Empty = no selector at all. */
+  /** Stripe-supported destinations, name-sorted. Empty = no selector at all. */
   countries: string[];
+  /** The shopper's GeoIP country when shippable, else the first choice. */
+  defaultCountry: string | null;
   /** Render the visible <select> (more than one choice). */
   showSelect: boolean;
   /** Render a hidden country field (exactly one choice — it must still submit). */
@@ -33,6 +35,7 @@ export function stripeDestination(
   settings: StoreSettings | null | undefined,
   effectiveShipping: ShippingConfig,
   shippingRequired: boolean,
+  geoCountry?: string | null,
 ): StripeDestination {
   // `enabledMethods`, not `isMethodAvailable`: a merchant who DISABLED their
   // configured Stripe rail gets no card button, so a card-only selector would be
@@ -44,12 +47,16 @@ export function stripeDestination(
       ? stripeAllowedCountries(
           anywhere ? [...COUNTRY_CODES] : allowedCountries(effectiveShipping),
           false,
-        )
+        ).sort((a, b) => countryName(a).localeCompare(countryName(b)))
       : [];
+  // GeoIP is a guess: it only seeds the selection, never restricts it.
+  const geo = String(geoCountry ?? '').toUpperCase();
+  const defaultCountry = countries.includes(geo) ? geo : (countries[0] ?? null);
   return {
     countries,
+    defaultCountry,
     showSelect: countries.length > 1,
     hiddenOnly: countries.length === 1,
-    label: (code) => (anywhere ? `${countryName(code)} (${code})` : code),
+    label: (code) => `${countryName(code)} (${code})`,
   };
 }
