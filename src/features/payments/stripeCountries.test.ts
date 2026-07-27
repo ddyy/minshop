@@ -57,6 +57,15 @@ describe('stripeSessionDestination', () => {
     expect(stripeSessionDestination('ZZ', configured, false)).toBeNull();
     expect(stripeSessionDestination('', configured, false)).toBeNull();
   });
+  it('refuses malformed shapes instead of guessing a country', () => {
+    // A present-but-wrong value is a claim about the destination; the routes pass
+    // it through verbatim so it lands here and is refused, never replaced with a
+    // fallback the shopper did not choose.
+    expect(stripeSessionDestination('USA', configured, false)).toBeNull();
+    expect(stripeSessionDestination('U', configured, false)).toBeNull();
+    expect(stripeSessionDestination('  ', configured, false)).toBeNull();
+    expect(stripeSessionDestination('USA', configured, true)).toBeNull();
+  });
   it('accepts any supported country under a catch-all zone', () => {
     expect(stripeSessionDestination('CA', ['US'], true)).toEqual(['CA']);
     expect(stripeSessionDestination('KP', ['US'], true)).toBeNull();

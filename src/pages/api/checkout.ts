@@ -271,10 +271,16 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
   // Stripe gets that zone's rates instead of always the first zone's. Stripe still
   // collects + confirms the full address on its page; this just sets which rates
   // it shows. Falls back to the first zone's country (e.g. buy-now, no selector).
-  const selectedCountry = (form.get('country') ?? '').toString().trim().toUpperCase();
+  const countryField = form.get('country');
+  const selectedCountry = countryField == null ? null : String(countryField).trim().toUpperCase();
   const stripeFallbackCountry =
     stripeAllowedCountries(shipCalc.allowedCountries(), shipCalc.hasCatchAll())[0] ?? 'US';
-  const shipCountry = selectedCountry.length === 2 ? selectedCountry : stripeFallbackCountry;
+  // Absent → the supported fallback. PRESENT → taken as supplied, even when
+  // malformed: stripeSessionDestination rejects anything that is not a real
+  // alpha-2 code, so 'USA' becomes a refusal, not a silent quote for a
+  // destination the shopper never chose. (Empty string counts as absent — that
+  // is a selector that submitted nothing, not a chosen value.)
+  const shipCountry = selectedCountry ? selectedCountry : stripeFallbackCountry;
   const quote = shippingApplies
     ? shipCalc.quoteFor({
         subtotalCents,
@@ -570,11 +576,18 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
   // first zone here rejected orders that their own destination could serve.
   // Agents may choose the destination the Stripe session is priced for; without
   // one the first Stripe-supported configured country is used.
-  const requestedCountry =
-    typeof (body as { ship_country?: unknown }).ship_country === 'string'
-      ? (body as { ship_country: string }).ship_country.trim().toUpperCase()
-      : '';
-  const stripeCountry = requestedCountry.length === 2 ? requestedCountry : shipCountry;
+  // Absent/undefined → the supported fallback. Present in ANY other form — a
+  // string of the wrong shape, a number, null — is a claim about the destination
+  // and must be judged, not silently replaced with a different country.
+  const shipCountryRaw = (body as { ship_country?: unknown }).ship_country;
+  if (shipCountryRaw !== undefined && typeof shipCountryRaw !== 'string') {
+    return cjson(
+      { error: '"ship_country" must be an ISO 3166-1 alpha-2 string.', reason: 'destination' },
+      422,
+    );
+  }
+  const stripeCountry =
+    shipCountryRaw === undefined ? shipCountry : shipCountryRaw.trim().toUpperCase();
   const hostedQuote = shippingOn && method === 'stripe' ? quoteFor(stripeCountry) : null;
   if (hostedQuote && hostedQuote.options.length === 0) {
     return shippingProblem(stripeCountry, hostedQuote);
