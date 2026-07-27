@@ -6,6 +6,7 @@ import { getOrder, listOrderItems } from '../../../features/orders/db';
 import { orderNumber } from '../../../features/orders/number';
 import { CARRIERS, carrierName, trackingUrl } from '../../../features/orders/tracking';
 import RefundPanel from '../../../features/refunds/RefundPanel.astro';
+import { formatWeight } from '../../../features/shipping/weight';
 
 const id = Number(Astro.params.id);
 const order = Number.isFinite(id) ? await getOrder(env.DB, id) : null;
@@ -49,6 +50,7 @@ const ship = order.ship_address
       country: string | null;
     })
   : null;
+const weightUnit = Astro.locals.settings?.weightUnit ?? 'g';
 ---
 
 <AdminLayout title={`Order #${num}`} active="orders">
@@ -87,7 +89,17 @@ const ship = order.ship_address
     </div>
     <div>
       <dt class="text-xs uppercase tracking-widest text-gray-400">Shipping</dt>
-      <dd>{formatPrice(order.shipping_cents, order.currency)}</dd>
+      <dd>
+        {formatPrice(order.shipping_cents, order.currency)}
+        {/* The snapshot taken when this order was paid. Never recomputed from the
+            catalog: a later weight or rate edit must not rewrite what was charged. */}
+        {order.shipping_label && <span class="text-gray-500"> · {order.shipping_label}</span>}
+        {order.shipping_weight_grams != null && (
+          <span class="text-gray-500">
+            {' '}· {formatWeight(order.shipping_weight_grams, weightUnit)}
+          </span>
+        )}
+      </dd>
     </div>
     {
       order.discount_cents > 0 && (

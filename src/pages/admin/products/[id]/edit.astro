@@ -13,6 +13,9 @@ import {
 } from '../../../../features/categories/db';
 import { toMajorUnits, minorUnitsPerMajor, getConfig } from '../../../../config';
 import { productImageSources } from '../../../../features/products/image';
+import { zonesRequireWeight } from '../../../../features/shipping/calculator';
+import { formatWeightValue } from '../../../../features/shipping/weight';
+import { shippingFor } from '../../../../features/shipping/effective';
 
 const id = Number(Astro.params.id);
 const product = Number.isFinite(id) ? await getProduct(env.DB, id) : null;
@@ -50,6 +53,8 @@ const mainPhoto = product.image_key ? thumbnailSources(product.image_key).src : 
 // Price inputs are major units; step to the currency's smallest unit (0.01 USD, 1 JPY).
 const priceStep = 1 / minorUnitsPerMajor(product.currency);
 const major = (cents: number) => toMajorUnits(cents, product.currency);
+const weightUnit = Astro.locals.settings?.weightUnit ?? 'g';
+const weightRequired = zonesRequireWeight(shippingFor(Astro.locals.settings).config);
 ---
 
 <AdminLayout title={`Edit ${product.name}`} active="products">
@@ -74,6 +79,8 @@ const major = (cents: number) => toMajorUnits(cents, product.currency);
     error={error}
     showImage={false}
     formId="product-form"
+    weightUnit={weightUnit}
+    weightRequired={weightRequired}
   />
 
   <section id="gallery" class="mt-12 scroll-mt-20 border-t border-line pt-8">
@@ -384,6 +391,23 @@ const major = (cents: number) => toMajorUnits(cents, product.currency);
                 value={v?.sku ?? ''}
                 placeholder="optional"
                 class="w-32 rounded-md border border-line bg-transparent px-3 py-1.5 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none"
+              />
+            </label>
+            <label class="flex flex-col gap-1 text-[10px] uppercase tracking-widest text-gray-400">
+              Weight ({weightUnit})
+              <input
+                form="product-form"
+                type="text"
+                name="v_weight"
+                inputmode="decimal"
+                value={v?.weight_grams != null ? formatWeightValue(v.weight_grams, weightUnit) : ''}
+                placeholder={
+                  product.weight_grams != null
+                    ? formatWeightValue(product.weight_grams, weightUnit)
+                    : 'inherits'
+                }
+                title="Blank inherits the product weight. Enter 0 for a weightless variant."
+                class="w-24 rounded-md border border-line bg-transparent px-3 py-1.5 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none"
               />
             </label>
             {/* Remove: a text link for both new and existing rows. Existing rows
