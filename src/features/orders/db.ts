@@ -419,6 +419,26 @@ export async function recordPaidOrder(
     );
   }
 
+  // Notification outbox rows, atomic with the order: an order can never exist
+  // without its email intent recorded. Both kinds are always inserted — whether
+  // a kind actually applies (customer email present, notify-to configured,
+  // email enabled at all) is a RUNTIME question answered at send time, where a
+  // non-applicable row resolves to 'skipped'. Guarded on this invocation's
+  // settlement-token claim like everything else in the batch; ON CONFLICT is
+  // belt-and-braces for a re-run against an already-claimed order.
+  for (const kind of ['customer-receipt', 'owner-notification'] as const) {
+    stmts.push(
+      db
+        .prepare(
+          `INSERT INTO order_notifications (order_id, kind)
+           SELECT id, ? FROM orders
+            WHERE provider_session_id = ? AND settlement_token = ?
+           ON CONFLICT(order_id, kind) DO NOTHING`,
+        )
+        .bind(kind, o.providerSessionId, settlementToken),
+    );
+  }
+
   if (o.settlePaymentHash) {
     stmts.push(
       db

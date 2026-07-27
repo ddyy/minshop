@@ -1,19 +1,11 @@
 import { env } from 'cloudflare:workers';
 import type { WebhookResult } from '../payments/provider';
-import {
-  recordPaidOrder,
-  getOrder,
-  getOrderByProviderSessionId,
-  listOrderItemsWithImages,
-} from './db';
-import { getEmailProvider } from '../email';
-import { orderConfirmationEmail, orderNotificationEmail } from '../email/orderConfirmation';
+import { recordPaidOrder, getOrderByProviderSessionId } from './db';
+import { deliverOrderNotifications, sweepStaleNotifications } from '../email/outbox';
 import { persistRefundEvent, applyRefundEvent } from '../refunds/sync';
 import { sendRefundNotice } from '../refunds/notify';
 import { getPaymentProvider, type PaymentMethod } from '../payments';
-import { shouldSendCustomerOrderEmail } from '../email/orderPolicy';
-import { getConfig } from '../../config';
-import { getStoreSettings, type StoreSettings } from '../settings/db';
+import type { StoreSettings } from '../settings/db';
 import {
   getActiveReservationItems,
   markInventoryReservationPaymentPending,
@@ -97,8 +89,12 @@ export async function recordPaidWebhookOrder(
     if (!reservedItems) {
       // Normal idempotent redelivery after the first delivery settled the
       // reservation. Anything else is a real integrity failure and must retry.
-      if (await getOrderByProviderSessionId(env.DB, paidOrder.providerSessionId)) {
+      // This is THE redelivery path for reserved checkouts, so it must finish
+      // any emails the first delivery left unsent — same as the branch below.
+      const settled = await getOrderByProviderSessionId(env.DB, paidOrder.providerSessionId);
+      if (settled) {
         await markPending();
+        await deliverOrderNotifications(env.DB, settled.id, origin, settings);
         return;
       }
       throw new Error(`Missing or expired inventory reservation ${paidOrder.reservationId}.`);
@@ -110,8 +106,13 @@ export async function recordPaidWebhookOrder(
   // recorded (re-delivered webhook) — so emails send exactly once.
   const orderId = await recordPaidOrder(env.DB, { ...paidOrder, paymentMethod });
   if (!orderId) {
-    if (await getOrderByProviderSessionId(env.DB, paidOrder.providerSessionId)) {
+    const existing = await getOrderByProviderSessionId(env.DB, paidOrder.providerSessionId);
+    if (existing) {
       await markPending();
+      // The redelivery IS the safety net: if the first delivery recorded the
+      // order but died before its emails went out, this retry finishes them.
+      // (Previously this path returned with the emails unsent, forever.)
+      await deliverOrderNotifications(env.DB, existing.id, origin, settings);
       return;
     }
     throw new Error(`Could not settle inventory reservation ${paidOrder.reservationId ?? 'legacy'}.`);
@@ -121,39 +122,15 @@ export async function recordPaidWebhookOrder(
   // carry a settle id without one (none today — belt and braces).
   if (!paidOrder.settlePaymentHash) await markPending();
 
-  const notify = async () => {
-    // One settings object serves the provider lookup and the three values below,
-    // so a caller that already has it costs us zero reads here.
-    const s = settings ?? (await getStoreSettings(env.DB));
-    const emailer = await getEmailProvider(s);
-    if (!emailer) return;
-    const order = await getOrder(env.DB, orderId);
-    if (!order) return;
-
-    const items = await listOrderItemsWithImages(env.DB, orderId);
-    // Dashboard setting (Settings → Email) wins; falls back to store.config.ts notifyTo.
-    const notifyTo = s.emailNotifyTo || getConfig().email.notifyTo;
-    // Runtime store name (Settings) wins over the build-time default in email copy.
-    const storeName = s.storeName || getConfig().storeName;
-    const imageDelivery = s.imageDelivery;
-    const messages = [
-      ...(order.email && shouldSendCustomerOrderEmail(paymentMethod)
-        ? [orderConfirmationEmail(order, items, origin, storeName, imageDelivery)]
-        : []),
-      ...(notifyTo
-        ? [orderNotificationEmail(order, items, notifyTo, origin, storeName, imageDelivery)]
-        : []),
-    ];
-    // Concurrent, and a failed send never blocks or hides the other.
-    const results = await Promise.allSettled(messages.map((msg) => emailer.send(msg)));
-    for (const r of results) {
-      if (r.status === 'rejected') console.error('Order email failed:', r.reason);
-    }
+  // The batch above committed the outbox rows with the order; delivery is a
+  // separate, repeatable act. A send that fails here stays claimed-then-failed
+  // in the outbox and is finished by a webhook redelivery or the sweep — so
+  // this call reports outcomes into the outbox instead of throwing. The sweep
+  // rides along to drain any OTHER order's stranded rows a little per sale.
+  const deliver = async () => {
+    await deliverOrderNotifications(env.DB, orderId, origin, settings);
+    await sweepStaleNotifications(env.DB, origin);
   };
-
-  // Backgrounded: catch so a failed read/send logs instead of surfacing as an
-  // unhandled rejection. Awaited (webhook rails): failures propagate exactly as
-  // they did before this function existed.
-  if (waitUntil) waitUntil(notify().catch((err) => console.error('Order notification failed:', err)));
-  else await notify();
+  if (waitUntil) waitUntil(deliver().catch((err) => console.error('Notification delivery failed:', err)));
+  else await deliver();
 }

@@ -25,25 +25,30 @@ const isLightning = pending.backend === 'lnbits' || pending.backend === 'phoenix
 // An unexpected backend landing here → just show the order page.
 if (!isDemo && !isLightning) return Astro.redirect(`/order/${pending.public_id}`, 303);
 
+// The execution context lets the confirmation emails finish after the redirect
+// — settlement commits the outbox rows with the order, delivery follows behind.
+const ctx = Astro.locals.cfContext;
+const waitUntil = ctx ? ctx.waitUntil.bind(ctx) : undefined;
+
 let declined: string | null = null;
 if (isDemo && Astro.request.method === 'POST') {
   // Middleware already loaded the settings overlay for this document — hand it
-  // down so settlement doesn't re-read it (and the three keys it derives). The
-  // execution context lets the confirmation emails finish after the redirect:
-  // demo receipts are best-effort by design, so the shopper never waits on them.
-  const ctx = Astro.locals.cfContext;
+  // down so settlement doesn't re-read it (and the three keys it derives).
   const result = await settleDemoCheckout(
     pending,
     await Astro.request.formData(),
     Astro.url.origin,
     Astro.locals.settings,
-    ctx ? ctx.waitUntil.bind(ctx) : undefined,
+    waitUntil,
   );
   if (result.redirect) return Astro.redirect(result.redirect, 303);
   declined = result.declined ?? null;
 }
 
-if (isLightning && (await settleLightningOnLoad(pending))) {
+if (
+  isLightning &&
+  (await settleLightningOnLoad(pending, Astro.url.origin, Astro.locals.settings, waitUntil))
+) {
   return Astro.redirect(`/order/${pending.public_id}`, 303);
 }
 

@@ -46,6 +46,7 @@ fi
 # `products` clears it too — don't touch it directly. Update this list if you add
 # a table.
 RESET_SQL="
+DELETE FROM order_notifications;
 DELETE FROM order_items;
 DELETE FROM product_categories;
 DELETE FROM product_extras;

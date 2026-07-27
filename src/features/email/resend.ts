@@ -17,6 +17,9 @@ export function createResendEmail(
         headers: {
           authorization: `Bearer ${apiKey}`,
           'content-type': 'application/json',
+          // Resend dedupes on this for 24h — an outbox retry of an
+          // already-delivered send becomes a no-op instead of a duplicate.
+          ...(msg.idempotencyKey ? { 'idempotency-key': msg.idempotencyKey } : {}),
         },
         body: JSON.stringify({
           from: fromHeader,

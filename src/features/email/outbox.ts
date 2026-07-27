@@ -1,0 +1,221 @@
+import type { D1Database } from '@cloudflare/workers-types';
+import { getConfig } from '../../config';
+import { getStoreSettings, type StoreSettings } from '../settings/db';
+import { getOrder, listOrderItemsWithImages } from '../orders/db';
+import { getEmailProvider } from './index';
+import { orderConfirmationEmail, orderNotificationEmail } from './orderConfirmation';
+import { shouldSendCustomerOrderEmail } from './orderPolicy';
+
+/**
+ * Transactional-email outbox (see migration 0032). recordPaidOrder commits one
+ * row per email in the same batch as the order; this module is everything that
+ * happens to a row afterwards: claim → build → send → mark.
+ *
+ * Delivery is at-least-once by choice — a row is marked 'sent' only after the
+ * send succeeds, so a crash in between can duplicate (Resend's idempotency key
+ * absorbs that for 24h; the Cloudflare binding has no equivalent). The claim
+ * is a conditional UPDATE, so the concurrent deliverers — settlement itself,
+ * a webhook redelivery, the piggyback sweep — cannot double-send a live row.
+ */
+
+export const NOTIFICATION_KINDS = ['customer-receipt', 'owner-notification'] as const;
+export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
+
+/** Attempts after which a row is abandoned as 'dead' (last_error says why). */
+const MAX_ATTEMPTS = 5;
+/** Claim lease. A deliverer that dies mid-send frees its row this much later. */
+const LEASE_SECONDS = 120;
+/** Rows younger than this are left to their own settlement's deliverer. */
+const SWEEP_MIN_AGE_SECONDS = 120;
+/** Stale rows recovered per sweep. Small on purpose: the sweep piggybacks on
+ *  live settlements, and one slow backlog must not snowball into them. */
+const SWEEP_BATCH = 3;
+
+/**
+ * Claim one row: pending, or processing with an expired lease (a dead
+ * deliverer's abandoned claim). Exactly one concurrent caller wins. Returns
+ * the attempt number, or null when there is nothing to claim (row absent,
+ * already sent/skipped/dead, or validly leased by someone else).
+ */
+async function claim(
+  db: D1Database,
+  orderId: number,
+  kind: NotificationKind,
+): Promise<number | null> {
+  // An abandoned claim (deliverer cancelled mid-send — waitUntil is bounded to
+  // ~30s after the response) consumed its attempt at claim time. Once the
+  // attempts are spent, park the row instead of reclaiming it forever: HTTP
+  // cancellation is exactly the failure mode this table exists to bound.
+  await db
+    .prepare(
+      `UPDATE order_notifications
+          SET state = 'dead', lease_expires_at = NULL,
+              last_error = COALESCE(last_error, 'delivery repeatedly interrupted (lease expired)')
+        WHERE order_id = ? AND kind = ? AND state = 'processing'
+          AND lease_expires_at < datetime('now') AND attempts >= ${MAX_ATTEMPTS}`,
+    )
+    .bind(orderId, kind)
+    .run();
+  const row = await db
+    .prepare(
+      `UPDATE order_notifications
+          SET state = 'processing',
+              attempts = attempts + 1,
+              lease_expires_at = datetime('now', '+${LEASE_SECONDS} seconds')
+        WHERE order_id = ? AND kind = ? AND attempts < ${MAX_ATTEMPTS}
+          AND (state = 'pending'
+               OR (state = 'processing' AND lease_expires_at < datetime('now')))
+        RETURNING attempts`,
+    )
+    .bind(orderId, kind)
+    .first<{ attempts: number }>();
+  return row?.attempts ?? null;
+}
+
+// Every completion update carries the claim's attempt number as a FENCING
+// token (`AND attempts = ?`): if worker A's lease expired and worker B
+// reclaimed the row (incrementing attempts), a late-resuming A no longer
+// matches and cannot clear B's live lease or mark B's work terminal.
+
+async function markSent(
+  db: D1Database,
+  orderId: number,
+  kind: NotificationKind,
+  attempts: number,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE order_notifications
+          SET state = 'sent', sent_at = datetime('now'), lease_expires_at = NULL, last_error = NULL
+        WHERE order_id = ? AND kind = ? AND state = 'processing' AND attempts = ?`,
+    )
+    .bind(orderId, kind, attempts)
+    .run();
+}
+
+async function markSkipped(
+  db: D1Database,
+  orderId: number,
+  kind: NotificationKind,
+  attempts: number,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE order_notifications
+          SET state = 'skipped', lease_expires_at = NULL
+        WHERE order_id = ? AND kind = ? AND state = 'processing' AND attempts = ?`,
+    )
+    .bind(orderId, kind, attempts)
+    .run();
+}
+
+/**
+ * Failure: release for retry, or park as 'dead' once attempts are exhausted
+ * (or immediately, for conditions no retry can cure — `terminal`). `attempts`
+ * is always the claim's own number: it is the fencing token, never a way to
+ * force a state.
+ */
+async function markFailed(
+  db: D1Database,
+  orderId: number,
+  kind: NotificationKind,
+  attempts: number,
+  error: unknown,
+  terminal = false,
+): Promise<void> {
+  const message = error instanceof Error ? error.message : String(error);
+  await db
+    .prepare(
+      `UPDATE order_notifications
+          SET state = ?, lease_expires_at = NULL, last_error = ?
+        WHERE order_id = ? AND kind = ? AND state = 'processing' AND attempts = ?`,
+    )
+    .bind(
+      terminal || attempts >= MAX_ATTEMPTS ? 'dead' : 'pending',
+      message.slice(0, 500),
+      orderId,
+      kind,
+      attempts,
+    )
+    .run();
+}
+
+/**
+ * Deliver whatever undelivered notifications an order still has. Safe to call
+ * from anywhere, any number of times — the claim makes repeats no-ops. This is
+ * what closes the old redelivery gap: a webhook retry that finds the order
+ * already recorded calls this instead of returning with the emails unsent.
+ */
+export async function deliverOrderNotifications(
+  db: D1Database,
+  orderId: number,
+  origin: string,
+  settings?: StoreSettings,
+): Promise<void> {
+  // Settings resolve once per delivery pass, at send time — a store that
+  // enabled email after the order was placed still gets the sends.
+  const s = settings ?? (await getStoreSettings(db));
+  let order: Awaited<ReturnType<typeof getOrder>> | undefined;
+  let items: Awaited<ReturnType<typeof listOrderItemsWithImages>> | undefined;
+
+  for (const kind of NOTIFICATION_KINDS) {
+    const attempts = await claim(db, orderId, kind);
+    if (attempts == null) continue;
+    try {
+      const emailer = await getEmailProvider(s);
+      if (!emailer) {
+        // Email is off for this store: not-applicable, not a failure.
+        await markSkipped(db, orderId, kind, attempts);
+        continue;
+      }
+      order ??= await getOrder(db, orderId);
+      if (!order) {
+        // Row without an order should be impossible (same-batch insert);
+        // treat as terminal rather than retrying forever.
+        await markFailed(db, orderId, kind, attempts, 'Order row not found', true);
+        continue;
+      }
+      const notifyTo = s.emailNotifyTo || getConfig().email.notifyTo;
+      const storeName = s.storeName || getConfig().storeName;
+      const applicable =
+        kind === 'customer-receipt'
+          ? Boolean(order.email) && shouldSendCustomerOrderEmail(order.payment_method)
+          : Boolean(notifyTo);
+      if (!applicable) {
+        await markSkipped(db, orderId, kind, attempts);
+        continue;
+      }
+      items ??= await listOrderItemsWithImages(db, orderId);
+      const msg =
+        kind === 'customer-receipt'
+          ? orderConfirmationEmail(order, items, origin, storeName, s.imageDelivery)
+          : orderNotificationEmail(order, items, notifyTo!, origin, storeName, s.imageDelivery);
+      await emailer.send({ ...msg, idempotencyKey: `${kind}/${orderId}` });
+      await markSent(db, orderId, kind, attempts);
+    } catch (err) {
+      console.error(`Order notification ${kind}/${orderId} failed:`, err);
+      await markFailed(db, orderId, kind, attempts, err);
+    }
+  }
+}
+
+/**
+ * Recover a few stale rows: expired-lease claims from dead deliverers, and
+ * pending rows old enough that their own settlement clearly isn't coming back
+ * for them. Piggybacks on live settlements (no cron in the Astro worker yet),
+ * so it is deliberately tiny — a backlog drains a little on every sale.
+ */
+export async function sweepStaleNotifications(db: D1Database, origin: string): Promise<void> {
+  const { results } = await db
+    .prepare(
+      `SELECT DISTINCT order_id FROM order_notifications
+        WHERE (state = 'pending' AND created_at < datetime('now', '-${SWEEP_MIN_AGE_SECONDS} seconds'))
+           OR (state = 'processing' AND lease_expires_at < datetime('now'))
+        ORDER BY created_at
+        LIMIT ${SWEEP_BATCH}`,
+    )
+    .all<{ order_id: number }>();
+  for (const row of results ?? []) {
+    await deliverOrderNotifications(db, row.order_id, origin);
+  }
+}

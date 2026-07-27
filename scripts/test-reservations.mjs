@@ -29,6 +29,8 @@ try {
     "CREATE TABLE checkout_reservations (public_id TEXT PRIMARY KEY, items TEXT NOT NULL, payment_method TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', expires_at TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))",
     // Just the columns recordPaidOrder's batched settle statement touches.
     "CREATE TABLE pending_payments (payment_hash TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'pending')",
+    // Outbox rows are born inside the same batch (0032).
+    "CREATE TABLE order_notifications (order_id INTEGER NOT NULL, kind TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, lease_expires_at TEXT, last_error TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), sent_at TEXT, PRIMARY KEY (order_id, kind))",
   ]) {
     await db.exec(sql);
   }
@@ -164,6 +166,15 @@ try {
     (await db.prepare("SELECT status FROM pending_payments WHERE payment_hash = 'legacy-payment'").first()).status,
     'settled',
   );
+  // Outbox rows born atomically with the order — one per email kind, pending.
+  assert.equal(
+    (await db.prepare(
+      `SELECT COUNT(*) AS n FROM order_notifications
+        WHERE state = 'pending'
+          AND order_id = (SELECT id FROM orders WHERE provider_session_id = 'legacy-payment')`,
+    ).first()).n,
+    2,
+  );
 
   // A reservation-gated order whose reservation is gone must NOT settle its
   // pending row: the guard ties the settle to this batch's claimed order.
@@ -187,6 +198,9 @@ try {
     (await db.prepare("SELECT status FROM pending_payments WHERE payment_hash = 'blocked-payment'").first()).status,
     'pending',
   );
+  // ...and no outbox rows either: no order, no email intent. (4 = the two
+  // successful orders above × two kinds; the blocked one added none.)
+  assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM order_notifications').first()).n, 4);
 
   console.log('Reservation integration passed: concurrency + pending + release + settlement + legacy + batched pending settle');
 } finally {
