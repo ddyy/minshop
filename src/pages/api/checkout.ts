@@ -272,10 +272,9 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
   // collects + confirms the full address on its page; this just sets which rates
   // it shows. Falls back to the first zone's country (e.g. buy-now, no selector).
   const selectedCountry = (form.get('country') ?? '').toString().trim().toUpperCase();
-  const shipCountry =
-    selectedCountry.length === 2
-      ? selectedCountry
-      : (effectiveShipping.zones[0]?.countries[0] ?? 'US');
+  const stripeFallbackCountry =
+    stripeAllowedCountries(shipCalc.allowedCountries(), shipCalc.hasCatchAll())[0] ?? 'US';
+  const shipCountry = selectedCountry.length === 2 ? selectedCountry : stripeFallbackCountry;
   const quote = shippingApplies
     ? shipCalc.quoteFor({
         subtotalCents,
@@ -512,7 +511,8 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
   const storeCurrency = cfg.currency;
   const subtotalCents = lines.reduce((s, l) => s + l.unitPriceCents * l.qty, 0);
   const shipCalc = createConfigRatesCalculator(effectiveShipping);
-  const shipCountry = effectiveShipping.zones[0]?.countries[0] ?? 'US';
+  const shipCountry =
+    stripeAllowedCountries(shipCalc.allowedCountries(), shipCalc.hasCatchAll())[0] ?? 'US';
   // Weight comes from the D1 rows resolved above; a request body never supplies it.
   const shipment = shipmentWeightFor(lines);
   const shippingOn = effectiveShipping.enabled && shipment.shippingRequired;

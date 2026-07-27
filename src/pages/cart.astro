@@ -3,11 +3,9 @@ import { env } from 'cloudflare:workers';
 import Layout from '../layouts/Layout.astro';
 import { formatPrice } from '../config';
 import { readCart, resolveCart } from '../features/cart/cart';
-import { allowedCountries, hasCatchAllZone } from '../features/shipping/calculator';
-import { COUNTRY_CODES, countryName } from '../features/shipping/countries';
 import { shippingFor } from '../features/shipping/effective';
 import { shipmentWeightFor } from '../features/shipping/lines';
-import { stripeAllowedCountries } from '../features/payments/stripeCountries.ts';
+import { stripeDestination } from '../features/shipping/destination';
 import ProductImage from '../features/products/ProductImage.astro';
 import { enabledMethods, isMethodAvailable } from '../features/payments';
 import { catalogPath } from '../features/settings/home';
@@ -45,21 +43,11 @@ const error = Astro.url.searchParams.get('error');
 // the zones and the on/off switch. An all-digital cart never needs a destination,
 // so the selector is also gated on some line actually requiring shipping.
 const effectiveShipping = shippingFor(settings).config;
-// A "rest of world" zone means every country is shippable, so the selector must
-// offer them all. Listing only the EXPLICIT codes would price the session from the
-// first zone (and hide the selector entirely when there is one) while Stripe still
-// accepts an address from anywhere — quoting US rates for a Canadian delivery.
-const shipsAnywhere = hasCatchAllZone(effectiveShipping);
-const stripeOffered = settings ? isMethodAvailable('stripe', settings) : false;
-const shipCountries =
-  effectiveShipping.enabled && shipmentWeightFor(lines).shippingRequired && stripeOffered
-    ? stripeAllowedCountries(
-        shipsAnywhere ? [...COUNTRY_CODES] : allowedCountries(effectiveShipping),
-        false,
-      )
-    : [];
-const countryLabel = (code: string) => (shipsAnywhere ? `${countryName(code)} (${code})` : code);
-const showCountry = shipCountries.length > 1;
+const destination = stripeDestination(
+  settings,
+  effectiveShipping,
+  shipmentWeightFor(lines).shippingRequired,
+);
 // The catalog is at / until the home page is pointed elsewhere.
 const shopHref = catalogPath(Astro.locals.settings?.homePage);
 ---
@@ -179,18 +167,24 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
             ) : (
             <form method="POST" action="/api/checkout" class="mt-4 space-y-2">
               <input type="hidden" name="source" value="cart" />
-              {showCountry && (
+              {destination.showSelect && (
                 <label class="mb-2 flex items-center justify-between gap-2 text-xs uppercase tracking-widest text-gray-500">
                   Ship to
                   <select
                     name="country"
                     class="rounded-md border border-gray-200 px-2 py-1.5 text-sm normal-case tracking-normal text-gray-900"
                   >
-                    {shipCountries.map((c) => (
-                      <option value={c}>{countryLabel(c)}</option>
+                    {destination.countries.map((c) => (
+                      <option value={c}>{destination.label(c)}</option>
                     ))}
                   </select>
                 </label>
+              )}
+              {/* One choice must STILL be submitted: with the field absent the
+                  server falls back to the raw first zone, which may be exactly the
+                  Stripe-unsupported country the filter removed. */}
+              {destination.hiddenOnly && (
+                <input type="hidden" name="country" value={destination.countries[0]} />
               )}
 
               {/* One control per offered method. Ready (configured/demo) → a submit

@@ -292,7 +292,8 @@ if [[ "$ca_status" != "200" ]]; then
   exit 1
 fi
 
-us_status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+us_body="$state_dir/us-checkout.json"
+us_status="$(curl --silent --output "$us_body" --write-out '%{http_code}' \
   -H 'content-type: application/json' \
   -H "origin: http://127.0.0.1:$test_port" \
   --data '{"items":[{"slug":"sample-tee","quantity":1}],"method":"demo","ship_to":{"email":"integration@example.com","name":"Integration Test","line1":"1 Test St","city":"Testville","postal":"12345","country":"US"}}' \
@@ -301,6 +302,15 @@ if [[ "$us_status" != "422" ]]; then
   echo "D1 integration failed: weight-only zone with weightless products returned HTTP $us_status (expected 422)" >&2
   exit 1
 fi
+# The REASON matters: a destination 422 here would mean the zone was never
+# matched, not that the missing weight was detected.
+node -e '
+  const b = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+  if (b.reason !== "missing_weight") throw new Error(`expected reason missing_weight, got ${b.reason}`);
+  if (!Array.isArray(b.items) || !b.items.some((i) => i.name === "Sample Tee")) {
+    throw new Error("missing_weight response did not name the product");
+  }
+' "$us_body"
 
 npx wrangler d1 execute DB --local --persist-to "$state_dir" \
   --command "DELETE FROM settings WHERE key = 'shipping_config'" >/dev/null
