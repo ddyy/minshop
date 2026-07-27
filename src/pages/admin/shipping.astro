@@ -492,11 +492,7 @@ const label = (path: string) => `text-xs uppercase tracking-widest text-gray-500
         value={parsed.status === 'invalid' ? 'replace' : 'save'}
         class="rounded bg-brand px-5 py-2 text-sm font-medium text-white transition hover:opacity-90"
       >
-        {parsed.status === 'invalid'
-          ? 'Replace invalid configuration'
-          : isFirstSave
-            ? 'Manage shipping in Admin'
-            : 'Save shipping'}
+        {parsed.status === 'invalid' ? 'Replace invalid configuration' : 'Save shipping'}
       </button>
       <button
         name="_action"
