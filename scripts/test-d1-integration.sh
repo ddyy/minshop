@@ -25,7 +25,13 @@ npx wrangler d1 execute DB --local --persist-to "$state_dir" \
   --command "WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 30) INSERT INTO products (name, slug, description, price_cents, stock) SELECT 'Pagination Item ' || n, 'pagination-item-' || n, 'pagination fixture', 1000 + n, 10 FROM seq;" >/dev/null
 npx wrangler d1 execute DB --local --persist-to "$state_dir" \
   --command "INSERT INTO categories (name, slug) VALUES ('Apparel', 'apparel'); INSERT INTO product_categories (product_id, category_id) SELECT p.id, c.id FROM products p, categories c WHERE p.slug = 'sample-tee' AND c.slug = 'apparel';" >/dev/null
-npx wrangler r2 object put minshop-images/media/cache-header-fixture.svg \
+image_bucket="$(node -e '
+  const config = require("node:fs").readFileSync("wrangler.jsonc", "utf8");
+  const match = config.match(/"binding"\s*:\s*"BUCKET"[\s\S]*?"bucket_name"\s*:\s*"([^"]+)"/);
+  if (!match) throw new Error("BUCKET binding is missing a bucket_name");
+  process.stdout.write(match[1]);
+')"
+npx wrangler r2 object put "$image_bucket/media/cache-header-fixture.svg" \
   --local --persist-to "$state_dir" --file public/favicon.svg \
   --content-type image/svg+xml >/dev/null
 # Fixture rows need valid public_ids (hex ⊂ the Crockford alphabet) — the
