@@ -1,12 +1,17 @@
 import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
-import { getProduct, getProductBySlug, type Product } from '../../features/products/db';
+import { getProductByPublicId, getProductBySlug, type Product } from '../../features/products/db';
 import {
   listVariants,
-  getExtrasByIds,
+  getExtrasByPublicIds,
   type ProductVariant,
   type ProductExtra,
 } from '../../features/products/variants';
+import { parsePublicId } from '../../features/ids/publicId.ts';
+import {
+  claimOrderIdentity,
+  deleteGuestAccessIfUnsettled,
+} from '../../features/orders/guestAccess.ts';
 import { lineUnitPriceCents } from '../../features/cart/key';
 import { productImageUrl } from '../../features/products/image';
 import { readCart, resolveCart } from '../../features/cart/cart';
@@ -136,18 +141,24 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
   // Where to send the shopper if a stock check fails (cart, or the product).
   let errorPath = '/cart';
 
-  const productId = Number(form.get('product_id'));
-  if (Number.isInteger(productId) && productId > 0) {
-    const product = await getProduct(env.DB, productId);
+  // Forms submit prefixed public IDs only; numeric row IDs are never accepted.
+  const productIdRaw = form.get('product_id');
+  const productPublicId = parsePublicId(productIdRaw, 'product');
+  if (productIdRaw != null && String(productIdRaw).trim() !== '' && !productPublicId) {
+    return new Response('Invalid product id (expected a prod_… public ID).', { status: 400 });
+  }
+  if (productPublicId) {
+    const product = await getProductByPublicId(env.DB, productPublicId);
     if (!product || !product.active) {
       return new Response('Product unavailable', { status: 404 });
     }
     // Express "Buy now" — resolve variant + extras right here so it checks out
     // WITHOUT the cart (works even when the cart is switched off).
-    const variants = await listVariants(env.DB, productId);
+    const variants = await listVariants(env.DB, product.id);
     let variant: ProductVariant | null = null;
     if (variants.length > 0) {
-      variant = variants.find((v) => v.id === Number(form.get('variant_id'))) ?? null;
+      const wantedVariant = parsePublicId(form.get('variant_id'), 'variant');
+      variant = wantedVariant ? (variants.find((v) => v.public_id === wantedVariant) ?? null) : null;
       if (!variant) {
         const label = product.variant_label || 'option';
         return redirect(
@@ -156,11 +167,13 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
         );
       }
     }
-    const extraIds = form
+    const extraPublicIds = form
       .getAll('extra')
-      .map(Number)
-      .filter((n) => Number.isInteger(n) && n > 0);
-    const extras = extraIds.length ? await getExtrasByIds(env.DB, productId, extraIds) : [];
+      .map((v) => parsePublicId(v, 'extra'))
+      .filter((v): v is string => v !== null);
+    const extras = extraPublicIds.length
+      ? await getExtrasByPublicIds(env.DB, product.id, extraPublicIds)
+      : [];
     lines = [
       {
         product,
@@ -247,11 +260,14 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
   const IN_APP_SHIPPING_RAILS = ['lightning', 'opennode', 'demo'];
   if (IN_APP_SHIPPING_RAILS.includes(selected) && shippingApplies) {
     const params = new URLSearchParams({ method: selected });
-    if (Number.isInteger(productId) && productId > 0) {
-      params.set('product_id', String(productId));
-      const vid = form.get('variant_id');
-      if (vid) params.set('variant_id', String(vid));
-      for (const ex of form.getAll('extra')) params.append('extra', String(ex));
+    if (productPublicId) {
+      params.set('product_id', productPublicId);
+      const vid = parsePublicId(form.get('variant_id'), 'variant');
+      if (vid) params.set('variant_id', vid);
+      for (const ex of form.getAll('extra')) {
+        const xid = parsePublicId(ex, 'extra');
+        if (xid) params.append('extra', xid);
+      }
     }
     return redirect(`/checkout?${params}`, 303);
   }
@@ -311,7 +327,9 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
           event: 'shipping_quote_blocked',
           reason: 'missing_weight',
           country: shipCountry,
-          product_ids: quote.missingWeight.map((m) => m.productId),
+          products: quote.missingWeight.map(
+            (m) => lines.find((l) => l.product.id === m.productId)?.product.public_id ?? m.name,
+          ),
         }),
       );
     }
@@ -352,14 +370,17 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
         }
       : undefined;
 
-  // Pre-generate the order's public token here so success_url can point straight
-  // at the confirmation page. The webhook stores this same id on the order.
-  const publicId = crypto.randomUUID();
+  // Claim the order's public identity + guest credential BEFORE provider
+  // handoff: the ord_ id ties reservation → pending payment → settled order,
+  // and the access token is the only thing guest URLs carry. success_url points
+  // at /order/<token>; the webhook stores the ord_ id on the order.
+  const { publicId, accessToken } = await claimOrderIdentity(env.DB);
   const items = reservationItems(lines);
   const reserved =
     selected === 'demo' ||
     (await reserveInventory(env.DB, publicId, items, reservationTtlSeconds(selected), selected));
   if (!reserved) {
+    await deleteGuestAccessIfUnsettled(env.DB, publicId);
     return redirect(
       `${errorPath}?error=${encodeURIComponent('Some inventory just sold out — please review your cart.')}`,
       303,
@@ -378,7 +399,7 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
         // Stripe can fetch it (won't render from localhost).
         imageUrl: new URL(productImageUrl(l.product.image_key, cfg.images.baseUrl), origin).href,
       })),
-      successUrl: `${origin}/order/${publicId}`,
+      successUrl: `${origin}/order/${accessToken}`,
       // Returning from a hosted checkout does not make that session unpayable,
       // so inventory remains held until its verified expiry/failure webhook.
       cancelUrl,
@@ -388,15 +409,19 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
       orderItemsJson: JSON.stringify(
         lines.map((l) => ({ id: l.product.id, q: l.qty, n: l.name, p: l.unitPriceCents, v: l.variantId })),
       ),
-      // Provider metadata stays bounded; the cart snapshot is held in D1.
+      // Provider metadata stays bounded (and NEVER carries the access token);
+      // the cart snapshot is held in D1.
       metadata: {
         public_id: publicId,
         ...(selected !== 'demo' && { reservation_id: publicId }),
       },
+      accessToken,
     });
     checkoutUrl = result.url;
   } catch (error) {
+    // Compensate the whole claim: stock hold AND the guest credential.
     if (selected !== 'demo') await releaseInventoryReservation(env.DB, publicId);
+    await deleteGuestAccessIfUnsettled(env.DB, publicId);
     throw error;
   }
 
@@ -405,14 +430,17 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
 
 /**
  * Programmatic checkout for agents/tools. Body:
- *   { items: [{ slug, quantity, variant_id?, extras?: number[] }], method? }
- * `variant_id` is required for products that have a variant group; `extras` are
- * optional add-on ids — both come from the catalog (GET /api/products/:slug).
- * Resolves slugs → priced lines (variant/extra-aware), validates stock, creates a
- * hosted checkout session, and returns { checkout_url } as JSON — the agent hands
- * that URL to the human to pay (honest given agentic-payment standards aren't
- * settled). Reuses the same createCheckout() as the browser flow, so
- * shipping/tax/discounts behave the same.
+ *   { items: [{ product_id, quantity, variant_id?, extra_ids?: string[] }], method? }
+ * `product_id` is the prefixed public ID (`prod_…`) from the catalog; `slug` is
+ * accepted as a documented convenience selector. `variant_id` (`var_…`) is
+ * required for products that have a variant group; `extra_ids` (`xtra_…`) are
+ * optional add-ons — all from the catalog (GET /api/products/:slug). Numeric
+ * row IDs and the legacy numeric `extras` array are rejected with 400.
+ * Resolves selectors → priced lines (variant/extra-aware), validates stock,
+ * creates a hosted checkout session, and returns { checkout_url } as JSON — the
+ * agent hands that URL to the human to pay (honest given agentic-payment
+ * standards aren't settled). Reuses the same createCheckout() as the browser
+ * flow, so shipping/tax/discounts behave the same.
  */
 async function handleJsonCheckout(request: Request, url: URL): Promise<Response> {
   const origin = url.origin;
@@ -442,7 +470,7 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
   }
   const rawItems = (body as { items?: unknown })?.items;
   if (!Array.isArray(rawItems) || rawItems.length === 0) {
-    return cjson({ error: 'Body must be { "items": [{ "slug": string, "quantity": number }] }.' }, 400);
+    return cjson({ error: 'Body must be { "items": [{ "product_id": "prod_…", "quantity": number }] }.' }, 400);
   }
   if (rawItems.length > MAX_CHECKOUT_LINES) {
     return cjson({ error: `A checkout can contain at most ${MAX_CHECKOUT_LINES} lines.` }, 400);
@@ -467,36 +495,75 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
   const cfg = getConfig();
   const effectiveShipping = shippingFor(jsonSettings).config;
 
-  // Resolve each { slug, quantity, variant_id?, extras? } → a priced line,
-  // validating active + variant choice + stock. Variant/extra ids come from the
-  // catalog (GET /api/products/:slug).
+  // Resolve each { product_id | slug, quantity, variant_id?, extra_ids? } → a
+  // priced line, validating active + variant choice + stock. All identifiers
+  // are prefixed public IDs from the catalog (GET /api/products/:slug); numeric
+  // row IDs are never accepted.
   interface AgentLine extends LineDraft {
     variant: ProductVariant | null;
     extras: ProductExtra[];
   }
   const lines: AgentLine[] = [];
   for (const raw of rawItems) {
-    const r = raw as { slug?: unknown; quantity?: unknown; variant_id?: unknown; extras?: unknown };
-    const slug = typeof r.slug === 'string' ? r.slug.trim() : '';
+    const r = raw as {
+      product_id?: unknown;
+      slug?: unknown;
+      quantity?: unknown;
+      variant_id?: unknown;
+      extra_ids?: unknown;
+      extras?: unknown;
+    };
+    // The legacy numeric `extras` array is rejected outright, not silently read.
+    if (r.extras !== undefined) {
+      return cjson(
+        { error: 'The numeric "extras" array is no longer accepted; pass "extra_ids": ["xtra_…"].' },
+        400,
+      );
+    }
     const qty = Number(r.quantity);
-    if (!slug) return cjson({ error: 'Each item needs a "slug".' }, 400);
-    if (!Number.isInteger(qty) || qty < 1) return cjson({ error: `Invalid quantity for "${slug}".` }, 400);
 
-    const product = await getProductBySlug(env.DB, slug);
-    if (!product || !product.active) return cjson({ error: `Product not found: ${slug}` }, 404);
+    // Product selector: prefixed public ID (canonical) or slug (convenience).
+    let product: Product | null = null;
+    let selector = '';
+    if (r.product_id !== undefined) {
+      const pid = parsePublicId(r.product_id, 'product');
+      if (!pid) {
+        return cjson(
+          { error: 'Each "product_id" must be a prefixed public ID ("prod_…") — numeric IDs are not accepted.' },
+          400,
+        );
+      }
+      selector = pid;
+      product = await getProductByPublicId(env.DB, pid);
+    } else {
+      const slug = typeof r.slug === 'string' ? r.slug.trim() : '';
+      if (!slug) return cjson({ error: 'Each item needs a "product_id" (or "slug").' }, 400);
+      selector = slug;
+      product = await getProductBySlug(env.DB, slug);
+    }
+    if (!Number.isInteger(qty) || qty < 1) return cjson({ error: `Invalid quantity for "${selector}".` }, 400);
+    if (!product || !product.active) return cjson({ error: `Product not found: ${selector}` }, 404);
+    const slug = product.slug;
 
     // Variant: required when the product has any. Validate it belongs + is active.
     const variants = await listVariants(env.DB, product.id);
     let variant: ProductVariant | null = null;
     if (variants.length > 0) {
-      const wanted = Number(r.variant_id);
-      variant = variants.find((v) => v.id === wanted) ?? null;
+      if (r.variant_id !== undefined && typeof r.variant_id !== 'string') {
+        return cjson(
+          { error: `"variant_id" must be a prefixed public ID ("var_…") — numeric IDs are not accepted.` },
+          400,
+        );
+      }
+      const wanted = parsePublicId(r.variant_id, 'variant');
+      variant = wanted ? (variants.find((v) => v.public_id === wanted) ?? null) : null;
       if (!variant) {
         return cjson(
           {
             error: `"${slug}" requires a valid "variant_id" (${product.variant_label || 'option'}).`,
+            product_id: product.public_id,
             slug,
-            variants: variants.map((v) => ({ id: v.id, label: v.label, in_stock: v.stock > 0 })),
+            variants: variants.map((v) => ({ id: v.public_id, label: v.label, in_stock: v.stock > 0 })),
           },
           400,
         );
@@ -504,16 +571,35 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
     }
 
     // Extras: keep the valid, active add-ons that belong to the product.
-    const wantExtras = Array.isArray(r.extras)
-      ? r.extras.map(Number).filter((n) => Number.isInteger(n) && n > 0)
-      : [];
-    const extras = wantExtras.length ? await getExtrasByIds(env.DB, product.id, wantExtras) : [];
+    let extras: ProductExtra[] = [];
+    if (r.extra_ids !== undefined) {
+      if (!Array.isArray(r.extra_ids)) {
+        return cjson({ error: '"extra_ids" must be an array of "xtra_…" public IDs.' }, 400);
+      }
+      const wantExtras: string[] = [];
+      for (const x of r.extra_ids) {
+        const xid = parsePublicId(x, 'extra');
+        if (!xid) {
+          return cjson(
+            { error: 'Every "extra_ids" entry must be a prefixed public ID ("xtra_…") — numeric IDs are not accepted.' },
+            400,
+          );
+        }
+        wantExtras.push(xid);
+      }
+      extras = wantExtras.length ? await getExtrasByPublicIds(env.DB, product.id, wantExtras) : [];
+    }
 
     const availableStock = variant ? variant.stock : product.stock;
     if (availableStock < qty) {
       const label = variant ? `${product.name} — ${variant.label}` : product.name;
       return cjson(
-        { error: availableStock <= 0 ? `${label} is sold out.` : `Only ${availableStock} of ${label} in stock.`, slug, available: availableStock },
+        {
+          error: availableStock <= 0 ? `${label} is sold out.` : `Only ${availableStock} of ${label} in stock.`,
+          product_id: product.public_id,
+          slug,
+          available: availableStock,
+        },
         409,
       );
     }
@@ -549,6 +635,7 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
       missingWeight: shipment.missingWeight,
     });
   /** 422 with a reason an agent can act on, from the same quote the browser uses. */
+  const productByRowId = new Map(lines.map((l) => [l.product.id, l.product]));
   const shippingProblem = (country: string, quote: ReturnType<typeof quoteFor>) => {
     if (quote.omitted.some((o) => o.reason === 'missing_weight')) {
       console.error(
@@ -556,14 +643,20 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
           event: 'shipping_quote_blocked',
           reason: 'missing_weight',
           country: country.toUpperCase(),
-          product_ids: quote.missingWeight.map((m) => m.productId),
+          products: quote.missingWeight.map(
+            (m) => productByRowId.get(m.productId)?.public_id ?? m.name,
+          ),
         }),
       );
       return cjson(
         {
           error: 'Shipping cannot be calculated: some items have no shipping weight recorded.',
           reason: 'missing_weight',
-          items: quote.missingWeight.map((m) => ({ product_id: m.productId, name: m.name })),
+          items: quote.missingWeight.map((m) => ({
+            product_id: productByRowId.get(m.productId)?.public_id ?? null,
+            slug: productByRowId.get(m.productId)?.slug ?? null,
+            name: m.name,
+          })),
         },
         422,
       );
@@ -683,7 +776,7 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
   }
 
   if (method === 'lightning' && shippingOn && shipTo && chosen && inAppQuote) {
-    const lnPublicId = crypto.randomUUID();
+    const { publicId: lnPublicId, accessToken: lnAccessToken } = await claimOrderIdentity(env.DB);
     const lnReserved = await reserveInventory(
       env.DB,
       lnPublicId,
@@ -691,11 +784,15 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
       reservationTtlSeconds('lightning'),
       'lightning',
     );
-    if (!lnReserved) return cjson({ error: 'Some inventory just sold out. Refresh the catalog and retry.' }, 409);
+    if (!lnReserved) {
+      await deleteGuestAccessIfUnsettled(env.DB, lnPublicId);
+      return cjson({ error: 'Some inventory just sold out. Refresh the catalog and retry.' }, 409);
+    }
     try {
       const minted = await mintLightningOrder(env.DB, await getLightningBackend(), {
         origin,
         publicId: lnPublicId,
+        accessToken: lnAccessToken,
         currency: storeCurrency,
         subtotalCents,
         shippingCents: chosen.amountCents,
@@ -738,8 +835,8 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
           slug: l.product.slug,
           name: l.name,
           quantity: l.qty,
-          variant: l.variant ? { id: l.variant.id, label: l.variant.label } : null,
-          extras: l.extras.map((e) => ({ id: e.id, label: e.label })),
+          variant: l.variant ? { id: l.variant.public_id, label: l.variant.label } : null,
+          extras: l.extras.map((e) => ({ id: e.public_id, label: e.label })),
           unit_price_cents: l.unitPriceCents,
           line_total_cents: l.unitPriceCents * l.qty,
         })),
@@ -747,8 +844,10 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
       });
     } catch (error) {
       // The Lightning node can be briefly unreachable. Release the held stock and
-      // return a retryable 503 rather than a 500, so an agent can back off + retry.
+      // the guest credential, and return a retryable 503 rather than a 500, so an
+      // agent can back off + retry.
       await releaseInventoryReservation(env.DB, lnPublicId);
+      await deleteGuestAccessIfUnsettled(env.DB, lnPublicId);
       console.error(
         JSON.stringify({
           event: 'lightning_invoice_failed',
@@ -762,13 +861,16 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
     }
   }
 
-  const publicId = crypto.randomUUID();
+  const { publicId, accessToken } = await claimOrderIdentity(env.DB);
   const provider = await getPaymentProvider(method);
   const items = reservationItems(lines);
   const reserved =
     method === 'demo' ||
     (await reserveInventory(env.DB, publicId, items, reservationTtlSeconds(method), method));
-  if (!reserved) return cjson({ error: 'Some inventory just sold out. Refresh the catalog and retry.' }, 409);
+  if (!reserved) {
+    await deleteGuestAccessIfUnsettled(env.DB, publicId);
+    return cjson({ error: 'Some inventory just sold out. Refresh the catalog and retry.' }, 409);
+  }
 
   let result;
   try {
@@ -780,7 +882,7 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
         quantity: l.qty,
         imageUrl: new URL(productImageUrl(l.product.image_key, cfg.images.baseUrl), origin).href,
       })),
-      successUrl: `${origin}/order/${publicId}`,
+      successUrl: `${origin}/order/${accessToken}`,
       cancelUrl: `${origin}/`,
       shipping: method === 'stripe' ? shipping : undefined,
       ...(chosen &&
@@ -810,9 +912,11 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
         public_id: publicId,
         ...(method !== 'demo' && { reservation_id: publicId }),
       },
+      accessToken,
     });
   } catch (error) {
     if (method !== 'demo') await releaseInventoryReservation(env.DB, publicId);
+    await deleteGuestAccessIfUnsettled(env.DB, publicId);
     throw error;
   }
 
@@ -840,8 +944,8 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
       slug: l.product.slug,
       name: l.name,
       quantity: l.qty,
-      variant: l.variant ? { id: l.variant.id, label: l.variant.label } : null,
-      extras: l.extras.map((e) => ({ id: e.id, label: e.label })),
+      variant: l.variant ? { id: l.variant.public_id, label: l.variant.label } : null,
+      extras: l.extras.map((e) => ({ id: e.public_id, label: e.label })),
       unit_price_cents: l.unitPriceCents,
       line_total_cents: l.unitPriceCents * l.qty,
     })),

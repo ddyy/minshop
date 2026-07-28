@@ -12,10 +12,15 @@ vi.mock('./orderConfirmation', () => ({
   orderConfirmationEmail: vi.fn(() => ({ to: 'c@x', subject: 'r', html: '', text: '' })),
   orderNotificationEmail: vi.fn(() => ({ to: 'o@x', subject: 'n', html: '', text: '' })),
 }));
+vi.mock('../orders/guestAccess.ts', () => ({
+  guestOrderUrl: vi.fn(async () => null),
+  getGuestAccess: vi.fn(async () => null),
+}));
 
 import { deliverOrderNotifications } from './outbox';
 import { getEmailProvider } from './index';
 import { getOrder, listOrderItemsWithImages } from '../orders/db';
+import { getGuestAccess } from '../orders/guestAccess.ts';
 
 interface Row {
   order_id: number;
@@ -99,6 +104,23 @@ function fakeDb(rows: Row[]): D1Database {
               throw new Error(`unexpected run(): ${sql}`);
             },
             async all() {
+              // listUndeliveredKinds: the order's claimable kinds, so the
+              // deliverer can pick up versioned reissue rows too.
+              if (sql.includes('SELECT kind FROM order_notifications')) {
+                const [id] = args as [number];
+                return {
+                  results: rows
+                    .filter(
+                      (r) =>
+                        r.order_id === id &&
+                        (r.state === 'pending' ||
+                          (r.state === 'processing' &&
+                            r.lease_expires_at != null &&
+                            r.lease_expires_at < now())),
+                    )
+                    .map((r) => ({ kind: r.kind })),
+                };
+              }
               throw new Error(`unexpected all(): ${sql}`);
             },
           };
@@ -244,6 +266,60 @@ describe('deliverOrderNotifications', () => {
     releaseB();
     await b;
     expect(rows[0].state).toBe('sent');
+  });
+
+  it('delivers a guest-link reissue whose generation matches the registry', async () => {
+    const ordPublicId = 'ord_h5tm8qp3vn';
+    vi.mocked(getOrder).mockResolvedValue({ ...ORDER, public_id: ordPublicId } as never);
+    vi.mocked(getGuestAccess).mockResolvedValue({
+      order_public_id: ordPublicId,
+      access_token: 'otk_zZ11abCDefGHijKLmnpQ',
+      generation: 2,
+      created_at: '',
+      rotated_at: null,
+    } as never);
+    const rows: Row[] = [
+      { order_id: 7, kind: 'guest-link-reissue:2', state: 'pending', attempts: 0, lease_expires_at: null, last_error: null },
+    ];
+    await deliverOrderNotifications(fakeDb(rows), 7, 'https://x', SETTINGS);
+    expect(rows[0].state).toBe('sent');
+    // Its own versioned idempotency key — a second reissue can never collide.
+    expect(send.mock.calls[0][0].idempotencyKey).toBe(`guest-link-reissue:2/${ordPublicId}`);
+    // The email is the only place the rotated token travels.
+    expect(send.mock.calls[0][0].text).toContain('otk_zZ11abCDefGHijKLmnpQ');
+  });
+
+  it('skips (never sends) a stale reissue event superseded by a newer generation', async () => {
+    const ordPublicId = 'ord_h5tm8qp3vn';
+    vi.mocked(getOrder).mockResolvedValue({ ...ORDER, public_id: ordPublicId } as never);
+    // The registry has moved on to generation 3; the queued event says 2.
+    vi.mocked(getGuestAccess).mockResolvedValue({
+      order_public_id: ordPublicId,
+      access_token: 'otk_zZ11abCDefGHijKLmnpQ',
+      generation: 3,
+      created_at: '',
+      rotated_at: null,
+    } as never);
+    const rows: Row[] = [
+      { order_id: 7, kind: 'guest-link-reissue:2', state: 'pending', attempts: 0, lease_expires_at: null, last_error: null },
+    ];
+    await deliverOrderNotifications(fakeDb(rows), 7, 'https://x', SETTINGS);
+    expect(rows[0].state).toBe('skipped');
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('refuses to deliver a reissue for an order without a customer email', async () => {
+    vi.mocked(getOrder).mockResolvedValue({
+      ...ORDER,
+      public_id: 'ord_h5tm8qp3vn',
+      email: null,
+    } as never);
+    const rows: Row[] = [
+      { order_id: 7, kind: 'guest-link-reissue:1', state: 'pending', attempts: 0, lease_expires_at: null, last_error: null },
+    ];
+    await deliverOrderNotifications(fakeDb(rows), 7, 'https://x', SETTINGS);
+    expect(rows[0].state).toBe('skipped');
+    expect(send).not.toHaveBeenCalled();
   });
 
   it('reclaims an expired lease from a dead deliverer', async () => {

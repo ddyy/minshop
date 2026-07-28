@@ -1,11 +1,13 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import type { Product } from '../products/db';
+import { withPublicId } from '../ids/publicId.ts';
 
 export interface Category {
   id: number;
   name: string;
   slug: string;
   parent_id: number | null;
+  public_id: string | null;
   created_at: string;
 }
 
@@ -17,6 +19,7 @@ export interface CategoryNode extends Category {
 /** A depth-tagged flat row, for indented <select> options / checkboxes. */
 export interface CategoryOption {
   id: number;
+  public_id: string | null;
   name: string;
   slug: string;
   depth: number;
@@ -43,12 +46,36 @@ export async function getCategoryBySlug(db: D1Database, slug: string): Promise<C
   return db.prepare('SELECT * FROM categories WHERE slug = ?').bind(slug).first<Category>();
 }
 
+/** Category by its prefixed public ID (boundary resolution; null if missing). */
+export async function getCategoryByPublicId(
+  db: D1Database,
+  publicId: string,
+): Promise<Category | null> {
+  return db.prepare('SELECT * FROM categories WHERE public_id = ?').bind(publicId).first<Category>();
+}
+
+/** Categories for many public IDs in one boundary-resolution read. */
+export async function getCategoriesByPublicIds(
+  db: D1Database,
+  publicIds: string[],
+): Promise<Category[]> {
+  if (publicIds.length === 0) return [];
+  const placeholders = publicIds.map(() => '?').join(',');
+  const { results } = await db
+    .prepare(`SELECT * FROM categories WHERE public_id IN (${placeholders})`)
+    .bind(...publicIds)
+    .all<Category>();
+  return results ?? [];
+}
+
 export async function createCategory(db: D1Database, c: CategoryFields): Promise<number> {
-  const row = await db
-    .prepare('INSERT INTO categories (name, slug, parent_id) VALUES (?, ?, ?) RETURNING id')
-    .bind(c.name, c.slug, c.parent_id)
-    .first<{ id: number }>();
-  return row!.id;
+  return withPublicId('category', async (publicId) => {
+    const row = await db
+      .prepare('INSERT INTO categories (name, slug, parent_id, public_id) VALUES (?, ?, ?, ?) RETURNING id')
+      .bind(c.name, c.slug, c.parent_id, publicId)
+      .first<{ id: number }>();
+    return row!.id;
+  });
 }
 
 export async function updateCategory(db: D1Database, id: number, c: CategoryFields): Promise<void> {
@@ -309,7 +336,7 @@ export function flattenTree(nodes: CategoryNode[]): CategoryOption[] {
   const out: CategoryOption[] = [];
   const walk = (ns: CategoryNode[]) => {
     for (const n of ns) {
-      out.push({ id: n.id, name: n.name, slug: n.slug, depth: n.depth });
+      out.push({ id: n.id, public_id: n.public_id, name: n.name, slug: n.slug, depth: n.depth });
       walk(n.children);
     }
   };

@@ -1,3 +1,5 @@
+import { publicIdToken } from '../ids/publicId.ts';
+
 export interface OrderNumberConfig {
   offset: number;
   step: number;
@@ -21,4 +23,16 @@ export function orderNumber(id: number, cfg: OrderNumberConfig): number {
   const jitter =
     cfg.randomStep > 0 ? (Math.imul(id, 2654435761) >>> 0) % (cfg.randomStep + 1) : 0;
   return cfg.offset + (id - 1) * cfg.step + jitter;
+}
+
+/**
+ * Customer-facing order reference: the ord_ token portion for new orders;
+ * legacy orders keep their previously communicated calculated number.
+ */
+export function orderReference(
+  publicId: string | null,
+  id: number,
+  cfg: OrderNumberConfig,
+): string {
+  return publicIdToken(publicId ?? '', 'order') ?? String(orderNumber(id, cfg));
 }

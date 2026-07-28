@@ -51,13 +51,13 @@ const check = async (name, fn) => {
 const PRE_MENU_SCHEMA = `
   CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL,
                          updated_at TEXT NOT NULL DEFAULT (datetime('now')));
-  CREATE TABLE products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+  CREATE TABLE products (id INTEGER PRIMARY KEY AUTOINCREMENT, public_id TEXT UNIQUE, name TEXT NOT NULL,
                          slug TEXT NOT NULL UNIQUE, active INTEGER NOT NULL DEFAULT 1,
                          image_key TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')));
-  CREATE TABLE categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+  CREATE TABLE categories (id INTEGER PRIMARY KEY AUTOINCREMENT, public_id TEXT UNIQUE, name TEXT NOT NULL,
                            slug TEXT NOT NULL UNIQUE, parent_id INTEGER,
                            created_at TEXT NOT NULL DEFAULT (datetime('now')));
-  CREATE TABLE pages (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL,
+  CREATE TABLE pages (id INTEGER PRIMARY KEY AUTOINCREMENT, public_id TEXT UNIQUE, title TEXT NOT NULL,
                       slug TEXT NOT NULL UNIQUE, body_markdown TEXT NOT NULL DEFAULT '',
                       published INTEGER NOT NULL DEFAULT 0,
                       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -95,6 +95,8 @@ async function freshDb({ seedBefore } = {}) {
   // matches zero rows and passes while proving nothing about the upgrade path.
   if (seedBefore) await seedBefore(db);
   for (const stmt of statements(MIGRATION)) await db.exec(stmt.replace(/\n\s*/g, ' '));
+  // 0033 adds public_id after 0028; the creation path writes it, so mirror it.
+  await db.exec('ALTER TABLE menu_items ADD COLUMN public_id TEXT');
   return db;
 }
 

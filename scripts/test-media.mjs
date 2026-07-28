@@ -86,6 +86,7 @@ try {
   for (const sql of [
     `CREATE TABLE media (
        id INTEGER PRIMARY KEY AUTOINCREMENT,
+       public_id TEXT UNIQUE,
        image_key TEXT NOT NULL UNIQUE,
        original_name TEXT NOT NULL,
        mime_type TEXT,
@@ -95,18 +96,21 @@ try {
        created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
     `CREATE TABLE products (
        id INTEGER PRIMARY KEY AUTOINCREMENT,
+       public_id TEXT UNIQUE,
        name TEXT NOT NULL,
        slug TEXT,
        active INTEGER NOT NULL DEFAULT 1,
        image_key TEXT)`,
     `CREATE TABLE product_images (
        id INTEGER PRIMARY KEY AUTOINCREMENT,
+       public_id TEXT UNIQUE,
        product_id INTEGER NOT NULL,
        image_key TEXT NOT NULL,
        position INTEGER NOT NULL DEFAULT 0,
        alt TEXT)`,
     `CREATE TABLE pages (
        id INTEGER PRIMARY KEY AUTOINCREMENT,
+       public_id TEXT UNIQUE,
        title TEXT NOT NULL,
        slug TEXT NOT NULL UNIQUE,
        body_markdown TEXT NOT NULL DEFAULT '',

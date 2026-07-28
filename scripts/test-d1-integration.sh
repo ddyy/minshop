@@ -25,6 +25,10 @@ npx wrangler d1 execute DB --local --persist-to "$state_dir" \
   --command "WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 30) INSERT INTO products (name, slug, description, price_cents, stock) SELECT 'Pagination Item ' || n, 'pagination-item-' || n, 'pagination fixture', 1000 + n, 10 FROM seq;" >/dev/null
 npx wrangler d1 execute DB --local --persist-to "$state_dir" \
   --command "INSERT INTO categories (name, slug) VALUES ('Apparel', 'apparel'); INSERT INTO product_categories (product_id, category_id) SELECT p.id, c.id FROM products p, categories c WHERE p.slug = 'sample-tee' AND c.slug = 'apparel';" >/dev/null
+# Fixture rows need valid public_ids (hex ⊂ the Crockford alphabet) — the
+# public serializers refuse rows without one.
+npx wrangler d1 execute DB --local --persist-to "$state_dir" \
+  --command "UPDATE products SET public_id = 'prod_' || lower(substr(hex(randomblob(10)),1,10)) WHERE public_id IS NULL; UPDATE categories SET public_id = 'cat_' || lower(substr(hex(randomblob(10)),1,10)) WHERE public_id IS NULL;" >/dev/null
 
 index_rows="$(npx wrangler d1 execute DB --local --persist-to "$state_dir" \
   --command "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('idx_orders_created', 'idx_orders_email_created', 'idx_products_active_created') ORDER BY name;")"
@@ -339,9 +343,19 @@ if [[ "$settle_status" != "303" ]]; then
   exit 1
 fi
 
-confirmation="$(curl --fail --silent --show-error "http://127.0.0.1:$test_port/order/$order_id")"
+# The order page is a capability URL: the guest TOKEN (from checkout_url's
+# /pay/<token>) reads it; the bare ord_ public id must NOT.
+guest_token="${pay_path#/pay/}"
+confirmation="$(curl --fail --silent --show-error "http://127.0.0.1:$test_port/order/$guest_token")"
 if [[ "$confirmation" != *"Sample Tee"* ]]; then
-  echo "D1 integration failed: committed order was not readable" >&2
+  echo "D1 integration failed: committed order was not readable via its guest token" >&2
+  exit 1
+fi
+
+bare_status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+  "http://127.0.0.1:$test_port/order/$order_id")"
+if [[ "$bare_status" != "404" ]]; then
+  echo "D1 integration failed: bare order public id granted access (HTTP $bare_status)" >&2
   exit 1
 fi
 

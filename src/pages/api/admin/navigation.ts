@@ -10,8 +10,15 @@ import {
   isMenuLocation,
   isMenuTargetType,
   isSingleton,
+  getMenuItemIdByPublicId,
+  menuItemIdsByPublicId,
   MENU_CAPS,
+  type MenuTargetType,
 } from '../../../features/navigation/db';
+import { getPageByPublicId } from '../../../features/pages/db';
+import { getProductByPublicId } from '../../../features/products/db';
+import { getCategoryByPublicId } from '../../../features/categories/db';
+import { parsePublicId } from '../../../features/ids/publicId';
 
 export const prerender = false;
 
@@ -22,7 +29,32 @@ const FAILURE_MESSAGES = {
   unavailable: () => 'That page, product, or category is no longer available.',
 };
 
+/**
+ * Resolve a submitted target public ID (page_/prod_/cat_) to the internal row
+ * id. Resolution happens once, here at the boundary; the guarded insert keeps
+ * re-checking availability with integer ids. Numeric ids are never accepted.
+ */
+async function resolveTargetId(
+  targetType: MenuTargetType,
+  raw: unknown,
+): Promise<number | null> {
+  if (targetType === 'page') {
+    const publicId = parsePublicId(raw, 'page');
+    return publicId ? ((await getPageByPublicId(env.DB, publicId))?.id ?? null) : null;
+  }
+  if (targetType === 'product') {
+    const publicId = parsePublicId(raw, 'product');
+    return publicId ? ((await getProductByPublicId(env.DB, publicId))?.id ?? null) : null;
+  }
+  if (targetType === 'category') {
+    const publicId = parsePublicId(raw, 'category');
+    return publicId ? ((await getCategoryByPublicId(env.DB, publicId))?.id ?? null) : null;
+  }
+  return null;
+}
+
 // POST /api/admin/navigation — manage the header and footer menus.
+// Items are addressed by their nav_ public IDs; targets by page_/prod_/cat_.
 //   _action=add     → append an item to a menu
 //   _action=move    → swap an item with its neighbour (direction=up|down)
 //   _action=reorder → set the whole order of one menu (drag-and-drop)
@@ -84,17 +116,16 @@ export const POST: APIRoute = async ({ request, redirect }) => {
     if (!isMenuLocation(location)) return new Response('Invalid location', { status: 400 });
     if (!isMenuTargetType(targetType)) return new Response('Invalid target type', { status: 400 });
 
-    // Singletons carry no target; the rest require a real integer id. A
-    // non-integer is a malformed request (400), not a silently skipped insert.
+    // Singletons carry no target; the rest submit a public ID that must resolve.
     let targetId: number | null = null;
     if (!isSingleton(targetType)) {
       // The admin form renders one picker per type and hides all but the chosen
       // one — hidden controls still submit, so the field is namespaced and only
       // the one matching target_type is read. `target_id` stays accepted so a
       // direct API caller does not have to know that detail.
-      const raw = Number(form.get(`target_id_${targetType}`) ?? form.get('target_id'));
-      if (!Number.isInteger(raw)) return back('Choose a target first.');
-      targetId = raw;
+      const raw = form.get(`target_id_${targetType}`) ?? form.get('target_id');
+      targetId = await resolveTargetId(targetType, raw);
+      if (targetId === null) return back('Choose a target first.');
     }
 
     const result = await addMenuItem(env.DB, {
@@ -115,16 +146,18 @@ export const POST: APIRoute = async ({ request, redirect }) => {
     );
   }
 
-  // Drag-and-drop sends the whole order for one menu. Bounded by the menu's cap
-  // so a tampered payload cannot make this arbitrarily large, and scoped by
-  // location in the query so ids from the other menu are ignored.
+  // Drag-and-drop sends the whole order for one menu, as nav_ public IDs.
+  // Resolved through one location-scoped map, so ids from the other menu (or
+  // a tampered payload) simply drop out and fail the permutation check below.
   if (action === 'reorder') {
     const location = form.get('location');
     if (!isMenuLocation(location)) return new Response('Invalid location', { status: 400 });
+    const byPublicId = await menuItemIdsByPublicId(env.DB, location);
     const ids = form
       .getAll('order')
-      .map((v) => Number(v))
-      .filter((n) => Number.isInteger(n))
+      .map((v) => parsePublicId(v, 'navItem'))
+      .map((pid) => (pid ? byPublicId.get(pid) : undefined))
+      .filter((n): n is number => n !== undefined)
       .slice(0, MENU_CAPS[location]);
     // Rejected rather than partially applied: a list that is not a complete,
     // duplicate-free permutation of this menu would leave rows sharing a
@@ -135,8 +168,10 @@ export const POST: APIRoute = async ({ request, redirect }) => {
     return back();
   }
 
-  const id = Number(form.get('id'));
-  if (!Number.isInteger(id)) return new Response('Invalid id', { status: 400 });
+  // Row actions address the item by its nav_ public ID.
+  const itemPublicId = parsePublicId(form.get('id'), 'navItem');
+  const id = itemPublicId ? await getMenuItemIdByPublicId(env.DB, itemPublicId) : null;
+  if (id === null) return new Response('Invalid id', { status: 400 });
 
   if (action === 'move') {
     await moveMenuItem(env.DB, id, form.get('direction') === 'up' ? 'up' : 'down');

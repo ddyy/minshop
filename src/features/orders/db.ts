@@ -209,6 +209,21 @@ export async function getOrderByPublicId(db: D1Database, publicId: string): Prom
   return db.prepare('SELECT * FROM orders WHERE public_id = ?').bind(publicId).first<Order>();
 }
 
+/**
+ * Resolve a legacy calculated order number to its order public ID through
+ * order_reference_aliases (admin/support lookup; see the public-ID plan).
+ */
+export async function findOrderPublicIdByReference(
+  db: D1Database,
+  reference: string,
+): Promise<string | null> {
+  const row = await db
+    .prepare('SELECT order_public_id FROM order_reference_aliases WHERE reference = ?')
+    .bind(reference)
+    .first<{ order_public_id: string }>();
+  return row?.order_public_id ?? null;
+}
+
 /** Find an already-settled order by the provider's idempotency/session id. */
 export async function getOrderByProviderSessionId(
   db: D1Database,
@@ -262,16 +277,18 @@ export async function listOrderItems(db: D1Database, orderId: number): Promise<O
 
 export interface OrderItemWithImage extends OrderItem {
   image_key: string | null;
+  /** The product's prefixed public ID; null when the product row is gone. */
+  product_public_id: string | null;
 }
 
-/** Line items joined to the product's current image_key (for email thumbnails). */
+/** Line items joined to the product's current image_key + public ID (emails, admin). */
 export async function listOrderItemsWithImages(
   db: D1Database,
   orderId: number,
 ): Promise<OrderItemWithImage[]> {
   const { results } = await db
     .prepare(
-      `SELECT oi.*, p.image_key
+      `SELECT oi.*, p.image_key, p.public_id AS product_public_id
          FROM order_items oi
          LEFT JOIN products p ON p.id = oi.product_id
         WHERE oi.order_id = ? ORDER BY oi.id`,
@@ -302,6 +319,12 @@ export async function recordPaidOrder(
   db: D1Database,
   o: PaidOrderInput,
 ): Promise<number | null> {
+  // Post-cutover checkouts ALWAYS pass the ord_ id claimed with the guest
+  // registry row. The fallback exists only for legacy webhooks whose session
+  // metadata predates the cutover — those get a legacy-shaped UUID, which the
+  // guest routes and email builders accept AS the credential. A bare ord_ id
+  // here would mint an order no guest URL can ever reach (ord_ never grants
+  // access and no registry row exists to tokenize).
   const publicId = o.publicId ?? crypto.randomUUID();
   const settlementToken = crypto.randomUUID();
   const orderValues = [

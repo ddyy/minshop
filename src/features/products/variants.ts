@@ -2,10 +2,12 @@ import type { D1Database } from '@cloudflare/workers-types';
 import { listProductImages } from './db';
 import { toMinorUnits } from '../../money';
 import { toGrams, type WeightUnit } from '../shipping/weight';
+import { withPublicId } from '../ids/publicId.ts';
 
 /** A purchasable variant (the SKU/inventory unit). A product has 0 or N. */
 export interface ProductVariant {
   id: number;
+  public_id: string | null;
   product_id: number;
   label: string;
   price_cents: number;
@@ -22,6 +24,7 @@ export interface ProductVariant {
 /** A checkbox add-on: a price delta on top of the line, no stock of its own. */
 export interface ProductExtra {
   id: number;
+  public_id: string | null;
   product_id: number;
   label: string;
   price_delta_cents: number;
@@ -79,6 +82,21 @@ export async function getActiveVariantsByIds(
   return results ?? [];
 }
 
+/** Active variants for many public IDs in one cart-resolution read. */
+export async function getActiveVariantsByPublicIds(
+  db: D1Database,
+  publicIds: string[],
+): Promise<ProductVariant[]> {
+  const unique = [...new Set(publicIds)];
+  if (unique.length === 0) return [];
+  const ph = unique.map(() => '?').join(',');
+  const { results } = await db
+    .prepare(`SELECT * FROM product_variants WHERE active = 1 AND public_id IN (${ph})`)
+    .bind(...unique)
+    .all<ProductVariant>();
+  return results ?? [];
+}
+
 /** One extra by id (any product), or null. */
 export async function getExtra(db: D1Database, id: number): Promise<ProductExtra | null> {
   return db.prepare('SELECT * FROM product_extras WHERE id = ?').bind(id).first<ProductExtra>();
@@ -95,6 +113,38 @@ export async function getActiveExtrasByIds(
   const { results } = await db
     .prepare(`SELECT * FROM product_extras WHERE active = 1 AND id IN (${ph})`)
     .bind(...unique)
+    .all<ProductExtra>();
+  return results ?? [];
+}
+
+/** Active extras for many public IDs in one cart-resolution read (any product). */
+export async function getActiveExtrasByPublicIds(
+  db: D1Database,
+  publicIds: string[],
+): Promise<ProductExtra[]> {
+  const unique = [...new Set(publicIds)];
+  if (unique.length === 0) return [];
+  const ph = unique.map(() => '?').join(',');
+  const { results } = await db
+    .prepare(`SELECT * FROM product_extras WHERE active = 1 AND public_id IN (${ph})`)
+    .bind(...unique)
+    .all<ProductExtra>();
+  return results ?? [];
+}
+
+/** Extras belonging to a product, selected by prefixed public IDs. */
+export async function getExtrasByPublicIds(
+  db: D1Database,
+  productId: number,
+  publicIds: string[],
+): Promise<ProductExtra[]> {
+  if (publicIds.length === 0) return [];
+  const ph = publicIds.map(() => '?').join(',');
+  const { results } = await db
+    .prepare(
+      `SELECT * FROM product_extras WHERE product_id = ? AND active = 1 AND public_id IN (${ph}) ORDER BY position, id`,
+    )
+    .bind(productId, ...publicIds)
     .all<ProductExtra>();
   return results ?? [];
 }
@@ -142,13 +192,15 @@ export async function createVariant(
 ): Promise<void> {
   // Default position appends to the end of the list (so new rows don't jump up top).
   const position = v.position ?? (await nextPosition(db, 'product_variants', productId));
-  await db
-    .prepare(
-      `INSERT INTO product_variants (product_id, label, price_cents, stock, sku, image_id, position, weight_grams)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(productId, v.label, v.price_cents, v.stock, v.sku, v.image_id ?? null, position, v.weight_grams ?? null)
-    .run();
+  await withPublicId('variant', (publicId) =>
+    db
+      .prepare(
+        `INSERT INTO product_variants (product_id, label, price_cents, stock, sku, image_id, position, weight_grams, public_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(productId, v.label, v.price_cents, v.stock, v.sku, v.image_id ?? null, position, v.weight_grams ?? null, publicId)
+      .run(),
+  );
 }
 
 export async function updateVariant(
@@ -189,13 +241,15 @@ export async function createExtra(
   e: { label: string; price_delta_cents: number; position?: number },
 ): Promise<void> {
   const position = e.position ?? (await nextPosition(db, 'product_extras', productId));
-  await db
-    .prepare(
-      `INSERT INTO product_extras (product_id, label, price_delta_cents, position)
-       VALUES (?, ?, ?, ?)`,
-    )
-    .bind(productId, e.label, e.price_delta_cents, position)
-    .run();
+  await withPublicId('extra', (publicId) =>
+    db
+      .prepare(
+        `INSERT INTO product_extras (product_id, label, price_delta_cents, position, public_id)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .bind(productId, e.label, e.price_delta_cents, position, publicId)
+      .run(),
+  );
 }
 
 /** Next position (MAX+1) for a product's variant/extra list — keeps new rows at the end. */

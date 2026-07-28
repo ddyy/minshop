@@ -136,7 +136,7 @@ function formatSize(bytes: number | null): string | null {
                   Copy URL
                 </button>
                 {unused && (
-                  <form method="post" action={`/api/admin/media/${m.id}`}>
+                  <form method="post" action={`/api/admin/media/${m.public_id}`}>
                     <input type="hidden" name="_action" value="delete" />
                     <button
                       type="submit"

@@ -75,7 +75,7 @@ const arrow = (col: string) => (sort === col ? (dir === 'asc' ? ' ↑' : ' ↓')
           <tr class="border-b border-line">
             <td class="py-3 pr-4">
               <a
-                href={`/admin/products/${p.id}/edit`}
+                href={`/admin/products/${p.public_id}/edit`}
                 class="flex items-center gap-3 hover:text-brand"
               >
                 <ProductImage
@@ -103,12 +103,12 @@ const arrow = (col: string) => (sort === col ? (dir === 'asc' ? ' ↑' : ' ↓')
                 >
                   View ↗
                 </a>
-                <a href={`/admin/products/${p.id}/edit`} class="text-accent hover:underline">
+                <a href={`/admin/products/${p.public_id}/edit`} class="text-accent hover:underline">
                   Edit
                 </a>
                 <form
                   method="POST"
-                  action={`/api/admin/products/${p.id}`}
+                  action={`/api/admin/products/${p.public_id}`}
                   onsubmit={`return confirm('${
                     menuRefs.has(p.id)
                       ? 'This product is linked from your navigation. Deleting it hides that link on the storefront. Continue?'

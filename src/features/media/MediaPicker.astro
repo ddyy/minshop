@@ -121,7 +121,8 @@ const {
 
   /** Mirrors the GET /api/admin/media response — res.json() is `unknown`. */
   interface PickerItem {
-    id: number;
+    /** med_ public ID. */
+    id: string | null;
     imageKey: string;
     url: string;
     originalName: string;

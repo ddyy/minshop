@@ -1,6 +1,6 @@
 import { formatPrice, getConfig } from '../../config';
 import type { Order, OrderItemWithImage, ShippingAddress } from '../orders/db';
-import { orderNumber } from '../orders/number';
+import { orderReference } from '../orders/number';
 import {
   productEmailImageUrl,
   type ImageDelivery,
@@ -71,11 +71,13 @@ export function orderConfirmationEmail(
   baseUrl: string,
   storeName: string,
   imageDelivery: ImageDelivery = 'original',
+  /** Tokenized guest link (allowlisted email position); null = omit the link. */
+  guestOrderUrl?: string | null,
 ): EmailMessage {
   const cfg = getConfig();
-  const num = orderNumber(order.id, cfg.orderNumber);
+  const num = orderReference(order.public_id, order.id, cfg.orderNumber);
   const money = (cents: number) => formatPrice(cents, order.currency);
-  const orderUrl = order.public_id ? `${baseUrl}/order/${order.public_id}` : null;
+  const orderUrl = guestOrderUrl ?? null;
 
   const rows = items.map(
     (it) => `${it.name} × ${it.quantity}: ${money(it.price_cents * it.quantity)}`,
@@ -132,10 +134,10 @@ export function orderNotificationEmail(
   imageDelivery: ImageDelivery = 'original',
 ): EmailMessage {
   const cfg = getConfig();
-  const num = orderNumber(order.id, cfg.orderNumber);
+  const num = orderReference(order.public_id, order.id, cfg.orderNumber);
   const money = (cents: number) => formatPrice(cents, order.currency);
   const shipText = formatShipAddress(order);
-  const adminUrl = `${baseUrl}/admin/orders/${order.id}`;
+  const adminUrl = `${baseUrl}/admin/orders/${order.public_id ?? order.id}`;
 
   const rows = items.map(
     (it) => `${it.name} × ${it.quantity}: ${money(it.price_cents * it.quantity)}`,
@@ -186,11 +188,17 @@ export function orderNotificationEmail(
 }
 
 /** Build the "your order has shipped" email. `order.email` must be set. */
-export function orderShippedEmail(order: Order, baseUrl: string, storeName: string): EmailMessage {
+export function orderShippedEmail(
+  order: Order,
+  baseUrl: string,
+  storeName: string,
+  /** Tokenized guest link (allowlisted email position); null = omit the link. */
+  guestOrderUrl?: string | null,
+): EmailMessage {
   const cfg = getConfig();
-  const num = orderNumber(order.id, cfg.orderNumber);
+  const num = orderReference(order.public_id, order.id, cfg.orderNumber);
   const url = trackingUrl(order.tracking_carrier, order.tracking_number);
-  const orderUrl = order.public_id ? `${baseUrl}/order/${order.public_id}` : null;
+  const orderUrl = guestOrderUrl ?? null;
 
   const text = [
     `Your order #${num} has shipped!`,
@@ -253,10 +261,12 @@ export function orderRefundedEmail(
   refundedCents: number,
   baseUrl: string,
   storeName: string,
+  /** Tokenized guest link (allowlisted email position); null = omit the link. */
+  guestOrderUrl?: string | null,
 ): EmailMessage {
   const cfg = getConfig();
-  const num = orderNumber(order.id, cfg.orderNumber);
-  const orderUrl = order.public_id ? `${baseUrl}/order/${order.public_id}` : null;
+  const num = orderReference(order.public_id, order.id, cfg.orderNumber);
+  const orderUrl = guestOrderUrl ?? null;
   const full = refundedCents >= order.amount_total_cents;
   const remaining = Math.max(0, order.amount_total_cents - refundedCents);
   const method = order.payment_method;

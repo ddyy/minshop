@@ -2,14 +2,16 @@
 import { env } from 'cloudflare:workers';
 import AdminLayout from '../../../../layouts/AdminLayout.astro';
 import MediaPicker from '../../../../features/media/MediaPicker.astro';
-import { getPage } from '../../../../features/pages/db';
+import { getPageByPublicId } from '../../../../features/pages/db';
 import {
   PAGE_LAYOUT_OPTIONS,
   normalizePageLayout,
 } from '../../../../features/pages/layouts';
+import { parsePublicId } from '../../../../features/ids/publicId';
 
-const id = Number(Astro.params.id);
-const page = Number.isFinite(id) ? await getPage(env.DB, id) : null;
+// The route param is the page_ public ID; numeric row ids are not accepted.
+const publicId = parsePublicId(Astro.params.id, 'page');
+const page = publicId ? await getPageByPublicId(env.DB, publicId) : null;
 if (!page) return new Response('Not found', { status: 404 });
 
 const error = Astro.url.searchParams.get('error');
@@ -92,7 +94,7 @@ const tools = [
     )
   }
 
-  <form method="POST" action={`/api/admin/pages/${page.id}`} data-page-form>
+  <form method="POST" action={`/api/admin/pages/${page.public_id}`} data-page-form>
     <div class="flex flex-wrap gap-4">
       <label class="block flex-1 text-xs uppercase tracking-widest text-gray-400">
         Title

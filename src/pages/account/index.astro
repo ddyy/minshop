@@ -5,7 +5,8 @@ import Layout from '../../layouts/Layout.astro';
 import { formatPrice, formatDate, getConfig } from '../../config';
 import { accountsEnabled, getCustomerEmail } from '../../features/auth/customer';
 import { countOrdersByEmail, listOrdersByEmail } from '../../features/orders/db';
-import { orderNumber } from '../../features/orders/number';
+import { orderReference } from '../../features/orders/number';
+import { guestOrderUrl } from '../../features/orders/guestAccess.ts';
 import { paginate, queryHref } from '../../pagination';
 import Pagination from '../../components/Pagination.astro';
 import { catalogPath } from '../../features/settings/home';
@@ -21,6 +22,14 @@ const { page, offset, totalPages } = paginate(
   PAGE_SIZE,
 );
 const orders = await listOrdersByEmail(env.DB, email, PAGE_SIZE, offset);
+// Tokenized guest links for the customer's OWN orders — the authenticated
+// account view is an allowlisted token position, same as their emails. Orders
+// with no resolvable link render as plain text rather than a dead bare-id URL.
+const orderLinks = new Map(
+  await Promise.all(
+    orders.map(async (o) => [o.id, await guestOrderUrl(env.DB, o.public_id, '')] as const),
+  ),
+);
 const hrefFor = (p: number) => queryHref('/account', { page: p > 1 ? p : undefined });
 const orderCfg = getConfig().orderNumber;
 const timeZone = Astro.locals.settings?.timeZone ?? getConfig().timeZone;
@@ -46,9 +55,15 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
           {orders.map((o) => (
             <li class="flex items-center justify-between gap-4 px-4 py-4 text-sm">
               <div>
-                <a href={`/order/${o.public_id}`} class="font-medium text-gray-900 hover:text-accent">
-                  Order #{orderNumber(o.id, orderCfg)}
-                </a>
+                {orderLinks.get(o.id) ? (
+                  <a href={orderLinks.get(o.id)} class="font-medium text-gray-900 hover:text-accent">
+                    Order #{orderReference(o.public_id, o.id, orderCfg)}
+                  </a>
+                ) : (
+                  <span class="font-medium text-gray-900">
+                    Order #{orderReference(o.public_id, o.id, orderCfg)}
+                  </span>
+                )}
                 <div class="text-xs text-gray-400">{formatDate(o.created_at, undefined, timeZone)}</div>
               </div>
               <div class="text-right">

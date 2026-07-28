@@ -1,9 +1,9 @@
 import type { AstroCookies } from 'astro';
 import type { D1Database } from '@cloudflare/workers-types';
-import { getProductsByIds, type Product } from '../products/db';
+import { getProductsByPublicIds, type Product } from '../products/db';
 import {
-  getActiveExtrasByIds,
-  getActiveVariantsByIds,
+  getActiveExtrasByPublicIds,
+  getActiveVariantsByPublicIds,
   type ProductVariant,
   type ProductExtra,
 } from '../products/variants';
@@ -13,6 +13,13 @@ const COOKIE = 'cart';
 /** Script-readable item count (see writeCart). Mirrors COOKIE's lifetime. */
 export const COUNT_COOKIE = 'cart_n';
 const MAX_QTY = 99;
+/**
+ * Cookie format version. v2 = public-ID line keys stored as {v: 2, items: {key: qty}}.
+ * Pre-cutover cookies were a bare {key: qty} map with numeric keys and have no
+ * `v` marker, so they fail the version check and read as an empty cart — the
+ * numeric parser is gone for good, not grandfathered.
+ */
+const CART_VERSION = 2;
 
 /** Cart is a cartKey → quantity map (key encodes product[:variant][#extras]). */
 export type Cart = Record<string, number>;
@@ -32,7 +39,9 @@ export function readCart(cookies: AstroCookies): Cart {
   const raw = cookies.get(COOKIE);
   if (!raw) return {};
   try {
-    return sanitize(raw.json());
+    const parsed = raw.json() as { v?: unknown; items?: unknown };
+    if (!parsed || typeof parsed !== 'object' || parsed.v !== CART_VERSION) return {};
+    return sanitize(parsed.items);
   } catch {
     return {};
   }
@@ -53,7 +62,7 @@ function sanitize(obj: unknown): Cart {
 }
 
 export function writeCart(cookies: AstroCookies, cart: Cart, secure: boolean): void {
-  cookies.set(COOKIE, cart, {
+  cookies.set(COOKIE, { v: CART_VERSION, items: cart }, {
     path: '/',
     httpOnly: true,
     sameSite: 'lax',
@@ -83,8 +92,9 @@ export function cartCount(cart: Cart): number {
 }
 
 /**
- * Resolve cart ids against D1 for current name/price/stock, dropping any that
- * are missing or inactive. Pricing always comes from the DB, never the cookie.
+ * Resolve cart public IDs against D1 for current name/price/stock, dropping any
+ * that are missing or inactive. One batched read per entity type; pricing always
+ * comes from the DB, never the cookie.
  */
 export async function resolveCart(
   db: D1Database,
@@ -97,36 +107,36 @@ export async function resolveCart(
   if (requested.length === 0) return { lines: [], subtotalCents: 0 };
 
   const [products, variants, extras] = await Promise.all([
-    getProductsByIds(db, [...new Set(requested.map((line) => line.parsed.productId))]),
-    getActiveVariantsByIds(
+    getProductsByPublicIds(db, [...new Set(requested.map((line) => line.parsed.productPublicId))]),
+    getActiveVariantsByPublicIds(
       db,
       requested.flatMap((line) =>
-        line.parsed.variantId == null ? [] : [line.parsed.variantId],
+        line.parsed.variantPublicId == null ? [] : [line.parsed.variantPublicId],
       ),
     ),
-    getActiveExtrasByIds(
+    getActiveExtrasByPublicIds(
       db,
-      requested.flatMap((line) => line.parsed.extraIds),
+      requested.flatMap((line) => line.parsed.extraPublicIds),
     ),
   ]);
-  const productsById = new Map(products.map((product) => [product.id, product]));
-  const variantsById = new Map(variants.map((variant) => [variant.id, variant]));
-  const extrasById = new Map(extras.map((extra) => [extra.id, extra]));
+  const productsByPid = new Map(products.map((product) => [product.public_id, product]));
+  const variantsByPid = new Map(variants.map((variant) => [variant.public_id, variant]));
+  const extrasByPid = new Map(extras.map((extra) => [extra.public_id, extra]));
 
   const lines: CartLine[] = [];
   for (const { key, qty, parsed } of requested) {
-    const product = productsById.get(parsed.productId);
+    const product = productsByPid.get(parsed.productPublicId);
     if (!product) continue;
 
     // Variant (if the key names one) must exist, be active, and belong here.
     let variant: ProductVariant | null = null;
-    if (parsed.variantId) {
-      variant = variantsById.get(parsed.variantId) ?? null;
+    if (parsed.variantPublicId) {
+      variant = variantsByPid.get(parsed.variantPublicId) ?? null;
       if (!variant || variant.product_id !== product.id) continue;
     }
     // Extras: keep only the active ones that belong to this product.
-    const lineExtras = parsed.extraIds
-      .map((id) => extrasById.get(id))
+    const lineExtras = parsed.extraPublicIds
+      .map((pid) => extrasByPid.get(pid))
       .filter(
         (extra): extra is ProductExtra =>
           extra !== undefined && extra.product_id === product.id,

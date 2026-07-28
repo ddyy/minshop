@@ -156,10 +156,11 @@ const inputClass =
               class="flex items-center gap-2 text-sm"
               style={`padding-left:${c.depth * 16}px`}
             >
+              {/* cat_ public IDs — resolved back to row ids server-side. */}
               <input
                 type="checkbox"
                 name="category"
-                value={c.id}
+                value={c.public_id}
                 checked={selected.has(c.id)}
                 class="h-4 w-4"
               />

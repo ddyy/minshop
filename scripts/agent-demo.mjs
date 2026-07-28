@@ -6,8 +6,9 @@
  *   node scripts/agent-demo.mjs https://your-store.example.com "warm hat" 40
  *
  * Browses GET /api/products?q=…, picks the most relevant in-stock match within
- * the budget (search already ranks by relevance), then POST /api/checkout to
- * start a purchase — printing the FULL
+ * the budget (search already ranks by relevance), then POST /api/checkout with
+ * the product's prod_… public ID from the catalog (variant_id/extra_ids would
+ * be var_/xtra_ public IDs from the detail route) — printing the FULL
  * checkout URL (the #fragment carries the session token; never truncate it).
  * Prod runs Stripe TEST keys, so paying with 4242 4242 4242 4242 charges nothing.
  */
@@ -39,11 +40,12 @@ if (!pick) {
 }
 console.log(`\nPicked: ${pick.name} — ${pick.price.currency} ${pick.price.amount}`);
 
-// 3. Start a checkout for one.
+// 3. Start a checkout for one, by the catalog's prod_… public ID (numeric row
+//    IDs are rejected; slug also works as a documented convenience selector).
 const res = await fetch(`${base}/api/checkout`, {
   method: 'POST',
   headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({ items: [{ slug: pick.slug, quantity: 1 }] }),
+  body: JSON.stringify({ items: [{ product_id: pick.id, quantity: 1 }] }),
 });
 const order = await res.json();
 if (!res.ok) {

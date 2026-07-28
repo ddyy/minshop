@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 import { listOrders } from '../../../features/orders/db';
 import { getConfig, toMajorUnits, currencyDecimals } from '../../../config';
-import { orderNumber } from '../../../features/orders/number';
+import { orderReference } from '../../../features/orders/number';
 
 export const prerender = false;
 
@@ -31,7 +31,7 @@ export const GET: APIRoute = async () => {
     'Carrier', 'Tracking',
   ];
   const rows = orders.map((o) => [
-    orderNumber(o.id, onCfg),
+    orderReference(o.public_id, o.id, onCfg),
     o.created_at,
     o.email ?? '',
     o.status,

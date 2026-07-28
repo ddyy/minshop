@@ -2,12 +2,48 @@
 import { env } from 'cloudflare:workers';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { formatPrice, formatDate, getConfig } from '../../../config';
-import { countOrders, listOrders } from '../../../features/orders/db';
+import {
+  countOrders,
+  listOrders,
+  getOrder,
+  getOrderByPublicId,
+  findOrderPublicIdByReference,
+} from '../../../features/orders/db';
 import { orderByClause } from '../../../features/orders/sort';
-import { orderNumber } from '../../../features/orders/number';
+import { orderReference } from '../../../features/orders/number';
 import { paginate, queryHref } from '../../../pagination';
 import Pagination from '../../../components/Pagination.astro';
 import { listUnmatchedRefundEvents } from '../../../features/refunds/db';
+import {
+  parseOrderOrLegacyPublicId,
+  parsePublicId,
+  PUBLIC_ID_TOKEN_LENGTH,
+} from '../../../features/ids/publicId';
+
+// Order lookup: a bare 10-char token, a full ord_<token> (or preserved legacy
+// public ID), or a legacy calculated number via order_reference_aliases. The
+// forms are checked in that order, and a hit redirects straight to the order.
+const rawQuery = Astro.url.searchParams.get('q');
+let lookupError: string | null = null;
+if (rawQuery !== null) {
+  const query = rawQuery.trim().replace(/^#/, '');
+  if (query !== '') {
+    const bareToken = parsePublicId(
+      `ord_${query.toLowerCase()}`,
+      'order',
+    );
+    const candidates = [
+      parseOrderOrLegacyPublicId(query, 'order'),
+      query.length === PUBLIC_ID_TOKEN_LENGTH ? bareToken : null,
+      await findOrderPublicIdByReference(env.DB, query),
+    ].filter((c): c is string => c !== null);
+    for (const candidate of candidates) {
+      const found = await getOrderByPublicId(env.DB, candidate);
+      if (found) return Astro.redirect(`/admin/orders/${found.public_id}`, 302);
+    }
+    lookupError = `No order matches “${query}”.`;
+  }
+}
 
 const sort = Astro.url.searchParams.get('sort');
 const dir = Astro.url.searchParams.get('dir');
@@ -31,6 +67,15 @@ const arrow = (col: string) => (sort === col ? (dir === 'asc' ? ' ↑' : ' ↓')
 // Refunds a provider reported that no order claims — real money that moved, so
 // they surface here rather than sitting silently in a table.
 const unmatched = await listUnmatchedRefundEvents(env.DB);
+// The conflicting order for each matched event, so the warning can link and
+// label it by public ID + reference (never the row id). Bounded by the queue.
+const conflictOrders = new Map(
+  await Promise.all(
+    unmatched
+      .filter((e) => e.order_id != null)
+      .map(async (e) => [e.order_id!, await getOrder(env.DB, e.order_id!)] as const),
+  ),
+);
 const listError = Astro.url.searchParams.get('error');
 ---
 
@@ -64,12 +109,19 @@ const listError = Astro.url.searchParams.get('error');
                   uncorrelated event can still be matched, so it gets Retry. A
                   conflicting one already found its order, so retrying would
                   only reproduce the conflict — it needs a person. */}
-              {e.order_id ? (
+              {e.order_id && conflictOrders.get(e.order_id) ? (
                 <Fragment>
                   <span>
                     Conflicts with{' '}
-                    <a href={`/admin/orders/${e.order_id}`} class="underline">
-                      order #{orderNumber(e.order_id, onCfg)}
+                    <a
+                      href={`/admin/orders/${conflictOrders.get(e.order_id)!.public_id}`}
+                      class="underline"
+                    >
+                      order #{orderReference(
+                        conflictOrders.get(e.order_id)!.public_id,
+                        e.order_id,
+                        onCfg,
+                      )}
                     </a>
                     {e.last_error ? ` — ${e.last_error.replace(/_/g, ' ')}` : ''}
                   </span>
@@ -105,15 +157,44 @@ const listError = Astro.url.searchParams.get('error');
       </section>
     )
   }
-  <div class="mb-8 flex items-center justify-between">
+  <div class="mb-8 flex flex-wrap items-center justify-between gap-4">
     <h1 class="font-serif text-3xl tracking-tight">Orders</h1>
-    <a
-      href="/admin/orders/export.csv"
-      class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand hover:text-brand"
-    >
-      Export CSV
-    </a>
+    <div class="flex flex-wrap items-center gap-3">
+      {/* Lookup accepts the customer reference in any form it was communicated:
+          the bare 10-char token, the full ord_ ID, or a legacy calculated
+          number preserved in order_reference_aliases. */}
+      <form method="GET" action="/admin/orders" class="flex items-center gap-2">
+        <input
+          type="search"
+          name="q"
+          value={rawQuery ?? ''}
+          placeholder="Order # or ID"
+          aria-label="Find an order by number or ID"
+          class="w-44 rounded-md border border-line bg-paper px-3 py-2 text-sm focus:border-brand focus:outline-none"
+        />
+        <button
+          type="submit"
+          class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand hover:text-brand"
+        >
+          Find
+        </button>
+      </form>
+      <a
+        href="/admin/orders/export.csv"
+        class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand hover:text-brand"
+      >
+        Export CSV
+      </a>
+    </div>
   </div>
+
+  {
+    lookupError && (
+      <p class="mb-6 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        {lookupError}
+      </p>
+    )
+  }
 
   <div class="sm:overflow-x-auto">
     <table class="admin-table w-full text-left text-sm sm:min-w-[52rem]">
@@ -144,8 +225,8 @@ const listError = Astro.url.searchParams.get('error');
         orders.map((o) => (
           <tr class="border-b border-line">
             <td class="py-3 pr-4">
-              <a href={`/admin/orders/${o.id}`} class="text-accent tabular-nums hover:underline">
-                #{orderNumber(o.id, onCfg)}
+              <a href={`/admin/orders/${o.public_id}`} class="text-accent tabular-nums hover:underline">
+                #{orderReference(o.public_id, o.id, onCfg)}
               </a>
             </td>
             <td data-label="Email" class="py-3 pr-4">

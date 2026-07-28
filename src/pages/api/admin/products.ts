@@ -6,7 +6,8 @@ import {
   getProduct,
   syncPrimaryImage,
 } from '../../../features/products/db';
-import { setProductCategories } from '../../../features/categories/db';
+import { setProductCategories, getCategoriesByPublicIds } from '../../../features/categories/db';
+import { parsePublicId } from '../../../features/ids/publicId';
 import { indexProduct } from '../../../features/search';
 import { parseProductForm } from '../../../features/products/form';
 import { zonesRequireWeight } from '../../../features/shipping/calculator';
@@ -66,10 +67,13 @@ export const POST: APIRoute = async ({ request, redirect, locals }) => {
     await syncPrimaryImage(env.DB, productId); // promotes it to products.image_key
   }
 
-  const categoryIds = form
+  // Category membership arrives as cat_ public IDs; resolve to row ids at the
+  // boundary (unknown/stale values are dropped, matching the old invalid-id path).
+  const categoryPublicIds = form
     .getAll('category')
-    .map((v) => Number(v))
-    .filter((n) => Number.isInteger(n) && n > 0);
+    .map((v) => parsePublicId(v, 'category'))
+    .filter((v): v is string => v !== null);
+  const categoryIds = (await getCategoriesByPublicIds(env.DB, categoryPublicIds)).map((c) => c.id);
   if (categoryIds.length > 0) await setProductCategories(env.DB, productId, categoryIds);
 
   // Keep the semantic-search index in sync (no-op unless vector search is on).

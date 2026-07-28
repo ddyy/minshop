@@ -82,7 +82,7 @@ const dollars = (cents: number) => (cents / 100).toFixed(2);
           <strong>Needs review.</strong>{' '}
           {REVIEW_COPY[order.refund_review_reason!] ?? order.refund_review_reason}
         </p>
-        <form method="POST" action={`/api/admin/orders/${order.id}`} class="mt-3">
+        <form method="POST" action={`/api/admin/orders/${order.public_id}`} class="mt-3">
           <input type="hidden" name="_action" value="review_refund" />
           <button
             type="submit"
@@ -173,11 +173,11 @@ const dollars = (cents: number) => (cents / 100).toFixed(2);
               !reversed.has(r.id) && (
                 <form
                   method="POST"
-                  action={`/api/admin/orders/${order.id}`}
+                  action={`/api/admin/orders/${order.public_id}`}
                   onsubmit="return confirm('Void this recorded refund? This corrects minshop’s records only and moves no money.')"
                 >
                   <input type="hidden" name="_action" value="void_refund" />
-                  <input type="hidden" name="refund_id" value={r.id} />
+                  <input type="hidden" name="refund_id" value={r.public_id} />
                   <button
                     type="submit"
                     class="text-xs uppercase tracking-widest text-gray-400 hover:text-red-600"
@@ -200,7 +200,7 @@ const dollars = (cents: number) => (cents / 100).toFixed(2);
         {canRefundViaProvider && (
           <form
             method="POST"
-            action={`/api/admin/orders/${order.id}`}
+            action={`/api/admin/orders/${order.public_id}`}
             onsubmit={`return confirm('Refund ${formatPrice(remaining, order.currency)} through the payment provider? This sends money back to the customer.')`}
           >
             <input type="hidden" name="_action" value="refund" />
@@ -221,7 +221,7 @@ const dollars = (cents: number) => (cents / 100).toFixed(2);
         )}
 
         {canRecord && (
-          <form method="POST" action={`/api/admin/orders/${order.id}`} class="space-y-2">
+          <form method="POST" action={`/api/admin/orders/${order.public_id}`} class="space-y-2">
             <input type="hidden" name="_action" value="record_refund" />
             <p class="text-xs uppercase tracking-widest text-gray-400">
               {isDemo ? 'Mark demo order refunded' : 'Record a refund you already sent'}
@@ -261,7 +261,7 @@ const dollars = (cents: number) => (cents / 100).toFixed(2);
         )}
 
         {canSyncProvider && (
-          <form method="POST" action={`/api/admin/orders/${order.id}`} class="space-y-2">
+          <form method="POST" action={`/api/admin/orders/${order.public_id}`} class="space-y-2">
             <input type="hidden" name="_action" value="sync_refund" />
             <p class="text-xs uppercase tracking-widest text-gray-400">
               Sync a refund from your provider

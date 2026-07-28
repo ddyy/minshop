@@ -1,7 +1,9 @@
 import type { D1Database } from '@cloudflare/workers-types';
+import { withPublicId } from '../ids/publicId.ts';
 
 export interface Media {
   id: number;
+  public_id: string | null;
   image_key: string;
   original_name: string;
   mime_type: string | null;
@@ -22,6 +24,11 @@ export async function getMedia(db: D1Database, id: number): Promise<Media | null
 
 export async function getMediaByKey(db: D1Database, key: string): Promise<Media | null> {
   return db.prepare('SELECT * FROM media WHERE image_key = ?').bind(key).first<Media>();
+}
+
+/** Media by its prefixed public ID (boundary resolution; null if missing). */
+export async function getMediaByPublicId(db: D1Database, publicId: string): Promise<Media | null> {
+  return db.prepare('SELECT * FROM media WHERE public_id = ?').bind(publicId).first<Media>();
 }
 
 /** Newest first, matching the media_created index so pagination is stable. */
@@ -76,23 +83,26 @@ export async function createMediaRecord(
     height?: number | null;
   },
 ): Promise<Media> {
-  const row = await db
-    .prepare(
-      `INSERT INTO media (image_key, original_name, mime_type, size_bytes, width, height)
-       VALUES (?, ?, ?, ?, ?, ?)
-       RETURNING *`,
-    )
-    .bind(
-      fields.image_key,
-      fields.original_name,
-      fields.mime_type,
-      fields.size_bytes,
-      fields.width ?? null,
-      fields.height ?? null,
-    )
-    .first<Media>();
-  if (!row) throw new Error('media insert returned no row');
-  return row;
+  return withPublicId('media', async (publicId) => {
+    const row = await db
+      .prepare(
+        `INSERT INTO media (image_key, original_name, mime_type, size_bytes, width, height, public_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         RETURNING *`,
+      )
+      .bind(
+        fields.image_key,
+        fields.original_name,
+        fields.mime_type,
+        fields.size_bytes,
+        fields.width ?? null,
+        fields.height ?? null,
+        publicId,
+      )
+      .first<Media>();
+    if (!row) throw new Error('media insert returned no row');
+    return row;
+  });
 }
 
 /**
@@ -154,23 +164,26 @@ export async function attachMediaToProduct(
   productId: number,
   mediaId: number,
 ): Promise<AttachResult> {
-  const row = await db
-    .prepare(
-      `INSERT INTO product_images (product_id, image_key, position)
-       SELECT ?1,
-              m.image_key,
-              (SELECT COALESCE(MAX(position), -1) + 1
-                 FROM product_images WHERE product_id = ?1)
-         FROM media m
-        WHERE m.id = ?2
-          AND NOT EXISTS (
-            SELECT 1 FROM product_images pi
-             WHERE pi.product_id = ?1 AND pi.image_key = m.image_key
-          )
-       RETURNING image_key`,
-    )
-    .bind(productId, mediaId)
-    .first<{ image_key: string }>();
+  const row = await withPublicId('productImage', (publicId) =>
+    db
+      .prepare(
+        `INSERT INTO product_images (product_id, image_key, position, public_id)
+         SELECT ?1,
+                m.image_key,
+                (SELECT COALESCE(MAX(position), -1) + 1
+                   FROM product_images WHERE product_id = ?1),
+                ?3
+           FROM media m
+          WHERE m.id = ?2
+            AND NOT EXISTS (
+              SELECT 1 FROM product_images pi
+               WHERE pi.product_id = ?1 AND pi.image_key = m.image_key
+            )
+         RETURNING image_key`,
+      )
+      .bind(productId, mediaId, publicId)
+      .first<{ image_key: string }>(),
+  );
 
   if (row) return { ok: true, imageKey: row.image_key };
 

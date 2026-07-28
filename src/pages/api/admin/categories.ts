@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
-import { createCategory } from '../../../features/categories/db';
+import { createCategory, getCategoryByPublicId } from '../../../features/categories/db';
 import { parseCategoryForm } from '../../../features/categories/form';
 import { uniqueCategorySlug } from '../../../features/categories/slug';
 
@@ -14,11 +14,20 @@ export const POST: APIRoute = async ({ request, redirect }) => {
   const parsed = parseCategoryForm(form);
   if ('error' in parsed) return redirect(fail(parsed.error), 303);
 
+  // The parent selector submits a cat_ public ID; resolve it to the row id here
+  // at the boundary — relationship writes stay integer internally.
+  let parentId: number | null = null;
+  if (parsed.data.parentPublicId) {
+    const parent = await getCategoryByPublicId(env.DB, parsed.data.parentPublicId);
+    if (!parent) return redirect(fail('That parent category no longer exists.'), 303);
+    parentId = parent.id;
+  }
+
   const slug = await uniqueCategorySlug(env.DB, parsed.data.slugInput || parsed.data.name);
   await createCategory(env.DB, {
     name: parsed.data.name,
     slug,
-    parent_id: parsed.data.parentId,
+    parent_id: parentId,
   });
   return redirect('/admin/categories', 303);
 };

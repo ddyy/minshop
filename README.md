@@ -423,11 +423,13 @@ In local dev the magic link is also logged to the server console, so you can tes
 
 ## MCP server (operate the store from an assistant)
 
-`mcp/` is a **standalone Cloudflare Worker** that exposes store operations as MCP tools, so compatible MCP clients can run the store conversationally — "what was revenue this week?", "mark order 1142 shipped", "create a product". It binds the **same D1** as the storefront and **reuses `features/*/db.ts`** (no duplicated logic).
+`mcp/` is a **standalone Cloudflare Worker** that exposes store operations as MCP tools, so compatible MCP clients can run the store conversationally — "what was revenue this week?", "mark order h5tm8qp3vn shipped", "create a product". It binds the **same D1** as the storefront and **reuses `features/*/db.ts`** (no duplicated logic).
 
 **Why a separate Worker** (own `mcp/package.json`, own `node_modules`): the Astro adapter owns the storefront Worker's entry, and the Agents SDK pulls in workerd/miniflare deps that perturb Astro's build if hoisted into the root tree. Keeping it a sibling Worker isolates both.
 
 **Tools:** `list_products`, `get_product`, `list_orders`, `get_order`, `order_stats`, `daily_totals` (reads) + `create_product`, `update_product`, `fulfill_order` (writes).
+
+**Identifiers are prefixed public IDs** (server version 2.0.0, a breaking change from 1.x): every tool takes and returns public IDs, never database row IDs. `get_product`/`update_product` take a `prod_…` ID (a slug also works as a convenience); `get_order`/`fulfill_order` take an `ord_…` ID (legacy hex/UUID order public IDs are still accepted). Numeric IDs are rejected with a clear error. Results are projected DTOs: `id` is the public ID (refunds keep their preserved legacy UUIDs), orders carry a customer-facing `reference` (the token part of `ord_<token>`), and `create_product`/`update_product` return `{ id, slug }`.
 
 The two list tools accept `limit` and `offset` and return the page alongside `total`, `limit`, and `offset`, so clients can walk large catalogs and order histories without one oversized response.
 
@@ -452,25 +454,27 @@ A small, **public**, machine-readable API so an AI agent can **browse and buy** 
 | `GET /api/products` | Active catalog. `?q=` (uses the active **search** backend — semantic when on), `?limit=` (1–100, default 24), `?offset=` |
 | `GET /api/products/:slug` | One product as JSON (404 if missing/inactive) |
 | `GET /api/checkout` | Available payment methods and the current default |
-| `POST /api/checkout` | Programmatic checkout. Body `{ "items": [{ "slug", "quantity" }] }` → `{ checkout_url, … }` |
+| `POST /api/checkout` | Programmatic checkout. Body `{ "items": [{ "product_id", "quantity" }] }` → `{ checkout_url, … }` |
 
-Each product is self-describing, price in both major + minor units:
+Each product is self-describing — `id` is the prefixed public ID (`prod_…`; variants/extras on the detail route carry `var_…`/`xtra_…` IDs), price in both major + minor units:
 
 ```json
-{ "slug": "merino-wool-beanie", "name": "Merino Wool Beanie",
+{ "id": "prod_k7m2qx8vn6",
+  "slug": "merino-wool-beanie", "name": "Merino Wool Beanie",
   "price": { "amount": 32, "cents": 3200, "currency": "USD" },
   "in_stock": true, "categories": ["Apparel"],
   "image": "https://…/images/products/merino-wool-beanie.webp",
   "url": "https://…/products/merino-wool-beanie" }
 ```
 
-`POST /api/checkout` recalculates price and stock from D1. Set `method` to one of the values returned by `GET /api/checkout`; omitting it uses the default. Stripe and OpenNode return `flow: "redirect"` with a hosted `checkout_url`. Lightning returns `flow: "invoice"`, a browser/QR fallback in `checkout_url`, and a directly payable BOLT11 invoice:
+`POST /api/checkout` recalculates price and stock from D1. Item selectors are the catalog's public IDs: `product_id` (`prod_…`) is canonical, with `slug` accepted as a documented convenience; `variant_id` (`var_…`) and `extra_ids` (`["xtra_…"]`) come from the product detail route. **Numeric IDs are rejected with 400** (including the legacy numeric `extras` array). Set `method` to one of the values returned by `GET /api/checkout`; omitting it uses the default. Stripe and OpenNode return `flow: "redirect"` with a hosted `checkout_url`. Lightning returns `flow: "invoice"`, a browser/QR fallback in `checkout_url`, and a directly payable BOLT11 invoice:
 
 ```json
 {
   "method": "lightning",
   "items": [
-    { "slug": "merino-wool-beanie", "quantity": 1, "variant_id": 12, "extras": [3] }
+    { "product_id": "prod_k7m2qx8vn6", "quantity": 1,
+      "variant_id": "var_n9fx2km7qc", "extra_ids": ["xtra_q3vr8jm2np"] }
   ],
   "ship_to": {
     "email": "buyer@example.com",
@@ -516,7 +520,7 @@ node scripts/agent-demo.mjs https://<your-host> "warm hat" 40
 
 Or just ask any tool-using LLM:
 
-> "Using `<host>/api/products`, find a warm hat under $40, then `POST /api/checkout` with `{items:[{slug,quantity}]}` and give me the checkout URL."
+> "Using `<host>/api/products`, find a warm hat under $40, then `POST /api/checkout` with `{items:[{product_id,quantity}]}` (the catalog's `prod_…` id) and give me the checkout URL."
 
 Complete payment with the Stripe **test** card `4242 4242 4242 4242` (any future expiry/CVC/postal) — prod runs Stripe test keys, so **nothing is charged**; the order then appears in `/admin → Orders`.
 

@@ -1,5 +1,6 @@
 import type { D1Database, D1PreparedStatement } from '@cloudflare/workers-types';
 import { catalogPath, resolveHomePath } from '../settings/home.ts';
+import { withPublicId } from '../ids/publicId.ts';
 
 export type MenuLocation = 'header' | 'footer';
 export type MenuTargetType = 'home' | 'catalog' | 'page' | 'product' | 'category';
@@ -43,6 +44,7 @@ export const MAX_MENU_LABEL = 60;
 
 export interface MenuItemRow {
   id: number;
+  public_id: string | null;
   location: MenuLocation;
   target_type: MenuTargetType;
   target_id: number | null;
@@ -55,6 +57,8 @@ export interface MenuItemRow {
 
 export interface MenuItem {
   id: number;
+  /** Prefixed nav_ public ID — what admin forms submit; null only pre-backfill. */
+  publicId: string | null;
   location: MenuLocation;
   targetType: MenuTargetType;
   targetId: number | null;
@@ -118,7 +122,7 @@ WITH bounded AS (
   )
 )
 SELECT
-  mi.id, mi.location, mi.target_type, mi.target_id, mi.position, mi.label,
+  mi.id, mi.public_id, mi.location, mi.target_type, mi.target_id, mi.position, mi.label,
   CASE mi.target_type
     WHEN 'home'     THEN '${SINGLETON_LABELS.home}'
     WHEN 'catalog'  THEN '${SINGLETON_LABELS.catalog}'
@@ -172,6 +176,7 @@ export function resolveMenuHref(
 export function toMenuItem(row: MenuItemRow, homePage: string | null | undefined): MenuItem {
   return {
     id: row.id,
+    publicId: row.public_id,
     location: row.location,
     targetType: row.target_type,
     targetId: row.target_id,
@@ -258,25 +263,28 @@ export async function addMenuItem(
   const cap = MENU_CAPS[location];
 
   try {
-    const result = await db
-      .prepare(
-        `INSERT INTO menu_items (location, target_type, target_id, label, position)
-         SELECT ?1, ?2, ?3, ?4,
-                (SELECT COALESCE(MAX(position), -1) + 1 FROM menu_items WHERE location = ?1)
-          WHERE (SELECT COUNT(*) FROM menu_items WHERE location = ?1) < ?5
-            AND (
-                  (?2 IN ('home', 'catalog') AND ?3 IS NULL)
-               OR (?2 = 'page'     AND EXISTS (SELECT 1 FROM pages      WHERE id = ?3 AND published = 1))
-               OR (?2 = 'product'  AND EXISTS (SELECT 1 FROM products   WHERE id = ?3 AND active = 1))
-               OR (?2 = 'category' AND EXISTS (SELECT 1 FROM categories WHERE id = ?3))
-            )
-            AND NOT (
-                  ?2 IN ('home', 'catalog')
-              AND EXISTS (SELECT 1 FROM menu_items WHERE location = ?1 AND target_type = ?2)
-            )`,
-      )
-      .bind(location, targetType, targetId, label, cap)
-      .run();
+    const result = await withPublicId('navItem', (publicId) =>
+      db
+        .prepare(
+          `INSERT INTO menu_items (location, target_type, target_id, label, position, public_id)
+           SELECT ?1, ?2, ?3, ?4,
+                  (SELECT COALESCE(MAX(position), -1) + 1 FROM menu_items WHERE location = ?1),
+                  ?6
+            WHERE (SELECT COUNT(*) FROM menu_items WHERE location = ?1) < ?5
+              AND (
+                    (?2 IN ('home', 'catalog') AND ?3 IS NULL)
+                 OR (?2 = 'page'     AND EXISTS (SELECT 1 FROM pages      WHERE id = ?3 AND published = 1))
+                 OR (?2 = 'product'  AND EXISTS (SELECT 1 FROM products   WHERE id = ?3 AND active = 1))
+                 OR (?2 = 'category' AND EXISTS (SELECT 1 FROM categories WHERE id = ?3))
+              )
+              AND NOT (
+                    ?2 IN ('home', 'catalog')
+                AND EXISTS (SELECT 1 FROM menu_items WHERE location = ?1 AND target_type = ?2)
+              )`,
+        )
+        .bind(location, targetType, targetId, label, cap, publicId)
+        .run(),
+    );
 
     if (result.meta.changes > 0) return { ok: true, id: result.meta.last_row_id };
   } catch (err) {
@@ -311,6 +319,34 @@ async function diagnoseAddFailure(
     .bind(location)
     .first<{ c: number }>();
   return (count?.c ?? 0) >= cap ? 'full' : 'unavailable';
+}
+
+/** Menu-item row id for a nav_ public ID (boundary resolution; null if missing). */
+export async function getMenuItemIdByPublicId(
+  db: D1Database,
+  publicId: string,
+): Promise<number | null> {
+  const row = await db
+    .prepare('SELECT id FROM menu_items WHERE public_id = ?')
+    .bind(publicId)
+    .first<{ id: number }>();
+  return row?.id ?? null;
+}
+
+/** public_id → row id for one menu, for resolving a submitted reorder list. */
+export async function menuItemIdsByPublicId(
+  db: D1Database,
+  location: MenuLocation,
+): Promise<Map<string, number>> {
+  const { results } = await db
+    .prepare('SELECT id, public_id FROM menu_items WHERE location = ?')
+    .bind(location)
+    .all<{ id: number; public_id: string | null }>();
+  const map = new Map<string, number>();
+  for (const row of results ?? []) {
+    if (row.public_id) map.set(row.public_id, row.id);
+  }
+  return map;
 }
 
 export async function removeMenuItem(db: D1Database, id: number): Promise<void> {

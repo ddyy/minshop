@@ -4,11 +4,30 @@ import Layout from '../../layouts/Layout.astro';
 import { formatPrice, getConfig } from '../../config';
 import { getOrderByPublicId, listOrderItems } from '../../features/orders/db';
 import { orderNumber } from '../../features/orders/number';
+import { isLegacyPublicId, publicIdToken } from '../../features/ids/publicId.ts';
+import { isAccessToken } from '../../features/ids/token.ts';
+import { resolveAccessToken } from '../../features/orders/guestAccess.ts';
 import { clearCart } from '../../features/cart/cart';
 import { catalogPath } from '../../features/settings/home';
 
+// Guest access: new orders are addressed ONLY by their otk_ access token
+// (resolved through the registry); legacy orders keep their pre-cutover
+// public-id links. A bare ord_ public ID never grants access — same not-found
+// as an unknown token.
 const { token } = Astro.params;
-const order = token ? await getOrderByPublicId(env.DB, token) : null;
+let order = null;
+if (token && isAccessToken(token)) {
+  const access = await resolveAccessToken(env.DB, token);
+  order = access ? await getOrderByPublicId(env.DB, access.order_public_id) : null;
+} else if (token && isLegacyPublicId(token)) {
+  order = await getOrderByPublicId(env.DB, token);
+} else if (token) {
+  return new Response('Not found', { status: 404 });
+}
+
+// This page carries a capability URL: never cache it, never leak it in referrers.
+Astro.response.headers.set('cache-control', 'private, no-store');
+Astro.response.headers.set('referrer-policy', 'no-referrer');
 
 // The webhook creates the order asynchronously, so the customer can land here
 // before it exists. If found, it's confirmed — clear the cart and show it.
@@ -16,6 +35,12 @@ const order = token ? await getOrderByPublicId(env.DB, token) : null;
 // and the header badge can't survive the purchase.
 if (order) clearCart(Astro.cookies);
 const items = order ? await listOrderItems(env.DB, order.id) : [];
+
+// Customer reference: the ord_ token portion for new orders; legacy orders keep
+// showing their previously communicated calculated number.
+const orderRef = order
+  ? (publicIdToken(order.public_id ?? '', 'order') ?? String(orderNumber(order.id, getConfig().orderNumber)))
+  : null;
 
 // Human label for the rail the order was paid on (NULL = legacy, hidden).
 const PAYMENT_LABELS: Record<string, string> = {
@@ -35,7 +60,7 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
       <Fragment>
         <h1 class="mb-2 font-serif text-3xl tracking-tight sm:text-4xl">Thank you! Your order is confirmed.</h1>
         <p class="mb-6 text-sm text-gray-500">
-          Order #{orderNumber(order.id, getConfig().orderNumber)}
+          Order #{orderRef}
           {order.email && <Fragment> · a receipt is on its way to {order.email}</Fragment>}
         </p>
 

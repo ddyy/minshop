@@ -43,7 +43,7 @@ const menuRefs = await menuReferencesFor(env.DB, 'category', rows.map((r) => r.i
           <tr class="border-b border-line">
             <td class="py-3 pr-4">
               <a
-                href={`/admin/categories/${c.id}/edit`}
+                href={`/admin/categories/${c.public_id}/edit`}
                 class="inline-block font-medium hover:text-brand"
                 style={`padding-left:${c.depth * 20}px`}
               >
@@ -55,12 +55,12 @@ const menuRefs = await menuReferencesFor(env.DB, 'category', rows.map((r) => r.i
             <td data-label="Products" class="py-3 pr-4 tabular-nums text-gray-500">{counts.get(c.id) ?? 0}</td>
             <td data-label="" class="py-3 text-right">
               <div class="flex justify-end gap-4 text-xs uppercase tracking-widest">
-                <a href={`/admin/categories/${c.id}/edit`} class="text-accent hover:underline">
+                <a href={`/admin/categories/${c.public_id}/edit`} class="text-accent hover:underline">
                   Edit
                 </a>
                 <form
                   method="POST"
-                  action={`/api/admin/categories/${c.id}`}
+                  action={`/api/admin/categories/${c.public_id}`}
                   onsubmit={`return confirm('${
                     menuRefs.has(c.id)
                       ? 'This category is linked from your navigation. Deleting it hides that link on the storefront. Sub-categories move up to its parent. Continue?'

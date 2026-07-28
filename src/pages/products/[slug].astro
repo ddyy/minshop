@@ -70,10 +70,17 @@ const priceVaries =
 // on `<`/`<=` comparisons inside a {map(...)} block. Default-select the first
 // in-stock variant.
 const firstInStockIdx = variants.findIndex((v) => v.stock > 0);
+// A variant's linked image reaches the markup as the gallery anchor (pimg_
+// public ID, image_key fallback) — the image_id row FK stays server-side.
+const galleryAnchor = (imageId: number | null): string => {
+  const img = imageId == null ? undefined : gallery.find((g) => g.id === imageId);
+  return img ? (img.public_id ?? img.image_key) : '';
+};
 const variantRows = variants.map((v, i) => ({
   v,
   out: v.stock <= 0,
   defaultChecked: i === firstInStockIdx,
+  imageAnchor: galleryAnchor(v.image_id),
 }));
 // "Buy now" routes through the cart where the buyer picks a rail. Honor the
 // admin's runtime toggles: if no method can take a payment, there's no checkout,
@@ -94,6 +101,9 @@ const imgBase = getConfig().images.baseUrl;
 const imageDelivery = Astro.locals.settings?.imageDelivery;
 const galleryImages = gallery.map((image) => ({
   ...image,
+  // DOM anchor for carousel targets — the pimg_ public ID (image_key as a
+  // pre-backfill fallback); row IDs never reach the markup.
+  anchor: image.public_id ?? image.image_key,
   hero: productImageSources(image.image_key, {
     baseUrl: imgBase,
     delivery: imageDelivery,
@@ -162,7 +172,7 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
           >
             {galleryImages.map((img, index) => (
               <img
-                id={`pi-${img.id}`}
+                id={`pi-${img.anchor}`}
                 src={img.hero.src}
                 srcset={img.hero.srcset}
                 sizes={img.hero.sizes}
@@ -185,7 +195,7 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
           <div class="no-scrollbar mt-3 flex gap-2 overflow-x-auto">
             {galleryImages.map((img) => (
               <a
-                href={`#pi-${img.id}`}
+                href={`#pi-${img.anchor}`}
                 class="shrink-0 overflow-hidden rounded border border-line bg-gray-100 transition hover:border-brand"
               >
                 <img
@@ -262,7 +272,7 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
           // resubmit the option form).
           <form method="POST" action="/api/cart" class="mt-8 max-w-sm" data-options-form>
             <input type="hidden" name="_action" value="add" />
-            <input type="hidden" name="product_id" value={product.id} />
+            <input type="hidden" name="product_id" value={product.public_id} />
 
             {hasVariants && (
               <fieldset class="mb-6">
@@ -270,7 +280,7 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
                   {product.variant_label || 'Option'}
                 </legend>
                 <div class="flex flex-col gap-2">
-                  {variantRows.map(({ v, out, defaultChecked }) => (
+                  {variantRows.map(({ v, out, defaultChecked, imageAnchor }) => (
                     <label
                       class={`flex items-center justify-between gap-3 rounded-md border px-4 py-2.5 text-sm transition ${
                         out
@@ -282,12 +292,12 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
                         <input
                           type="radio"
                           name="variant_id"
-                          value={v.id}
+                          value={v.public_id}
                           required
                           disabled={out}
                           checked={defaultChecked}
                           data-price={v.price_cents}
-                          data-image-id={v.image_id ?? ''}
+                          data-image-id={imageAnchor}
                           class="accent-brand"
                         />
                         <span>
@@ -314,7 +324,7 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
                         <input
                           type="checkbox"
                           name="extra"
-                          value={ex.id}
+                          value={ex.public_id}
                           data-price={ex.price_delta_cents}
                           class="accent-brand"
                         />
@@ -367,7 +377,7 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
             {!soldOut && cartEnabled && (
               <form method="POST" action="/api/cart">
                 <input type="hidden" name="_action" value="add" />
-                <input type="hidden" name="product_id" value={product.id} />
+                <input type="hidden" name="product_id" value={product.public_id} />
                 <button
                   type="submit"
                   class="rounded-md border border-line px-8 py-3 text-sm font-medium uppercase tracking-wider text-gray-700 transition hover:border-brand hover:text-brand"
@@ -380,7 +390,7 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
               // Express checkout step (skips the cart, so it works with the cart off).
               // The buyer picks a payment method there; first listed = the default.
               <form method="GET" action="/express">
-                <input type="hidden" name="product_id" value={product.id} />
+                <input type="hidden" name="product_id" value={product.public_id} />
                 <button
                   type="submit"
                   class="rounded-md bg-brand px-8 py-3 text-sm font-medium uppercase tracking-wider text-white transition hover:bg-brand-hover"
@@ -474,8 +484,9 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
       // Scroll the gallery carousel to the variant's linked image (if any). The
       // track is position:relative, so each image's offsetLeft is measured from the
       // track's content box — exactly the scrollLeft needed to bring it flush left.
+      // data-image-id carries the gallery anchor (pimg_ public ID), never a row id.
       const showImage = (imageId) => {
-        if (!(track instanceof HTMLElement) || !/^\d+$/.test(imageId)) return;
+        if (!(track instanceof HTMLElement) || !imageId) return;
         const img = document.getElementById(`pi-${imageId}`);
         if (img instanceof HTMLElement && track.contains(img)) {
           track.scrollLeft = img.offsetLeft;

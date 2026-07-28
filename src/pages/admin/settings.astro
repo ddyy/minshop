@@ -4,8 +4,13 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
 import MediaPicker from '../../features/media/MediaPicker.astro';
 import { setLogoFromMedia } from '../../features/media/db';
 import { homeTargetIsValid } from '../../features/settings/home';
-import { listPublishedPageOptions } from '../../features/pages/db';
-import { listProducts, getProductsByIds } from '../../features/products/db';
+import { listPublishedPageOptions, getPageByPublicId } from '../../features/pages/db';
+import {
+  listProducts,
+  getProductsByIds,
+  getProductByPublicId,
+} from '../../features/products/db';
+import { parsePublicId } from '../../features/ids/publicId';
 import { mediaUrl } from '../../features/media/url';
 import { getConfig, formatPrice } from '../../config';
 import {
@@ -144,10 +149,26 @@ if (Astro.request.method === 'POST') {
       validationError = 'That image is no longer in the media library.';
     }
   } else if (action === 'save_home') {
+    // The selector submits public IDs (page:page_… / product:prod_…); resolve
+    // them to the stored integer form here at the boundary. The stored setting
+    // keeps its existing `page:<id>` / `product:<id>` shape — it never leaves
+    // the server.
     const choice = String(form.get('home_page') ?? '').trim();
-    if (await homeTargetIsValid(env.DB, choice)) {
+    let stored: string | null = null;
+    if (choice === '') {
+      stored = '';
+    } else if (choice.startsWith('page:')) {
+      const pid = parsePublicId(choice.slice('page:'.length), 'page');
+      const page = pid ? await getPageByPublicId(env.DB, pid) : null;
+      if (page) stored = `page:${page.id}`;
+    } else if (choice.startsWith('product:')) {
+      const pid = parsePublicId(choice.slice('product:'.length), 'product');
+      const product = pid ? await getProductByPublicId(env.DB, pid) : null;
+      if (product) stored = `product:${product.id}`;
+    }
+    if (stored !== null && (await homeTargetIsValid(env.DB, stored))) {
       // '' deletes the row, so the catalog list is the default by absence.
-      await setSetting(env.DB, 'home_page', choice);
+      await setSetting(env.DB, 'home_page', stored);
     } else {
       // Draft pages and inactive products are not valid targets — the same rule
       // the storefront resolves by, so the setting cannot point somewhere that
@@ -359,10 +380,10 @@ const timeZones = allTimeZones();
 const searchProvider = settings.searchProvider ?? cfg.search.provider;
 const vectorBindingsReady = semanticSearchAvailable(capabilities);
 const onDemandImagesReady = onDemandImageDeliveryAvailable(cfg.images.baseUrl);
-const reindexCursorValue = Number(Astro.url.searchParams.get('reindex_cursor'));
+// The cursor is the last processed product's prod_ public ID ('' = start) —
+// no numeric row id travels through admin URLs or form values.
+const reindexCursor = parsePublicId(Astro.url.searchParams.get('reindex_cursor'), 'product') ?? '';
 const reindexProcessedValue = Number(Astro.url.searchParams.get('reindex_processed'));
-const reindexCursor =
-  Number.isInteger(reindexCursorValue) && reindexCursorValue > 0 ? reindexCursorValue : 0;
 const reindexProcessed =
   Number.isInteger(reindexProcessedValue) && reindexProcessedValue > 0
     ? reindexProcessedValue
@@ -616,7 +637,7 @@ const sections = [
               homePages.length > 0 && (
                 <optgroup label="Page">
                   {homePages.map((p) => (
-                    <option value={`page:${p.id}`} selected={homeChoice === `page:${p.id}`}>
+                    <option value={`page:${p.public_id}`} selected={homeChoice === `page:${p.id}`}>
                       {p.title}
                     </option>
                   ))}
@@ -627,7 +648,7 @@ const sections = [
               homeProducts.length > 0 && (
                 <optgroup label="Product">
                   {homeProducts.map((p) => (
-                    <option value={`product:${p.id}`} selected={homeChoice === `product:${p.id}`}>
+                    <option value={`product:${p.public_id}`} selected={homeChoice === `product:${p.id}`}>
                       {p.name}
                     </option>
                   ))}
@@ -1288,19 +1309,19 @@ const sections = [
         searchProvider === 'vector' && vectorBindingsReady && (
           <div class="flex flex-wrap items-center gap-3 border-t border-gray-100 px-4 py-4">
             <form method="POST" action="/api/admin/search/reindex" data-reindex-form>
-              <input type="hidden" name="cursor" value={String(reindexCursor)} />
+              <input type="hidden" name="cursor" value={reindexCursor} />
               <input type="hidden" name="processed" value={String(reindexProcessed)} />
               <button
                 type="submit"
                 class="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-hover"
               >
                 <span data-reindex-label>
-                  {reindexCursor > 0 ? 'Continue reindex' : 'Reindex all products'}
+                  {reindexCursor !== '' ? 'Continue reindex' : 'Reindex all products'}
                 </span>
               </button>
             </form>
             <span class="text-xs text-gray-400" data-reindex-status aria-live="polite">
-              {reindexCursor > 0
+              {reindexCursor !== ''
                 ? `${reindexProcessed} products complete. Continue with the next batch.`
                 : 'Embeds every product into Vectorize in small batches. Run once after turning this on, or to backfill.'}
             </span>
@@ -1395,7 +1416,7 @@ const sections = [
             .then(function (data) {
               if (status) status.textContent = data.processed + ' / ' + data.total + ' products';
               if (data.done) {
-                if (cursor) cursor.value = '0';
+                if (cursor) cursor.value = '';
                 if (processed) processed.value = '0';
                 if (button) button.disabled = false;
                 if (label) label.textContent = 'Reindex all products';
@@ -1405,7 +1426,7 @@ const sections = [
                 }
                 return;
               }
-              if (cursor) cursor.value = String(data.nextCursor || 0);
+              if (cursor) cursor.value = data.nextCursor || '';
               if (processed) processed.value = String(data.processed || 0);
               return nextBatch();
             });

@@ -2,15 +2,17 @@ import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 import { readCart, writeCart, CART_QTY_MAX } from '../../features/cart/cart';
 import { cartKey, parseCartKey } from '../../features/cart/key';
-import { getProduct } from '../../features/products/db';
-import { listVariants, getExtrasByIds } from '../../features/products/variants';
+import { getProductByPublicId } from '../../features/products/db';
+import { listVariants, getExtrasByPublicIds } from '../../features/products/variants';
+import { parsePublicId } from '../../features/ids/publicId.ts';
 import { getStoreSettings } from '../../features/settings/db';
 
 export const prerender = false;
 
 // POST /api/cart — add / update / remove a line, then back to the cart.
-// Lines are keyed by product[:variant][#extras]. `add` resolves the chosen
-// variant + extras (validated against D1); `update`/`remove` act on the line key.
+// Lines are keyed by product[:variant][#extras] public-ID tuples. `add` resolves
+// the chosen variant + extras (validated against D1); `update`/`remove` act on
+// the line key. Numeric row IDs are never accepted.
 export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
   const form = await request.formData();
   const action = String(form.get('_action'));
@@ -40,15 +42,16 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
   }
 
   // ── add: product + (required) variant + (optional) extras ───────────────────
-  const id = Number(form.get('product_id'));
-  const product = Number.isInteger(id) && id > 0 ? await getProduct(env.DB, id) : null;
-  if (!product || !product.active) return done();
+  const productPublicId = parsePublicId(form.get('product_id'), 'product');
+  const product = productPublicId ? await getProductByPublicId(env.DB, productPublicId) : null;
+  if (!product || !product.active || !product.public_id) return done();
 
   // Variant is required when the product has any.
-  const variants = await listVariants(env.DB, id);
-  let variantId: number | null = null;
+  const variants = await listVariants(env.DB, product.id);
+  let variantPublicId: string | null = null;
   if (variants.length > 0) {
-    const chosen = variants.find((v) => v.id === Number(form.get('variant_id')));
+    const wanted = parsePublicId(form.get('variant_id'), 'variant');
+    const chosen = wanted ? variants.find((v) => v.public_id === wanted) : undefined;
     if (!chosen) {
       if (partial) return new Response(null, { status: 204 });
       const label = product.variant_label || 'option';
@@ -57,17 +60,23 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
         303,
       );
     }
-    variantId = chosen.id;
+    variantPublicId = chosen.public_id;
   }
 
   // Extras: keep only valid, active ones that belong to the product.
-  const rawExtraIds = form
+  const wantExtras = form
     .getAll('extra')
-    .map(Number)
-    .filter((n) => Number.isInteger(n) && n > 0);
-  const extras = rawExtraIds.length ? await getExtrasByIds(env.DB, id, rawExtraIds) : [];
+    .map((v) => parsePublicId(v, 'extra'))
+    .filter((v): v is string => v !== null);
+  const extras = wantExtras.length
+    ? await getExtrasByPublicIds(env.DB, product.id, wantExtras)
+    : [];
 
-  const key = cartKey(id, variantId, extras.map((e) => e.id));
+  const key = cartKey(
+    product.public_id,
+    variantPublicId,
+    extras.flatMap((e) => (e.public_id ? [e.public_id] : [])),
+  );
   cart[key] = Math.min((cart[key] ?? 0) + 1, CART_QTY_MAX);
 
   writeCart(cookies, cart, url.protocol === 'https:');

@@ -2,11 +2,13 @@ import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 import {
   countAllProducts,
+  getProductByPublicId,
   listProductsAfterId,
 } from '../../../../features/products/db';
 import { indexProducts } from '../../../../features/search';
 import { getConfig } from '../../../../config';
 import { getStoreSettings } from '../../../../features/settings/db';
+import { parsePublicId } from '../../../../features/ids/publicId';
 
 export const prerender = false;
 
@@ -23,14 +25,18 @@ function nonNegativeInteger(value: FormDataEntryValue | null): number {
 // POST /api/admin/search/reindex — (re)build the semantic-search index from every
 // product in bounded batches. JS advances automatically; without JS the redirect
 // preserves the cursor and presents a "Continue reindex" button.
+//
+// The wire-format cursor is the LAST PROCESSED product's prod_ public ID ('' =
+// start): admin output never carries a numeric row id, while the keyset itself
+// stays on the integer id internally.
 export const POST: APIRoute = async ({ request, redirect }) => {
   const wantsJson =
     request.headers.get('x-requested-with') === 'fetch' ||
     request.headers.get('accept')?.includes('application/json');
-  const back = (msg: string, cursor = 0, processed = 0) => {
+  const back = (msg: string, cursor: string | null = null, processed = 0) => {
     const query = new URLSearchParams({ msg });
-    if (cursor > 0) {
-      query.set('reindex_cursor', String(cursor));
+    if (cursor) {
+      query.set('reindex_cursor', cursor);
       query.set('reindex_processed', String(processed));
     }
     return redirect(`/admin/settings?${query.toString()}#search`, 303);
@@ -50,12 +56,17 @@ export const POST: APIRoute = async ({ request, redirect }) => {
   }
 
   const form = await request.formData();
-  const cursor = nonNegativeInteger(form.get('cursor'));
+  // Resolve the public-ID cursor to the internal keyset id. A cursor whose
+  // product has since been deleted restarts from the top — indexing is
+  // idempotent, so a repeat costs time, never correctness.
+  const cursorPublicId = parsePublicId(form.get('cursor'), 'product');
+  const cursorProduct = cursorPublicId ? await getProductByPublicId(env.DB, cursorPublicId) : null;
+  const cursor = cursorProduct?.id ?? 0;
   const processedBefore = nonNegativeInteger(form.get('processed'));
 
   try {
     // Fetch one extra row to know whether another request is needed without a
-    // separate look-ahead query. IDs are the cursor, so deletes cannot make us
+    // separate look-ahead query. IDs are the keyset, so deletes cannot make us
     // skip or repeat rows the way OFFSET pagination can.
     const [rows, total] = await Promise.all([
       listProductsAfterId(env.DB, cursor, BATCH_SIZE + 1),
@@ -65,7 +76,7 @@ export const POST: APIRoute = async ({ request, redirect }) => {
     const n = await indexProducts(batch);
     const processed = Math.min(total, processedBefore + n);
     const done = rows.length <= BATCH_SIZE;
-    const nextCursor = done ? null : batch.at(-1)?.id ?? cursor;
+    const nextCursor = done ? null : (batch.at(-1)?.public_id ?? cursorPublicId);
 
     if (wantsJson) {
       return Response.json({ processed, total, nextCursor, done });
@@ -74,13 +85,13 @@ export const POST: APIRoute = async ({ request, redirect }) => {
       ? back(`Reindexed ${processed} product(s) into the semantic search index.`)
       : back(
           `Reindexed ${processed} of ${total} products. Continue to process the next batch.`,
-          nextCursor ?? cursor,
+          nextCursor,
           processed,
         );
   } catch (err) {
     const message = `Reindex failed: ${(err as Error).message}`;
     return wantsJson
       ? Response.json({ error: message }, { status: 500 })
-      : back(message, cursor, processedBefore);
+      : back(message, cursorPublicId, processedBefore);
   }
 };

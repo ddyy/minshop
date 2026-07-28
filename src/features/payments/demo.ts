@@ -42,10 +42,15 @@ export function createDemoProvider(db: D1Database): PaymentProvider {
         shipAddressJson: params.selectedShipping
           ? JSON.stringify(params.selectedShipping.address)
           : null,
-        expiresAt: null,
+        // Fixed 24h window: past it the pay page refuses to render, poll, or
+        // settle the demo checkout (the guest token stays valid for the order
+        // if one settled).
+        expiresAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
       });
-      // Point at the unified self-rendered pay page, absolute (origin from successUrl).
-      return { url: new URL(`/pay/${publicId}`, params.successUrl).href };
+      // Point at the unified self-rendered pay page, absolute (origin from
+      // successUrl). New checkouts address it by guest access token; the bare
+      // public-id fallback only serves legacy in-flight sessions.
+      return { url: new URL(`/pay/${params.accessToken ?? publicId}`, params.successUrl).href };
     },
 
     async verifyWebhook(): Promise<WebhookResult> {

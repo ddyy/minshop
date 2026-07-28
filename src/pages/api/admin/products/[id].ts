@@ -2,6 +2,8 @@ import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 import {
   getProduct,
+  getProductByPublicId,
+  listProductImages,
   syncPrimaryImage,
   updateProduct,
   deleteProduct,
@@ -10,8 +12,16 @@ import { parseProductForm } from '../../../../features/products/form';
 import { zonesRequireWeight } from '../../../../features/shipping/calculator';
 import { shippingFor } from '../../../../features/shipping/effective';
 import { uniqueSlug } from '../../../../features/products/slug';
-import { setProductCategories } from '../../../../features/categories/db';
-import { applyVariantForm, validateVariantWeights } from '../../../../features/products/variants';
+import {
+  setProductCategories,
+  getCategoriesByPublicIds,
+} from '../../../../features/categories/db';
+import {
+  applyVariantForm,
+  validateVariantWeights,
+  listVariants,
+  listExtras,
+} from '../../../../features/products/variants';
 import { validateImage } from '../../../../features/products/image';
 import { optimizeUpload } from '../../../../features/products/imageOptimize';
 import { uploadMedia } from '../../../../features/media/upload';
@@ -21,20 +31,78 @@ import {
 } from '../../../../features/media/db';
 import { getStorage } from '../../../../features/storage';
 import { indexProduct, unindexProduct } from '../../../../features/search';
+import { parsePublicId } from '../../../../features/ids/publicId';
 
 export const prerender = false;
 
-// POST /api/admin/products/:id — update (with optional image replace), or delete
-// when `_action=delete`. (HTML forms can't send DELETE/PUT, so the verb is a field.)
-export const POST: APIRoute = async ({ request, params, redirect, locals }) => {
-  const id = Number(params.id);
-  if (!Number.isInteger(id)) {
-    return new Response('Invalid id', { status: 400 });
+/**
+ * The variants/extras editor submits public IDs (var_/xtra_ rows, pimg_ photo
+ * choices) in its positionally-aligned arrays. applyVariantForm works on the
+ * product's integer row ids, so translate IN PLACE here at the boundary —
+ * internal writes stay integer. Returns an error for a reference that does not
+ * belong to this product (a stale or tampered form), rather than guessing.
+ */
+async function resolveVariantFormIds(
+  form: FormData,
+  db: typeof env.DB,
+  productId: number,
+): Promise<string | null> {
+  const variants = new Map(
+    (await listVariants(db, productId, true)).map((v) => [v.public_id ?? '', v.id]),
+  );
+  const extras = new Map(
+    (await listExtras(db, productId, true)).map((e) => [e.public_id ?? '', e.id]),
+  );
+  const images = new Map(
+    (await listProductImages(db, productId)).map((i) => [i.public_id ?? '', i.id]),
+  );
+
+  const translate = (
+    field: string,
+    map: Map<string, number>,
+    kind: 'variant' | 'extra' | 'productImage',
+  ): boolean => {
+    const values = form.getAll(field).map((v) => String(v));
+    if (values.length === 0) return true;
+    const out: string[] = [];
+    for (const raw of values) {
+      const value = raw.trim();
+      if (!value) {
+        out.push('');
+        continue;
+      }
+      const parsed = parsePublicId(value, kind);
+      const id = parsed ? map.get(parsed) : undefined;
+      if (id === undefined) return false;
+      out.push(String(id));
+    }
+    form.delete(field);
+    for (const v of out) form.append(field, v);
+    return true;
+  };
+
+  if (!translate('v_id', variants, 'variant') || !translate('v_remove', variants, 'variant')) {
+    return 'One of the variants no longer exists — reload and try again.';
   }
+  if (!translate('e_id', extras, 'extra') || !translate('e_remove', extras, 'extra')) {
+    return 'One of the add-ons no longer exists — reload and try again.';
+  }
+  if (!translate('v_image', images, 'productImage')) {
+    return 'One of the variant photos no longer exists — reload and try again.';
+  }
+  return null;
+}
+
+// POST /api/admin/products/:id — update (with optional image replace), or delete
+// when `_action=delete`. :id is the prod_ public ID; numeric ids are not accepted.
+export const POST: APIRoute = async ({ request, params, redirect, locals }) => {
+  const publicId = parsePublicId(params.id, 'product');
+  const existing = publicId ? await getProductByPublicId(env.DB, publicId) : null;
+  if (!existing) return new Response('Not found', { status: 404 });
+  const id = existing.id;
 
   const form = await request.formData();
   const storage = getStorage();
-  const existing = await getProduct(env.DB, id);
 
   if (String(form.get('_action')) === 'delete') {
     // Removes the product and its image ASSOCIATIONS. The files stay in the
@@ -50,7 +118,7 @@ export const POST: APIRoute = async ({ request, params, redirect, locals }) => {
   }
 
   const fail = (msg: string) =>
-    redirect(`/admin/products/${id}/edit?error=${encodeURIComponent(msg)}`, 303);
+    redirect(`/admin/products/${publicId}/edit?error=${encodeURIComponent(msg)}`, 303);
 
   // The store's display unit, plus whether a blank weight would make this product
   // unsellable (every enabled zone prices by weight). Both come from settings the
@@ -68,11 +136,15 @@ export const POST: APIRoute = async ({ request, params, redirect, locals }) => {
   const badWeight = validateVariantWeights(form, weightUnit);
   if (badWeight) return fail(badWeight);
 
+  // Public-ID → row-id translation for the variants editor, before any write.
+  const badReference = await resolveVariantFormIds(form, env.DB, id);
+  if (badReference) return fail(badReference);
+
   // The uploaded key is NOT written to products.image_key here: that reference
   // would be unguarded, and the media row is deletable until something claims
   // it. The gallery claim below is guarded, and syncPrimaryImage then derives
   // products.image_key from it.
-  const image_key = existing?.image_key ?? null;
+  const image_key = existing.image_key ?? null;
   let uploadedMediaId: number | null = null;
   const file = form.get('image');
   if (file instanceof File && file.size > 0) {
@@ -84,7 +156,7 @@ export const POST: APIRoute = async ({ request, params, redirect, locals }) => {
 
   // Keep the slug stable on rename: use the form's slug field (pre-filled with
   // the current slug), falling back to the existing slug, then the name.
-  const slugBase = String(form.get('slug') ?? '').trim() || existing?.slug || parsed.data.name;
+  const slugBase = String(form.get('slug') ?? '').trim() || existing.slug || parsed.data.name;
   const slug = await uniqueSlug(env.DB, slugBase, id);
 
   // Claim the image BEFORE committing anything else. A failed claim then aborts
@@ -109,11 +181,13 @@ export const POST: APIRoute = async ({ request, params, redirect, locals }) => {
   // products.image_key follows the gallery, so this runs after both.
   if (uploadedMediaId !== null) await syncPrimaryImage(env.DB, id);
 
-  // Replace category links (empty set clears them).
-  const categoryIds = form
+  // Replace category links (empty set clears them). Membership arrives as cat_
+  // public IDs and is resolved to row ids here at the boundary.
+  const categoryPublicIds = form
     .getAll('category')
-    .map((v) => Number(v))
-    .filter((n) => Number.isInteger(n) && n > 0);
+    .map((v) => parsePublicId(v, 'category'))
+    .filter((v): v is string => v !== null);
+  const categoryIds = (await getCategoriesByPublicIds(env.DB, categoryPublicIds)).map((c) => c.id);
   await setProductCategories(env.DB, id, categoryIds);
 
   // Variants + extras edited inline on the same form (no-op if none submitted).

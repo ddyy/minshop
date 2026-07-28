@@ -15,7 +15,9 @@ import type { StoreSettings } from '../../settings/db';
 // here (beside the views) so the route stays a thin dispatcher.
 
 export interface DemoSettleResult {
-  redirect?: string;
+  /** True once the order is recorded; the CALLER builds the redirect URL from
+   *  its guest param — this module never emits a bare public-id URL. */
+  settled?: boolean;
   declined?: string | null;
 }
 
@@ -27,8 +29,8 @@ const DECLINE: Record<string, string> = {
 /**
  * Handle a demo-checkout POST. "approve" records a genuine order (tagged
  * payment_method='demo') through the same path the real webhooks use — emails,
- * stock, revenue, confirmation — and returns a redirect to the order page. Any
- * other outcome returns a simulated decline message.
+ * stock, revenue, confirmation — and signals settled so the caller can redirect
+ * to its guest order URL. Any other outcome returns a simulated decline message.
  */
 export async function settleDemoCheckout(
   pending: PendingPayment,
@@ -37,6 +39,10 @@ export async function settleDemoCheckout(
   settings?: StoreSettings,
   waitUntil?: (promise: Promise<unknown>) => void,
 ): Promise<DemoSettleResult> {
+  // Fail closed after the demo window even if a POST slips past the page guard.
+  if (pending.expires_at != null && Date.parse(pending.expires_at) <= Date.now()) {
+    return { declined: 'This demo checkout has expired.' };
+  }
   const outcome = String(form.get('outcome') ?? 'approve');
   const email = resolveRequiredOrderEmail(String(form.get('email') ?? ''), pending.email);
   if (!email) return { declined: 'A valid email is required.' };
@@ -46,7 +52,7 @@ export async function settleDemoCheckout(
     // inside the order batch — no separate markPendingSettled round trip. With
     // waitUntil the emails (and their reads) run after the redirect is sent.
     await recordPaidWebhookOrder({ type: 'demo.paid', order }, origin, 'demo', settings, waitUntil);
-    return { redirect: `/order/${pending.public_id}` };
+    return { settled: true };
   }
   return { declined: DECLINE[outcome] ?? DECLINE.decline };
 }

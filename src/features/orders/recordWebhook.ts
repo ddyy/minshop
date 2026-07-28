@@ -12,6 +12,7 @@ import {
   releaseInventoryReservation,
 } from './reservations';
 import { markPendingSettled } from '../payments/lightning/pending';
+import { deleteGuestAccessIfUnsettled } from './guestAccess';
 
 /**
  * Persist a verified paid-webhook order (idempotent on the provider session id)
@@ -47,6 +48,11 @@ export async function recordPaidWebhookOrder(
   };
   if (result.releaseReservationId) {
     await releaseInventoryReservation(env.DB, result.releaseReservationId);
+    // Provider-confirmed terminal (expired/failed) checkout: collect the guest
+    // credential too. The delete is atomic with a no-settled-order check, so a
+    // paid webhook racing this expiry keeps its row (reservation id IS the
+    // order public id for post-cutover checkouts; legacy ids simply no-op).
+    await deleteGuestAccessIfUnsettled(env.DB, result.releaseReservationId);
   }
   if (result.pendingReservationId) {
     await markInventoryReservationPaymentPending(env.DB, result.pendingReservationId);

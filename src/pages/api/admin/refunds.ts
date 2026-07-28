@@ -3,6 +3,7 @@ import { env } from 'cloudflare:workers';
 import { applyRefundEvent } from '../../../features/refunds/sync';
 import { listUnmatchedRefundEvents, dismissRefundEvent } from '../../../features/refunds/db';
 import { sendRefundNotice } from '../../../features/refunds/notify';
+import { getOrder } from '../../../features/orders/db';
 import { getPaymentProvider, type PaymentMethod } from '../../../features/payments';
 
 export const prerender = false;
@@ -55,8 +56,14 @@ export const POST: APIRoute = async ({ request, redirect }) => {
         'Still no order matches that payment. It stays queued — you can retry again after the order’s payment ID is filled in.',
       );
     }
+    // Admin URLs carry the order's public ID, never the row id the correlation
+    // worked with internally — one read to translate at the boundary.
+    const orderUrl = async (orderId: number) => {
+      const order = await getOrder(env.DB, orderId);
+      return order?.public_id ? `/admin/orders/${order.public_id}` : '/admin/orders';
+    };
     if (outcome.status === 'review') {
-      return redirect(`/admin/orders/${outcome.orderId}`, 303);
+      return redirect(await orderUrl(outcome.orderId), 303);
     }
     // A retry that finally applies the refund is the moment the money is first
     // recognised, so this is the path that owes the customer the notice — the
@@ -68,7 +75,7 @@ export const POST: APIRoute = async ({ request, redirect }) => {
         new URL(request.url).origin,
       );
     }
-    return redirect(`/admin/orders/${outcome.orderId}`, 303);
+    return redirect(await orderUrl(outcome.orderId), 303);
   }
 
   // Close out an event a human has resolved. Retrying a conflicting event only

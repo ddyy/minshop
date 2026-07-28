@@ -41,8 +41,9 @@ const inputClass =
     <select id="parent_id" name="parent_id" class={inputClass}>
       <option value="">— none (top level) —</option>
       {
+        // Values are cat_ public IDs — resolved back to row ids server-side.
         parentOptions.map((o) => (
-          <option value={o.id} selected={category?.parent_id === o.id}>
+          <option value={o.public_id} selected={category?.parent_id === o.id}>
             {'  '.repeat(o.depth) + o.name}
           </option>
         ))

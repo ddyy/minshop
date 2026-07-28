@@ -1,20 +1,21 @@
 import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 import { getConfig } from '../../../../config';
-import { getPage, deletePage } from '../../../../features/pages/db';
+import { getPageByPublicId, deletePage } from '../../../../features/pages/db';
 import { parsePageForm } from '../../../../features/pages/form';
 import { uniquePageSlug } from '../../../../features/pages/slug';
 import { savePageBody, saveWarning } from '../../../../features/pages/save';
+import { parsePublicId } from '../../../../features/ids/publicId';
 
 export const prerender = false;
 
 // POST /api/admin/pages/:id — save, or delete when `_action=delete`.
+// :id is the page_ public ID; numeric row ids are not accepted.
 export const POST: APIRoute = async ({ request, params, redirect }) => {
-  const id = Number(params.id);
-  if (!Number.isInteger(id)) return new Response('Invalid id', { status: 400 });
-
-  const existing = await getPage(env.DB, id);
+  const publicId = parsePublicId(params.id, 'page');
+  const existing = publicId ? await getPageByPublicId(env.DB, publicId) : null;
   if (!existing) return new Response('Not found', { status: 404 });
+  const id = existing.id;
 
   const form = await request.formData();
 
@@ -24,7 +25,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     return redirect('/admin/pages', 303);
   }
 
-  const back = (query: string) => redirect(`/admin/pages/${id}/edit${query}`, 303);
+  const back = (query: string) => redirect(`/admin/pages/${publicId}/edit${query}`, 303);
 
   const parsed = parsePageForm(form);
   if ('error' in parsed) return back(`?error=${encodeURIComponent(parsed.error)}`);

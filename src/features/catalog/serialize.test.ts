@@ -4,6 +4,7 @@ import type { Product } from '../products/db';
 
 const base: Product = {
   id: 4,
+  public_id: 'prod_k7m2qx8vn6',
   name: 'Canvas Tote Bag',
   slug: 'canvas-tote-bag',
   description: 'Heavyweight cotton canvas tote.',
@@ -24,7 +25,7 @@ describe('toCatalogProduct', () => {
   it('builds the public shape with absolute urls', () => {
     const c = toCatalogProduct(base, ['Apparel'], ORIGIN);
     expect(c).toMatchObject({
-      id: 4,
+      id: 'prod_k7m2qx8vn6',
       slug: 'canvas-tote-bag',
       name: 'Canvas Tote Bag',
       in_stock: true,
@@ -69,22 +70,22 @@ describe('toCatalogProduct', () => {
   it('embeds variants + extras and derives availability from variants', () => {
     const p = { ...base, stock: 0, variant_label: 'Size' }; // product row stock is irrelevant
     const variants = [
-      { id: 1, product_id: 4, label: 'S', price_cents: 2400, stock: 0, sku: 'T-S', position: 0, active: 1, image_id: null, weight_grams: null },
-      { id: 2, product_id: 4, label: 'L', price_cents: 2600, stock: 5, sku: null, position: 1, active: 1, image_id: null, weight_grams: null },
+      { id: 1, public_id: 'var_n9fx2km7qc', product_id: 4, label: 'S', price_cents: 2400, stock: 0, sku: 'T-S', position: 0, active: 1, image_id: null, weight_grams: null },
+      { id: 2, public_id: 'var_b8nr4qx7km', product_id: 4, label: 'L', price_cents: 2600, stock: 5, sku: null, position: 1, active: 1, image_id: null, weight_grams: null },
     ];
     const extras = [
-      { id: 9, product_id: 4, label: 'Gift wrap', price_delta_cents: 500, position: 0, active: 1 },
+      { id: 9, public_id: 'xtra_q3vr8jm2np', product_id: 4, label: 'Gift wrap', price_delta_cents: 500, position: 0, active: 1 },
     ];
     const c = toCatalogProduct(p, [], ORIGIN, { variants, extras });
     expect(c.variant_label).toBe('Size');
     expect(c.in_stock).toBe(true); // L is in stock
     expect(c).not.toHaveProperty('stock');
     expect(c.variants).toEqual([
-      { id: 1, label: 'S', price: { amount: 24, cents: 2400, currency: 'USD' }, in_stock: false, sku: 'T-S' },
-      { id: 2, label: 'L', price: { amount: 26, cents: 2600, currency: 'USD' }, in_stock: true, sku: null },
+      { id: 'var_n9fx2km7qc', label: 'S', price: { amount: 24, cents: 2400, currency: 'USD' }, in_stock: false, sku: 'T-S' },
+      { id: 'var_b8nr4qx7km', label: 'L', price: { amount: 26, cents: 2600, currency: 'USD' }, in_stock: true, sku: null },
     ]);
     expect(c.extras).toEqual([
-      { id: 9, label: 'Gift wrap', price_delta: { amount: 5, cents: 500, currency: 'USD' } },
+      { id: 'xtra_q3vr8jm2np', label: 'Gift wrap', price_delta: { amount: 5, cents: 500, currency: 'USD' } },
     ]);
   });
 });

@@ -31,6 +31,12 @@ export interface CreateCheckoutParams {
   cancelUrl: string;
   /** Small opaque values echoed back on the webhook (provider limits apply). */
   metadata?: Record<string, string>;
+  /**
+   * Guest access token for this checkout's /pay and /order capability URLs.
+   * Allowlisted URL positions ONLY (self-rendered pay pages, hosted success_url)
+   * — never placed in provider metadata or API fields.
+   */
+  accessToken?: string;
   /** Server-side cart snapshot for adapters that persist pending payment state. */
   orderItemsJson?: string;
   /** Show the "add promotion code" field on hosted checkout (codes live in Stripe). */

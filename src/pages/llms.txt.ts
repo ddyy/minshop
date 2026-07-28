@@ -54,7 +54,8 @@ ${categoryLines.length > 0 ? categoryLines.join('\n') : '- (no categories)'}
 ${pageLines.length > 0 ? `\n## Pages\n${pageLines.join('\n')}\n` : ''}
 ## For agents
 - [List payment methods](${origin}/api/checkout): \`GET\` → \`{ available_methods, default }\`.
-- [Create a checkout](${origin}/api/checkout): \`POST\` with \`Content-Type: application/json\`, body \`{ "items": [{ "slug": string, "quantity": number, "variant_id"?: number, "extras"?: number[] }], "method"?: string }\` → \`{ "checkout_url": string }\`. Pricing and stock are resolved server-side from \`slug\`; CORS is open for browser-based agents.
+- [Browse the catalog as JSON](${origin}/api/products): \`GET\` (\`?q=\`, \`?limit=\`, \`?offset=\`) → products with prefixed public IDs (\`id: "prod_…"\`; the detail route \`/api/products/<slug>\` adds variants \`var_…\` and extras \`xtra_…\`).
+- [Create a checkout](${origin}/api/checkout): \`POST\` with \`Content-Type: application/json\`, body \`{ "items": [{ "product_id": "prod_…", "quantity": number, "variant_id"?: "var_…", "extra_ids"?: ["xtra_…"] }], "method"?: string }\` → \`{ "checkout_url": string }\`. IDs are the catalog's prefixed public IDs; \`slug\` is accepted in place of \`product_id\` as a convenience. Numeric IDs are rejected with 400. Pricing and stock are resolved server-side; CORS is open for browser-based agents.
 - [Search the catalog](${origin}/search?q=): append a query, e.g. \`/search?q=leather\`. Keyword + semantic matching.
 - [Sitemap](${origin}/sitemap.xml): every product, category, and page URL.
 `;

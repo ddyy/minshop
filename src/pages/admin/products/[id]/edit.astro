@@ -3,7 +3,8 @@ import { env } from 'cloudflare:workers';
 import AdminLayout from '../../../../layouts/AdminLayout.astro';
 import MediaPicker from '../../../../features/media/MediaPicker.astro';
 import ProductForm from '../../../../features/products/ProductForm.astro';
-import { getProduct, listProductImages } from '../../../../features/products/db';
+import { getProductByPublicId, listProductImages } from '../../../../features/products/db';
+import { parsePublicId } from '../../../../features/ids/publicId';
 import { listVariants, listExtras } from '../../../../features/products/variants';
 import {
   listCategories,
@@ -17,8 +18,9 @@ import { zonesRequireWeight } from '../../../../features/shipping/calculator';
 import { formatWeightValue } from '../../../../features/shipping/weight';
 import { shippingFor } from '../../../../features/shipping/effective';
 
-const id = Number(Astro.params.id);
-const product = Number.isFinite(id) ? await getProduct(env.DB, id) : null;
+// The route param is the prod_ public ID; numeric row ids are not accepted.
+const publicId = parsePublicId(Astro.params.id, 'product');
+const product = publicId ? await getProductByPublicId(env.DB, publicId) : null;
 
 if (!product) {
   return new Response('Not found', { status: 404 });
@@ -71,7 +73,7 @@ const weightRequired = zonesRequireWeight(shippingFor(Astro.locals.settings).con
     </a>
   </div>
   <ProductForm
-    action={`/api/admin/products/${product.id}`}
+    action={`/api/admin/products/${product.public_id}`}
     submitLabel="Save changes"
     product={product}
     categoryOptions={categoryOptions}
@@ -91,7 +93,7 @@ const weightRequired = zonesRequireWeight(shippingFor(Astro.locals.settings).con
 
     <form
       method="POST"
-      action={`/api/admin/products/${product.id}/images`}
+      action={`/api/admin/products/${product.public_id}/images`}
       enctype="multipart/form-data"
       class="mb-6 flex flex-wrap items-center gap-3"
     >
@@ -118,7 +120,7 @@ const weightRequired = zonesRequireWeight(shippingFor(Astro.locals.settings).con
       <MediaPicker id="product-gallery" label="Choose from Media" />
       <form
         method="POST"
-        action={`/api/admin/products/${product.id}/images`}
+        action={`/api/admin/products/${product.public_id}/images`}
         data-attach-form
         class="hidden"
       >
@@ -129,9 +131,9 @@ const weightRequired = zonesRequireWeight(shippingFor(Astro.locals.settings).con
 
     {
       images.length > 0 && (
-        <ul data-gallery data-action={`/api/admin/products/${product.id}/images`} class="mb-6">
+        <ul data-gallery data-action={`/api/admin/products/${product.public_id}/images`} class="mb-6">
           {imageViews.map((img) => (
-            <li data-image-id={img.id} class="flex items-center gap-4 py-3">
+            <li data-image-id={img.public_id} class="flex items-center gap-4 py-3">
               {/* Drag handle — the grip icon + grab cursor signal the row is draggable. */}
               <span
                 data-handle
@@ -151,18 +153,18 @@ const weightRequired = zonesRequireWeight(shippingFor(Astro.locals.settings).con
               {/* ↑/↓ stacked vertically in a fixed slot — a hidden arrow keeps its
                   space (visibility, not display) so the stack stays aligned on every row. */}
               <div class="flex shrink-0 flex-col text-base leading-none text-gray-400">
-                <form data-js-action="up" method="POST" action={`/api/admin/products/${product.id}/images`}>
+                <form data-js-action="up" method="POST" action={`/api/admin/products/${product.public_id}/images`}>
                   <input type="hidden" name="_action" value="move" />
                   <input type="hidden" name="direction" value="up" />
-                  <input type="hidden" name="image_id" value={img.id} />
+                  <input type="hidden" name="image_id" value={img.public_id} />
                   <button type="submit" data-up aria-label="Move up" class="block px-1 hover:text-brand">
                     ↑
                   </button>
                 </form>
-                <form data-js-action="down" method="POST" action={`/api/admin/products/${product.id}/images`}>
+                <form data-js-action="down" method="POST" action={`/api/admin/products/${product.public_id}/images`}>
                   <input type="hidden" name="_action" value="move" />
                   <input type="hidden" name="direction" value="down" />
-                  <input type="hidden" name="image_id" value={img.id} />
+                  <input type="hidden" name="image_id" value={img.public_id} />
                   <button type="submit" data-down aria-label="Move down" class="block px-1 hover:text-brand">
                     ↓
                   </button>
@@ -191,11 +193,11 @@ const weightRequired = zonesRequireWeight(shippingFor(Astro.locals.settings).con
               <form
                 data-js-action="alt"
                 method="POST"
-                action={`/api/admin/products/${product.id}/images`}
+                action={`/api/admin/products/${product.public_id}/images`}
                 class="flex flex-1 items-center gap-2"
               >
                 <input type="hidden" name="_action" value="alt" />
-                <input type="hidden" name="image_id" value={img.id} />
+                <input type="hidden" name="image_id" value={img.public_id} />
                 <input
                   type="text"
                   name="alt"
@@ -213,16 +215,16 @@ const weightRequired = zonesRequireWeight(shippingFor(Astro.locals.settings).con
               </form>
 
               <div class="flex shrink-0 items-center gap-3 text-xs uppercase tracking-widest">
-                <form data-js-action="primary" method="POST" action={`/api/admin/products/${product.id}/images`}>
+                <form data-js-action="primary" method="POST" action={`/api/admin/products/${product.public_id}/images`}>
                   <input type="hidden" name="_action" value="primary" />
-                  <input type="hidden" name="image_id" value={img.id} />
+                  <input type="hidden" name="image_id" value={img.public_id} />
                   <button type="submit" data-make-primary class="text-accent hover:underline">
                     Make primary
                   </button>
                 </form>
-                <form data-js-action="delete" method="POST" action={`/api/admin/products/${product.id}/images`}>
+                <form data-js-action="delete" method="POST" action={`/api/admin/products/${product.public_id}/images`}>
                   <input type="hidden" name="_action" value="delete" />
-                  <input type="hidden" name="image_id" value={img.id} />
+                  <input type="hidden" name="image_id" value={img.public_id} />
                   <button type="submit" class="text-red-600 hover:underline">
                     Delete
                   </button>
@@ -269,14 +271,15 @@ const weightRequired = zonesRequireWeight(shippingFor(Astro.locals.settings).con
       {
         [...variants, null].map((v) => (
           <div data-variant-row data-blank={v ? undefined : ''} class="flex flex-wrap items-end gap-3 border-b border-line pb-3">
-            <input form="product-form" type="hidden" name="v_id" value={v ? v.id : ''} />
+            <input form="product-form" type="hidden" name="v_id" value={v?.public_id ?? ''} />
             {/* Photo (left): a thumbnail button that opens a palette of gallery
                 images. The hidden field carries the chosen id (array-aligned). */}
             {(() => {
               const sel = v?.image_id ? imageById.get(v.image_id) : null;
               return (
                 <div class="relative">
-                  <input form="product-form" type="hidden" name="v_image" value={v?.image_id ?? ''} data-image-input />
+                  {/* pimg_ public ID of the chosen gallery photo ('' = main). */}
+                  <input form="product-form" type="hidden" name="v_image" value={sel?.public_id ?? ''} data-image-input />
                   <button
                     type="button"
                     data-photo-trigger
@@ -324,7 +327,7 @@ const weightRequired = zonesRequireWeight(shippingFor(Astro.locals.settings).con
                       {imageViews.map((img, idx) => (
                         <button
                           type="button"
-                          data-thumb={img.id}
+                          data-thumb={img.public_id}
                           data-src={img.sources.src}
                           aria-pressed={!!v && img.id === v.image_id ? 'true' : 'false'}
                           title={img.alt?.trim() || `Image ${idx + 1}`}
@@ -414,7 +417,7 @@ const weightRequired = zonesRequireWeight(shippingFor(Astro.locals.settings).con
                 carry a hidden checkbox the link checks (→ deleted on save); new
                 rows are just dropped from the DOM. */}
             {v && (
-              <input form="product-form" type="checkbox" name="v_remove" value={v.id} class="hidden" data-remove-mark />
+              <input form="product-form" type="checkbox" name="v_remove" value={v.public_id} class="hidden" data-remove-mark />
             )}
             <button
               type="button"
@@ -441,7 +444,7 @@ const weightRequired = zonesRequireWeight(shippingFor(Astro.locals.settings).con
       {
         [...extras, null].map((ex) => (
           <div data-extra-row data-blank={ex ? undefined : ''} class="flex flex-wrap items-end gap-3 border-b border-line pb-3">
-            <input form="product-form" type="hidden" name="e_id" value={ex ? ex.id : ''} />
+            <input form="product-form" type="hidden" name="e_id" value={ex?.public_id ?? ''} />
             <label class="flex flex-col gap-1 text-[10px] uppercase tracking-widest text-gray-400">
               Label
               <input
@@ -467,7 +470,7 @@ const weightRequired = zonesRequireWeight(shippingFor(Astro.locals.settings).con
               />
             </label>
             {ex && (
-              <input form="product-form" type="checkbox" name="e_remove" value={ex.id} class="hidden" data-remove-mark />
+              <input form="product-form" type="checkbox" name="e_remove" value={ex.public_id} class="hidden" data-remove-mark />
             )}
             <button
               type="button"
@@ -710,11 +713,11 @@ const weightRequired = zonesRequireWeight(shippingFor(Astro.locals.settings).con
   // itself so the same dialog can serve the logo and the Markdown editor, which
   // do something different with the same event.
   document.addEventListener('media:selected', (event) => {
-    const detail = (event as CustomEvent).detail as { id: number };
+    const detail = (event as CustomEvent).detail as { id: string };
     const form = document.querySelector<HTMLFormElement>('[data-attach-form]');
     const field = form?.querySelector<HTMLInputElement>('[data-attach-media-id]');
     if (!form || !field) return;
-    field.value = String(detail.id);
+    field.value = detail.id ?? '';
     form.submit();
   });
 </script>

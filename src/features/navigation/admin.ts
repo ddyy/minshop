@@ -14,6 +14,8 @@ export const PICKER_LIMIT = 50;
 
 export interface TargetOption {
   id: number;
+  /** Prefixed public ID — what the admin picker submits; null only pre-backfill. */
+  public_id: string | null;
   name: string;
 }
 
@@ -60,7 +62,7 @@ export async function targetChoices(
   const filter = q ? `AND ${source.name} LIKE ?1` : '';
   const pattern = `%${q.slice(0, 60)}%`;
 
-  const listSql = `SELECT id, ${source.name} AS name FROM ${source.table}
+  const listSql = `SELECT id, public_id, ${source.name} AS name FROM ${source.table}
                     WHERE ${source.where} ${filter}
                     ORDER BY ${source.name} COLLATE NOCASE, id
                     LIMIT ${PICKER_LIMIT}`;

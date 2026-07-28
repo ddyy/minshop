@@ -18,6 +18,8 @@ import { getConfig } from '../../config';
 export interface MintLightningOrderInput {
   origin: string;
   publicId: string;
+  /** Guest access token — addresses the customer-facing /pay URL. */
+  accessToken?: string | null;
   currency: string;
   subtotalCents: number;
   shippingCents?: number;
@@ -81,7 +83,7 @@ export async function mintLightningOrder(
   });
 
   return {
-    payUrl: `${input.origin}/pay/${input.publicId}`,
+    payUrl: `${input.origin}/pay/${input.accessToken ?? input.publicId}`,
     bolt11: invoice.bolt11,
     amountSat,
     paymentHash: invoice.paymentHash,
@@ -112,6 +114,7 @@ export function createLightningProvider(
       const minted = await mintLightningOrder(db, backend, {
         origin,
         publicId,
+        accessToken: params.accessToken ?? null,
         currency,
         subtotalCents,
         itemsJson: params.orderItemsJson ?? null,

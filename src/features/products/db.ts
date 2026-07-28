@@ -1,7 +1,9 @@
 import type { D1Database } from '@cloudflare/workers-types';
+import { withPublicId } from '../ids/publicId.ts';
 
 export interface Product {
   id: number;
+  public_id: string | null;
   name: string;
   slug: string;
   description: string | null;
@@ -164,6 +166,20 @@ export async function getProductsByIds(db: D1Database, ids: number[]): Promise<P
   return ids.map((id) => byId.get(id)).filter((p): p is Product => p !== undefined);
 }
 
+/** Active products for many public IDs in one cart-resolution read. */
+export async function getProductsByPublicIds(
+  db: D1Database,
+  publicIds: string[],
+): Promise<Product[]> {
+  if (publicIds.length === 0) return [];
+  const placeholders = publicIds.map(() => '?').join(',');
+  const { results } = await db
+    .prepare(`SELECT * FROM products WHERE public_id IN (${placeholders}) AND active = 1`)
+    .bind(...publicIds)
+    .all<Product>();
+  return results ?? [];
+}
+
 export async function getProduct(db: D1Database, id: number): Promise<Product | null> {
   return db.prepare('SELECT * FROM products WHERE id = ?').bind(id).first<Product>();
 }
@@ -190,6 +206,7 @@ export interface ProductImageRow {
   image_key: string;
   position: number;
   alt: string | null;
+  public_id: string | null;
 }
 
 /** All gallery images for a product, primary-ish first (by position). */
@@ -214,10 +231,12 @@ export async function addProductImage(
     .prepare('SELECT COALESCE(MAX(position), -1) AS m FROM product_images WHERE product_id = ?')
     .bind(productId)
     .first<{ m: number }>();
-  await db
-    .prepare('INSERT INTO product_images (product_id, image_key, position) VALUES (?, ?, ?)')
-    .bind(productId, imageKey, (row?.m ?? -1) + 1)
-    .run();
+  await withPublicId('productImage', (publicId) =>
+    db
+      .prepare('INSERT INTO product_images (product_id, image_key, position, public_id) VALUES (?, ?, ?, ?)')
+      .bind(productId, imageKey, (row?.m ?? -1) + 1, publicId)
+      .run(),
+  );
 }
 
 export async function getProductImage(
@@ -336,6 +355,11 @@ export async function makeImagePrimary(
   await syncPrimaryImage(db, productId);
 }
 
+/** Product by its prefixed public ID (boundary resolution; null if missing). */
+export async function getProductByPublicId(db: D1Database, publicId: string): Promise<Product | null> {
+  return db.prepare('SELECT * FROM products WHERE public_id = ?').bind(publicId).first<Product>();
+}
+
 /** Single product by public slug, or null if missing. */
 export async function getProductBySlug(db: D1Database, slug: string): Promise<Product | null> {
   return db.prepare('SELECT * FROM products WHERE slug = ?').bind(slug).first<Product>();
@@ -343,15 +367,17 @@ export async function getProductBySlug(db: D1Database, slug: string): Promise<Pr
 
 /** Insert a product and return its new id (needed for category links). */
 export async function createProduct(db: D1Database, p: ProductInput): Promise<number> {
-  const row = await db
-    .prepare(
-      `INSERT INTO products (name, slug, description, price_cents, currency, image_key, stock, active, weight_grams, requires_shipping)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       RETURNING id`,
-    )
-    .bind(p.name, p.slug, p.description, p.price_cents, p.currency, p.image_key, p.stock, p.active, p.weight_grams, p.requires_shipping)
-    .first<{ id: number }>();
-  return row!.id;
+  return withPublicId('product', async (publicId) => {
+    const row = await db
+      .prepare(
+        `INSERT INTO products (name, slug, description, price_cents, currency, image_key, stock, active, weight_grams, requires_shipping, public_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         RETURNING id`,
+      )
+      .bind(p.name, p.slug, p.description, p.price_cents, p.currency, p.image_key, p.stock, p.active, p.weight_grams, p.requires_shipping, publicId)
+      .first<{ id: number }>();
+    return row!.id;
+  });
 }
 
 export async function updateProduct(db: D1Database, id: number, p: ProductInput): Promise<void> {

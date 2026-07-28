@@ -5,6 +5,10 @@ import {
   markNotificationSent as markSent,
   markNotificationSkipped as markSkipped,
   markNotificationFailed as markFailed,
+  listUndeliveredKinds,
+  isGuestLinkReissueKind,
+  reissueGeneration,
+  type NotificationKind,
 } from './outboxStore';
 
 export { NOTIFICATION_KINDS, type NotificationKind } from './outboxStore';
@@ -13,6 +17,8 @@ import { getStoreSettings, type StoreSettings } from '../settings/db';
 import { getOrder, listOrderItemsWithImages } from '../orders/db';
 import { getEmailProvider } from './index';
 import { orderConfirmationEmail, orderNotificationEmail } from './orderConfirmation';
+import { guestLinkReissueEmail } from './guestLinkReissue';
+import { guestOrderUrl, getGuestAccess, sweepAbandonedGuestAccess } from '../orders/guestAccess.ts';
 import { shouldSendCustomerOrderEmail } from './orderPolicy';
 
 /**
@@ -54,12 +60,29 @@ export async function deliverOrderNotifications(
   let order: Awaited<ReturnType<typeof getOrder>> | undefined;
   let items: Awaited<ReturnType<typeof listOrderItemsWithImages>> | undefined;
 
-  for (const kind of NOTIFICATION_KINDS) {
+  // The order's own undelivered rows, not the fixed kind list: reissue rows
+  // carry versioned kinds (guest-link-reissue:<generation>) that a fixed list
+  // could never enumerate. The claim below still gates every one of them.
+  const undelivered = await listUndeliveredKinds(db, orderId);
+  const kinds = undelivered.filter(
+    (k): k is NotificationKind =>
+      (NOTIFICATION_KINDS as readonly string[]).includes(k) || isGuestLinkReissueKind(k),
+  );
+
+  for (const kind of kinds) {
     const attempts = await claim(db, orderId, kind);
     if (attempts == null) continue;
     try {
       const emailer = await getEmailProvider(s);
       if (!emailer) {
+        if (isGuestLinkReissueKind(kind)) {
+          // A reissue already killed the old links — its email is a CREDENTIAL
+          // delivery, so a temporarily unconfigured provider is a retryable
+          // failure (sweep picks it up), never a terminal skip. Reissue also
+          // refuses up front when email is off, so this is the rare race.
+          await markFailed(db, orderId, kind, attempts, 'Email provider unavailable');
+          continue;
+        }
         // Email is off for this store: not-applicable, not a failure.
         await markSkipped(db, orderId, kind, attempts);
         continue;
@@ -73,6 +96,30 @@ export async function deliverOrderNotifications(
       }
       const notifyTo = s.emailNotifyTo || getConfig().email.notifyTo;
       const storeName = s.storeName || getConfig().storeName;
+
+      // Guest-link reissue: a stale event — one whose generation no longer
+      // matches order_guest_access.generation because a newer reissue already
+      // replaced that token — is SKIPPED, never sent: emailing it would hand
+      // the customer a link the newer reissue already invalidated.
+      if (isGuestLinkReissueKind(kind)) {
+        const access = order.public_id ? await getGuestAccess(db, order.public_id) : null;
+        const applicable =
+          Boolean(order.email) &&
+          shouldSendCustomerOrderEmail(order.payment_method) &&
+          access !== null &&
+          access.generation === reissueGeneration(kind);
+        if (!applicable) {
+          await markSkipped(db, orderId, kind, attempts);
+          continue;
+        }
+        // Customer email is an allowlisted token position (the ONLY delivery
+        // path for a reissued credential — admin output never shows it).
+        const msg = guestLinkReissueEmail(order, storeName, `${origin}/order/${access.access_token}`);
+        await emailer.send({ ...msg, idempotencyKey: `${kind}/${order.public_id ?? orderId}` });
+        await markSent(db, orderId, kind, attempts);
+        continue;
+      }
+
       const applicable =
         kind === 'customer-receipt'
           ? Boolean(order.email) && shouldSendCustomerOrderEmail(order.payment_method)
@@ -84,7 +131,16 @@ export async function deliverOrderNotifications(
       items ??= await listOrderItemsWithImages(db, orderId);
       const msg =
         kind === 'customer-receipt'
-          ? orderConfirmationEmail(order, items, origin, storeName, s.imageDelivery)
+          ? orderConfirmationEmail(
+              order,
+              items,
+              origin,
+              storeName,
+              s.imageDelivery,
+              // Tokenized guest link — customer email is an allowlisted token
+              // position. The owner notification links to admin instead.
+              await guestOrderUrl(db, order.public_id, origin),
+            )
           : orderNotificationEmail(order, items, notifyTo!, origin, storeName, s.imageDelivery);
       // Keyed on public_id, not the row id: D1 ids restart per store, so two
       // stores sharing one Resend account would both mint customer-receipt/1 —
@@ -94,7 +150,7 @@ export async function deliverOrderNotifications(
       await emailer.send({ ...msg, idempotencyKey: `${kind}/${order.public_id ?? orderId}` });
       await markSent(db, orderId, kind, attempts);
     } catch (err) {
-      console.error(`Order notification ${kind}/${orderId} failed:`, err);
+      console.error(`Order notification ${kind}/${order?.public_id ?? '(unresolved order)'} failed:`, err);
       await markFailed(db, orderId, kind, attempts, err);
     }
   }
@@ -107,6 +163,13 @@ export async function deliverOrderNotifications(
  * so it is deliberately tiny — a backlog drains a little on every sale.
  */
 export async function sweepStaleNotifications(db: D1Database, origin: string): Promise<void> {
+  // Piggyback the guest-credential reconciliation here too: same cadence, same
+  // bounded-work philosophy, and this is the only recurring hook the Worker has.
+  try {
+    await sweepAbandonedGuestAccess(db);
+  } catch (err) {
+    console.error('Guest-access sweep failed:', err);
+  }
   const { results } = await db
     .prepare(
       `SELECT DISTINCT order_id FROM order_notifications

@@ -2,8 +2,8 @@ import type { D1Database } from '@cloudflare/workers-types';
 
 /** Everywhere one media item is currently used. Empty everywhere = deletable. */
 export interface MediaUsage {
-  products: Array<{ id: number; name: string }>;
-  pages: Array<{ id: number; title: string }>;
+  products: Array<{ id: number; public_id: string | null; name: string }>;
+  pages: Array<{ id: number; public_id: string | null; title: string }>;
   logo: boolean;
 }
 
@@ -26,7 +26,7 @@ export function isUnused(usage: MediaUsage): boolean {
  * once per media item rather than once per row.
  */
 const PRODUCT_USAGE_SQL = `
-  SELECT DISTINCT m.id AS media_id, p.id AS product_id, p.name AS product_name
+  SELECT DISTINCT m.id AS media_id, p.id AS product_id, p.public_id AS product_public_id, p.name AS product_name
     FROM media m
     JOIN (
       SELECT product_id, image_key FROM product_images
@@ -38,7 +38,7 @@ const PRODUCT_USAGE_SQL = `
    ORDER BY p.name`;
 
 const PAGE_USAGE_SQL = `
-  SELECT pm.media_id AS media_id, pg.id AS page_id, pg.title AS page_title
+  SELECT pm.media_id AS media_id, pg.id AS page_id, pg.public_id AS page_public_id, pg.title AS page_title
     FROM page_media pm
     JOIN pages pg ON pg.id = pm.page_id
    WHERE pm.media_id IN (%IDS%)
@@ -67,16 +67,22 @@ export async function mediaUsageForIds(
   for (const row of (products.results ?? []) as Array<{
     media_id: number;
     product_id: number;
+    product_public_id: string | null;
     product_name: string;
   }>) {
-    usage.get(row.media_id)?.products.push({ id: row.product_id, name: row.product_name });
+    usage
+      .get(row.media_id)
+      ?.products.push({ id: row.product_id, public_id: row.product_public_id, name: row.product_name });
   }
   for (const row of (pages.results ?? []) as Array<{
     media_id: number;
     page_id: number;
+    page_public_id: string | null;
     page_title: string;
   }>) {
-    usage.get(row.media_id)?.pages.push({ id: row.page_id, title: row.page_title });
+    usage
+      .get(row.media_id)
+      ?.pages.push({ id: row.page_id, public_id: row.page_public_id, title: row.page_title });
   }
 
   const logoKey = ((logo.results ?? []) as Array<{ value: string }>)[0]?.value;
@@ -116,13 +122,13 @@ export interface UsageLink {
 export function usageLinks(usage: MediaUsage): UsageLink[] {
   return [
     ...usage.products.map((p) => ({
-      href: `/admin/products/${p.id}/edit`,
+      href: `/admin/products/${p.public_id}/edit`,
       label: p.name,
       kind: 'product' as const,
       title: `Edit ${p.name}`,
     })),
     ...usage.pages.map((p) => ({
-      href: `/admin/pages/${p.id}/edit`,
+      href: `/admin/pages/${p.public_id}/edit`,
       label: p.title,
       kind: 'page' as const,
       title: `Edit the ${p.title} page`,

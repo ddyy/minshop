@@ -4,8 +4,13 @@ import { env } from 'cloudflare:workers';
 import Layout from '../layouts/Layout.astro';
 import { getConfig, formatPrice } from '../config';
 import { readCart, resolveCart } from '../features/cart/cart';
-import { getProduct, type Product } from '../features/products/db';
-import { listVariants, getExtrasByIds, type ProductVariant } from '../features/products/variants';
+import { getProductByPublicId, type Product } from '../features/products/db';
+import { listVariants, getExtrasByPublicIds, type ProductVariant } from '../features/products/variants';
+import { parsePublicId } from '../features/ids/publicId';
+import {
+  claimOrderIdentity,
+  deleteGuestAccessIfUnsettled,
+} from '../features/orders/guestAccess';
 import { lineUnitPriceCents } from '../features/cart/key';
 import { quoteShipping, allowedCountries, hasCatchAllZone } from '../features/shipping/calculator';
 import { countryOptions, countryName, isCountryCode } from '../features/shipping/countries';
@@ -45,16 +50,22 @@ const rail: InAppRail = (IN_APP_RAILS as readonly string[]).includes(requestedRa
 if (!Astro.locals.settings || !isMethodAvailable(rail, Astro.locals.settings))
   return Astro.redirect('/cart', 303);
 
-// Order lines: buy-now (product_id [+ variant/extras]) or the whole cart.
-const productIdRaw = fld('product_id') || (Astro.url.searchParams.get('product_id') ?? '');
-const productId = productIdRaw ? Number(productIdRaw) : 0;
+// Order lines: buy-now (product_id [+ variant/extras]) or the whole cart. All
+// selectors arrive as prefixed public IDs (prod_/var_/xtra_ — api/checkout.ts
+// routes here with them); numeric row IDs are never accepted.
+const productPublicId = parsePublicId(
+  fld('product_id') || (Astro.url.searchParams.get('product_id') ?? ''),
+  'product',
+);
 // Express buy-now carries variant + extras — in the query on the first hop, then
 // as hidden fields across the address → shipping steps.
-const buyNowVariantId =
-  Number(fld('variant_id') || Astro.url.searchParams.get('variant_id') || '0') || 0;
+const buyNowVariantId = parsePublicId(
+  fld('variant_id') || Astro.url.searchParams.get('variant_id') || '',
+  'variant',
+);
 const buyNowExtraIds = (isPost ? form!.getAll('extra') : Astro.url.searchParams.getAll('extra'))
-  .map((e) => Number(e))
-  .filter((n) => Number.isInteger(n) && n > 0);
+  .map((e) => parsePublicId(e, 'extra'))
+  .filter((x): x is string => x !== null);
 
 interface CheckoutLine {
   product: Product;
@@ -67,12 +78,17 @@ interface CheckoutLine {
   variant: ProductVariant | null;
 }
 let lines: CheckoutLine[] = [];
-if (Number.isInteger(productId) && productId > 0) {
-  const product = await getProduct(env.DB, productId);
+if (productPublicId) {
+  const product = await getProductByPublicId(env.DB, productPublicId);
   if (product && product.active) {
-    const variants = await listVariants(env.DB, productId);
-    const variant = variants.length > 0 ? (variants.find((v) => v.id === buyNowVariantId) ?? null) : null;
-    const extras = buyNowExtraIds.length ? await getExtrasByIds(env.DB, productId, buyNowExtraIds) : [];
+    const variants = await listVariants(env.DB, product.id);
+    const variant =
+      variants.length > 0 && buyNowVariantId
+        ? (variants.find((v) => v.public_id === buyNowVariantId) ?? null)
+        : null;
+    const extras = buyNowExtraIds.length
+      ? await getExtrasByPublicIds(env.DB, product.id, buyNowExtraIds)
+      : [];
     lines = [
       {
         product,
@@ -126,15 +142,15 @@ const destinationChoices = shipsAnywhere
 // Weight (and whether shipping applies at all) always comes from the current D1
 // rows resolved above — never from the posted form.
 const shipment = shipmentWeightFor(lines);
-const carry = Number.isInteger(productId) && productId > 0 ? String(productId) : '';
-const carryVariantId = buyNowVariantId > 0 ? String(buyNowVariantId) : '';
+const carry = productPublicId ?? '';
+const carryVariantId = buyNowVariantId ?? '';
 const carryExtraIds = buyNowExtraIds;
 
 const editAddressHref = (() => {
   const params = new URLSearchParams({ method: rail });
   if (carry) params.set('product_id', carry);
   if (carryVariantId) params.set('variant_id', carryVariantId);
-  for (const id of carryExtraIds) params.append('extra', String(id));
+  for (const id of carryExtraIds) params.append('extra', id);
   return `/checkout?${params}`;
 })();
 const RAIL_LABEL: Record<InAppRail, string> = {
@@ -206,7 +222,9 @@ if (submitted) {
             event: 'shipping_quote_blocked',
             reason: 'missing_weight',
             country: addr.country.toUpperCase(),
-            product_ids: quote.missingWeight.map((m) => m.productId),
+            products: quote.missingWeight.map(
+              (m) => lines.find((l) => l.product.id === m.productId)?.product.public_id ?? m.name,
+            ),
           }),
         );
         errors.push(
@@ -227,7 +245,11 @@ if (submitted) {
           errors.push('Please choose a shipping option.');
         } else {
           // Finalize: mint the invoice for subtotal + the chosen shipping.
-          const publicId = crypto.randomUUID();
+          // Claim the order's public identity + guest credential BEFORE the
+          // provider handoff: the ord_ id ties reservation → pending payment →
+          // settled order, and the access token is the only thing guest URLs
+          // carry. Reservations keep using the ord_ public id.
+          const { publicId, accessToken } = await claimOrderIdentity(env.DB);
           const reservedItems: ReservationItem[] = lines.map((line) => ({
             productId: line.product.id,
             variantId: line.variantId,
@@ -247,6 +269,7 @@ if (submitted) {
               rail,
             ));
           if (!reserved) {
+            await deleteGuestAccessIfUnsettled(env.DB, publicId);
             errors.push('Some inventory just sold out — please review your cart.');
           } else {
             const shippingAddress = {
@@ -274,10 +297,12 @@ if (submitted) {
                     currency,
                     quantity: l.qty,
                   })),
-                  successUrl: `${Astro.url.origin}/order/${publicId}`,
+                  successUrl: `${Astro.url.origin}/order/${accessToken}`,
                   cancelUrl: `${Astro.url.origin}/cart`,
                   orderItemsJson: itemsJson,
+                  // Provider metadata NEVER carries the access token.
                   metadata: { public_id: publicId, reservation_id: publicId },
+                  accessToken,
                   selectedShipping: {
                     label: chosen.label,
                     amountCents: chosen.amountCents,
@@ -291,6 +316,7 @@ if (submitted) {
               const minted = await mintLightningOrder(env.DB, await getLightningBackend(), {
                 origin: Astro.url.origin,
                 publicId,
+                accessToken,
                 currency,
                 subtotalCents,
                 shippingCents: chosen.amountCents,
@@ -305,9 +331,11 @@ if (submitted) {
               return Astro.redirect(minted.payUrl, 303);
             } catch (error) {
               // The Lightning node (e.g. LNbits) can be briefly unreachable. Free
-              // the held stock and show a retryable message instead of a 500, so
-              // the shopper can try again or pick another method.
+              // the whole claim — held stock AND the guest credential — and show
+              // a retryable message instead of a 500, so the shopper can try
+              // again or pick another method.
               await releaseInventoryReservation(env.DB, publicId);
+              await deleteGuestAccessIfUnsettled(env.DB, publicId);
               console.error(
                 JSON.stringify({
                   event: rail === 'lightning' ? 'lightning_invoice_failed' : 'checkout_create_failed',

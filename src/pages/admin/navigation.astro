@@ -191,7 +191,7 @@ const locations: { key: MenuLocation; title: string; note: string }[] = [
                 </option>
               )}
               {choices[t].options.map((o) => (
-                <option value={o.id}>{o.name}</option>
+                <option value={o.public_id}>{o.name}</option>
               ))}
             </select>
           </label>
@@ -279,7 +279,7 @@ const locations: { key: MenuLocation; title: string; note: string }[] = [
               {menus[loc.key].map((item, index) => {
                 const reason = unavailableReason(item);
                 return (
-                  <li data-menu-item={item.id} class="flex min-w-0 items-start gap-3 py-3">
+                  <li data-menu-item={item.publicId} class="flex min-w-0 items-start gap-3 py-3">
                     {/* Grip + grab cursor signal the row is draggable, matching the
                         product gallery. aria-hidden because Up/Down are the
                         accessible, no-JS way to do the same thing. */}
@@ -327,16 +327,16 @@ const locations: { key: MenuLocation; title: string; note: string }[] = [
                           class="mt-2 rounded-md bg-gray-50 p-2"
                         >
                           <input type="hidden" name="_action" value="label" />
-                          <input type="hidden" name="id" value={item.id} />
+                          <input type="hidden" name="id" value={item.publicId} />
                           <label
-                            for={`label-${item.id}`}
+                            for={`label-${item.publicId}`}
                             class="block text-[10px] uppercase tracking-wider text-gray-500"
                           >
                             Link text
                           </label>
                           <div class="mt-1 flex gap-2">
                             <input
-                              id={`label-${item.id}`}
+                              id={`label-${item.publicId}`}
                               type="text"
                               name="label"
                               value={item.label ?? ''}
@@ -364,7 +364,7 @@ const locations: { key: MenuLocation; title: string; note: string }[] = [
                           The gallery's drag pattern can be layered on later. */}
                       <form method="POST" action="/api/admin/navigation">
                         <input type="hidden" name="_action" value="move" />
-                        <input type="hidden" name="id" value={item.id} />
+                        <input type="hidden" name="id" value={item.publicId} />
                         <input type="hidden" name="direction" value="up" />
                         <button
                           type="submit"
@@ -377,7 +377,7 @@ const locations: { key: MenuLocation; title: string; note: string }[] = [
                       </form>
                       <form method="POST" action="/api/admin/navigation">
                         <input type="hidden" name="_action" value="move" />
-                        <input type="hidden" name="id" value={item.id} />
+                        <input type="hidden" name="id" value={item.publicId} />
                         <input type="hidden" name="direction" value="down" />
                         <button
                           type="submit"
@@ -397,7 +397,7 @@ const locations: { key: MenuLocation; title: string; note: string }[] = [
                         onsubmit={`return confirm('Remove ${(item.text || 'this item').replace(/'/g, "\\'")} from the ${loc.title.toLowerCase()} menu?')`}
                       >
                         <input type="hidden" name="_action" value="remove" />
-                        <input type="hidden" name="id" value={item.id} />
+                        <input type="hidden" name="id" value={item.publicId} />
                         <button
                           type="submit"
                           aria-label={`Remove ${item.text || 'item'}`}

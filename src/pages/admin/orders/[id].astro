@@ -2,20 +2,25 @@
 import { env } from 'cloudflare:workers';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { formatPrice, formatDate, getConfig } from '../../../config';
-import { getOrder, listOrderItems } from '../../../features/orders/db';
-import { orderNumber } from '../../../features/orders/number';
+import { getOrderByPublicId, listOrderItemsWithImages } from '../../../features/orders/db';
+import { orderReference } from '../../../features/orders/number';
 import { CARRIERS, carrierName, trackingUrl } from '../../../features/orders/tracking';
+import { shouldSendCustomerOrderEmail } from '../../../features/email/orderPolicy';
 import RefundPanel from '../../../features/refunds/RefundPanel.astro';
 import { formatWeight } from '../../../features/shipping/weight';
+import { parseOrderOrLegacyPublicId } from '../../../features/ids/publicId';
 
-const id = Number(Astro.params.id);
-const order = Number.isFinite(id) ? await getOrder(env.DB, id) : null;
+// The route param is the order public ID — ord_ or a preserved legacy shape
+// (hex32/UUID). Numeric row ids are not accepted.
+const publicId = parseOrderOrLegacyPublicId(Astro.params.id, 'order');
+const order = publicId ? await getOrderByPublicId(env.DB, publicId) : null;
 
 if (!order) {
   return new Response('Not found', { status: 404 });
 }
 
-const num = orderNumber(order.id, getConfig().orderNumber);
+// The token portion of ord_ IDs; legacy orders keep their calculated number.
+const num = orderReference(order.public_id, order.id, getConfig().orderNumber);
 // Human label for the rail the order was paid on (NULL = legacy/unknown).
 const PAYMENT_LABELS: Record<string, string> = {
   stripe: 'Card (Stripe)',
@@ -27,10 +32,17 @@ const paymentLabel = order.payment_method
   ? (PAYMENT_LABELS[order.payment_method] ?? order.payment_method)
   : '—';
 const timeZone = Astro.locals.settings?.timeZone ?? getConfig().timeZone;
-const items = await listOrderItems(env.DB, order.id);
+const items = await listOrderItemsWithImages(env.DB, order.id);
 const fulfilled = order.fulfillment_status === 'fulfilled';
 const trackUrl = trackingUrl(order.tracking_carrier, order.tracking_number);
 const error = Astro.url.searchParams.get('error');
+const noticeMsg = Astro.url.searchParams.get('notice');
+// Reissue is offered only where it can work: a settled ord_ order with an
+// email on a rail that sends customer email. The token itself is never shown.
+const canReissue =
+  !!order.email &&
+  !!order.public_id?.startsWith('ord_') &&
+  shouldSendCustomerOrderEmail(order.payment_method);
 const itemsTotalCents = items.reduce((sum, it) => sum + it.price_cents * it.quantity, 0);
 // Older orders (placed before line-item capture) may have no items; flag any
 // mismatch between the recorded total and items + shipping − discount.
@@ -70,6 +82,13 @@ const weightUnit = Astro.locals.settings?.weightUnit ?? 'g';
     error && (
       <p class="mb-6 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
         {error}
+      </p>
+    )
+  }
+  {
+    noticeMsg && !error && (
+      <p class="mb-6 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+        {noticeMsg}
       </p>
     )
   }
@@ -172,7 +191,7 @@ const weightUnit = Astro.locals.settings?.weightUnit ?? 'g';
               )}
             </p>
           )}
-          <form method="POST" action={`/api/admin/orders/${order.id}`}>
+          <form method="POST" action={`/api/admin/orders/${order.public_id}`}>
             <input type="hidden" name="_action" value="unfulfill" />
             <button type="submit" class="text-xs uppercase tracking-widest text-gray-400 hover:text-red-600">
               Mark unfulfilled
@@ -182,7 +201,7 @@ const weightUnit = Astro.locals.settings?.weightUnit ?? 'g';
       ) : (
         <form
           method="POST"
-          action={`/api/admin/orders/${order.id}`}
+          action={`/api/admin/orders/${order.public_id}`}
           class="flex flex-wrap items-end gap-3 text-sm"
         >
           <input type="hidden" name="_action" value="fulfill" />
@@ -213,6 +232,34 @@ const weightUnit = Astro.locals.settings?.weightUnit ?? 'g';
     }
   </div>
 
+  {
+    canReissue && (
+      <div class="mb-8 rounded-lg border border-line p-5">
+        <h2 class="mb-3 text-xs uppercase tracking-widest text-gray-400">Customer link</h2>
+        {/* Support remedy for a forwarded or leaked guest link: rotates the
+            stored access token and emails the customer the replacement. The
+            token is never shown here — the email is the only delivery path. */}
+        <form
+          method="POST"
+          action={`/api/admin/orders/${order.public_id}`}
+          onsubmit={`return confirm('Email ${order.email} a fresh order link? Every previously shared link for this order stops working immediately.')`}
+        >
+          <input type="hidden" name="_action" value="reissue_link" />
+          <button
+            type="submit"
+            class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand hover:text-brand"
+          >
+            Email a new order link
+          </button>
+          <p class="mt-2 text-xs text-gray-500">
+            Use this if the customer reports a forwarded or leaked link. The old links stop
+            working the moment the new one is issued.
+          </p>
+        </form>
+      </div>
+    )
+  }
+
   <h2 class="mb-3 text-xs uppercase tracking-widest text-gray-400">Items</h2>
   <div class="sm:overflow-x-auto">
     <table class="admin-table w-full text-left text-sm sm:min-w-[34rem]">
@@ -229,8 +276,8 @@ const weightUnit = Astro.locals.settings?.weightUnit ?? 'g';
         items.map((it) => (
           <tr class="border-b border-line">
             <td class="py-3 pr-4">
-              {it.product_id ? (
-                <a href={`/admin/products/${it.product_id}/edit`} class="text-accent hover:underline">
+              {it.product_public_id ? (
+                <a href={`/admin/products/${it.product_public_id}/edit`} class="text-accent hover:underline">
                   {it.name}
                 </a>
               ) : (

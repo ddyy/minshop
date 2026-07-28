@@ -16,6 +16,7 @@ import {
 
 const row = (over: Partial<MenuItemRow> = {}): MenuItemRow => ({
   id: 1,
+  public_id: 'nav_f4ks9tw2mh',
   location: 'header',
   target_type: 'page',
   target_id: 7,

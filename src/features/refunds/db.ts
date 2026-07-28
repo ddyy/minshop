@@ -17,8 +17,32 @@
 // settlement path uses (orders/db.ts).
 
 import type { Order } from '../orders/db';
+import { generatePublicId, isPublicIdConflict } from '../ids/publicId.ts';
 
 /** Ledger kinds. See migration 0025 for what each one means. */
+
+/**
+ * Run a refund write batch, regenerating the rfnd_ public id on a unique
+ * conflict — the id binds inside the claim INSERT, so the whole statement set
+ * is rebuilt per attempt. Idempotency-key conflicts are handled in SQL
+ * (ON CONFLICT DO NOTHING) and never reach this retry.
+ */
+async function batchWithRefundId<T>(
+  db: D1Database,
+  build: (publicId: string) => ReturnType<D1Database['prepare']>[],
+): Promise<D1Result<T>[]> {
+  let lastErr: unknown;
+  for (let i = 0; i < 3; i++) {
+    try {
+      return await db.batch<T>(build(generatePublicId('refund')));
+    } catch (err) {
+      if (!isPublicIdConflict(err)) throw err;
+      lastErr = err;
+    }
+  }
+  throw lastErr;
+}
+
 export type RefundKind =
   | 'provider_api'
   | 'provider_sync'
@@ -142,9 +166,7 @@ export async function recordExternalRefund(
     return { ok: false, reason: 'invalid_amount' };
   }
 
-  const publicId = crypto.randomUUID();
-
-  const statements = [
+  const buildStatements = (publicId: string) => [
     // 1. Claim.
     db
       .prepare(
@@ -202,7 +224,7 @@ export async function recordExternalRefund(
       .bind(idempotencyKey),
   ];
 
-  const results = await db.batch<{ id: number }>(statements);
+  const results = await batchWithRefundId<{ id: number }>(db, buildStatements);
   const applied = results[1]?.results?.[0];
 
   if (!applied) {
@@ -290,9 +312,7 @@ export async function syncProviderRefund(
     return { ok: true, advanced: false, refundedCents: totals?.refunded_cents ?? 0 };
   }
 
-  const publicId = crypto.randomUUID();
-
-  const statements = [
+  const buildStatements = (publicId: string) => [
     db
       .prepare(
         `INSERT INTO refunds (
@@ -352,7 +372,7 @@ export async function syncProviderRefund(
       .bind(idempotencyKey),
   ];
 
-  const results = await db.batch<{ id: number }>(statements);
+  const results = await batchWithRefundId<{ id: number }>(db, buildStatements);
   const applied = results[1]?.results?.[0];
 
   if (!applied) {
@@ -401,9 +421,7 @@ export async function voidRecordedRefund(
     return { ok: false, reason: 'not_refundable' };
   }
 
-  const publicId = crypto.randomUUID();
-
-  const statements = [
+  const buildStatements = (publicId: string) => [
     db
       .prepare(
         `INSERT INTO refunds (
@@ -456,7 +474,7 @@ export async function voidRecordedRefund(
   // +X and a present -X, so summing succeeded rows would no longer equal
   // external_refunded_cents. `isReversed()` is how the UI renders it instead.
 
-  const results = await db.batch<{ id: number }>(statements);
+  const results = await batchWithRefundId<{ id: number }>(db, buildStatements);
   const applied = results[1]?.results?.[0];
 
   if (!applied) {
@@ -486,6 +504,14 @@ export function reversedRefundIds(history: Refund[]): Set<number> {
       .filter((r) => r.kind === 'manual_reversal' && r.reverses_refund_id !== null)
       .map((r) => r.reverses_refund_id as number),
   );
+}
+
+/** Refund by its public ID — rfnd_ or a preserved legacy UUID (boundary resolution). */
+export async function getRefundByPublicId(
+  db: D1Database,
+  publicId: string,
+): Promise<Refund | null> {
+  return db.prepare('SELECT * FROM refunds WHERE public_id = ?').bind(publicId).first<Refund>();
 }
 
 /** Refund history for an order, newest first. */

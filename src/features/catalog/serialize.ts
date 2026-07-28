@@ -5,7 +5,8 @@ import { toMajorUnits } from '../../money';
 
 /** A purchasable variant in catalog form (price in both major + minor units). */
 export interface CatalogVariant {
-  id: number;
+  /** Prefixed public ID (`var_…`) — never a row ID. */
+  id: string;
   label: string;
   price: { amount: number; cents: number; currency: string };
   in_stock: boolean;
@@ -14,7 +15,8 @@ export interface CatalogVariant {
 
 /** A checkbox add-on in catalog form — a price delta layered on the line. */
 export interface CatalogExtra {
-  id: number;
+  /** Prefixed public ID (`xtra_…`) — never a row ID. */
+  id: string;
   label: string;
   price_delta: { amount: number; cents: number; currency: string };
 }
@@ -35,7 +37,8 @@ export interface CatalogExtra {
  * amount transactionally, in the checkout stock-shortfall error, not here.
  */
 export interface CatalogProduct {
-  id: number;
+  /** Prefixed public ID (`prod_…`) — never a row ID. */
+  id: string;
   slug: string;
   name: string;
   description: string | null;
@@ -72,7 +75,7 @@ export function toCatalogProduct(
   const hasVariants = !!variants && variants.length > 0;
 
   const out: CatalogProduct = {
-    id: p.id,
+    id: requirePublicId(p.public_id, p.id, 'product'),
     slug: p.slug,
     name: p.name,
     description: p.description,
@@ -87,7 +90,7 @@ export function toCatalogProduct(
 
   if (variants) {
     out.variants = variants.map((v) => ({
-      id: v.id,
+      id: requirePublicId(v.public_id, v.id, 'variant'),
       label: v.label,
       price: money(v.price_cents, p.currency),
       in_stock: v.stock > 0,
@@ -96,10 +99,20 @@ export function toCatalogProduct(
   }
   if (extras) {
     out.extras = extras.map((e) => ({
-      id: e.id,
+      id: requirePublicId(e.public_id, e.id, 'extra'),
       label: e.label,
       price_delta: money(e.price_delta_cents, p.currency),
     }));
   }
   return out;
+}
+
+/**
+ * A row reaching a public serializer without its public ID is a deploy-order
+ * bug (backfill must run before cutover) — fail loudly rather than leak the
+ * numeric row ID.
+ */
+function requirePublicId(publicId: string | null, rowId: number, kind: string): string {
+  if (!publicId) throw new Error(`${kind} row ${rowId} has no public_id — run the backfill`);
+  return publicId;
 }

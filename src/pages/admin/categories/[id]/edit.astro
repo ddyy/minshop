@@ -3,22 +3,24 @@ import { env } from 'cloudflare:workers';
 import AdminLayout from '../../../../layouts/AdminLayout.astro';
 import CategoryForm from '../../../../features/categories/CategoryForm.astro';
 import {
-  getCategory,
+  getCategoryByPublicId,
   listCategories,
   buildTree,
   flattenTree,
   descendantIds,
 } from '../../../../features/categories/db';
+import { parsePublicId } from '../../../../features/ids/publicId';
 
-const id = Number(Astro.params.id);
-const category = Number.isInteger(id) ? await getCategory(env.DB, id) : null;
+// The route param is the cat_ public ID; numeric row ids are not accepted.
+const publicId = parsePublicId(Astro.params.id, 'category');
+const category = publicId ? await getCategoryByPublicId(env.DB, publicId) : null;
 
 if (!category) {
   return new Response('Not found', { status: 404 });
 }
 
 // A category can't be moved under itself or one of its descendants — exclude them.
-const blocked = new Set(await descendantIds(env.DB, id));
+const blocked = new Set(await descendantIds(env.DB, category.id));
 const parentOptions = flattenTree(buildTree(await listCategories(env.DB))).filter(
   (o) => !blocked.has(o.id),
 );
@@ -29,7 +31,7 @@ const error = Astro.url.searchParams.get('error');
   <a href="/admin/categories" class="text-sm text-gray-500 hover:text-brand">&larr; Back to categories</a>
   <h1 class="mt-4 mb-6 text-2xl font-bold">Edit category</h1>
   <CategoryForm
-    action={`/api/admin/categories/${category.id}`}
+    action={`/api/admin/categories/${category.public_id}`}
     submitLabel="Save changes"
     category={category}
     parentOptions={parentOptions}

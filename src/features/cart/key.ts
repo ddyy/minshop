@@ -4,55 +4,63 @@
  * variant/extras are distinct lines. Pure (no bindings) so it's unit-testable and
  * shared by the cookie parser, the add-to-cart route, and checkout.
  *
- * Key format:  product[:variant][#extra,extra,…]
- *   "5"          product 5, no variant, no extras   (legacy/plain — still valid)
- *   "5:12"       product 5 + variant 12
- *   "5#3,7"      product 5 + extras 3 and 7 (no variant)
- *   "5:12#3,7"   product 5 + variant 12 + extras 3 and 7
+ * Key format (prefixed public IDs only):  product[:variant][#extra,extra,…]
+ *   "prod_x"                     product, no variant, no extras
+ *   "prod_x:var_y"               product + variant
+ *   "prod_x#xtra_a,xtra_b"       product + extras (no variant)
+ *   "prod_x:var_y#xtra_a,xtra_b" product + variant + extras
  * Extras are de-duped + sorted so the same selection always yields the same key.
+ * Legacy numeric keys are NOT parsed — they fail validation and the line drops.
  */
+import { parsePublicId } from '../ids/publicId.ts';
+
 export interface ParsedKey {
-  productId: number;
-  variantId: number | null;
-  extraIds: number[];
+  productPublicId: string;
+  variantPublicId: string | null;
+  extraPublicIds: string[];
 }
 
-const posInts = (xs: number[]): number[] =>
-  [...new Set(xs)].filter((n) => Number.isInteger(n) && n > 0).sort((a, b) => a - b);
+/** Canonical extras list: valid xtra_ IDs only, de-duped, sorted lexicographically. */
+const canonicalExtras = (xs: string[]): string[] =>
+  [...new Set(xs.map((x) => parsePublicId(x, 'extra')).filter((x): x is string => x !== null))].sort();
 
 /** Build the canonical cart key for a product + optional variant + extras. */
 export function cartKey(
-  productId: number,
-  variantId?: number | null,
-  extraIds: number[] = [],
+  productPublicId: string,
+  variantPublicId?: string | null,
+  extraPublicIds: string[] = [],
 ): string {
-  let key = String(productId);
-  if (variantId && variantId > 0) key += `:${variantId}`;
-  const ex = posInts(extraIds);
+  let key = productPublicId;
+  if (variantPublicId) key += `:${variantPublicId}`;
+  const ex = canonicalExtras(extraPublicIds);
   if (ex.length) key += `#${ex.join(',')}`;
   return key;
 }
 
-/** Parse a cart key back to its parts, or null if malformed (never trust cookies). */
+/** Parse a cart key back to its parts, or null if ANY part is malformed (never trust cookies). */
 export function parseCartKey(key: string): ParsedKey | null {
-  const [left, extrasPart] = key.split('#');
+  const [left, extrasPart, spill] = key.split('#');
+  if (spill !== undefined) return null; // more than one '#' → malformed
   const [pidStr, vidStr, extra] = left.split(':');
   if (extra !== undefined) return null; // more than one ':' → malformed
 
-  const productId = Number(pidStr);
-  if (!Number.isInteger(productId) || productId <= 0) return null;
+  const productPublicId = parsePublicId(pidStr, 'product');
+  if (!productPublicId) return null;
 
-  let variantId: number | null = null;
+  let variantPublicId: string | null = null;
   if (vidStr !== undefined) {
-    const v = Number(vidStr);
-    if (!Number.isInteger(v) || v <= 0) return null;
-    variantId = v;
+    variantPublicId = parsePublicId(vidStr, 'variant');
+    if (!variantPublicId) return null;
   }
 
-  const extraIds = extrasPart
-    ? posInts(extrasPart.split(',').map(Number))
-    : [];
-  return { productId, variantId, extraIds };
+  let extraPublicIds: string[] = [];
+  if (extrasPart !== undefined) {
+    const parts = extrasPart.split(',');
+    extraPublicIds = canonicalExtras(parts);
+    if (extraPublicIds.length !== new Set(parts).size) return null; // any invalid extra → reject
+    if (extraPublicIds.length === 0) return null; // bare '#' → malformed
+  }
+  return { productPublicId, variantPublicId, extraPublicIds };
 }
 
 /**

@@ -3,7 +3,7 @@ import { env } from 'cloudflare:workers';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { formatPrice, formatDate, getConfig } from '../../../config';
 import { getCustomerOrders, getCustomerSummary } from '../../../features/customers/db';
-import { orderNumber } from '../../../features/orders/number';
+import { orderReference } from '../../../features/orders/number';
 import { paginate, queryHref } from '../../../pagination';
 import Pagination from '../../../components/Pagination.astro';
 
@@ -55,10 +55,10 @@ const timeZone = Astro.locals.settings?.timeZone ?? getConfig().timeZone;
           <tr class="border-b border-line">
             <td class="py-3 pr-4">
               <a
-                href={`/admin/orders/${o.id}`}
+                href={`/admin/orders/${o.public_id}`}
                 class="text-accent tabular-nums hover:underline"
               >
-                #{orderNumber(o.id, onCfg)}
+                #{orderReference(o.public_id, o.id, onCfg)}
               </a>
             </td>
             <td data-label="Total" class="py-3 pr-4 tabular-nums">{formatPrice(o.amount_total_cents, o.currency)}</td>

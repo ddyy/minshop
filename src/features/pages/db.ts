@@ -1,4 +1,5 @@
 import type { D1Database } from '@cloudflare/workers-types';
+import { withPublicId } from '../ids/publicId.ts';
 
 export interface Page {
   id: number;
@@ -8,6 +9,7 @@ export interface Page {
   published: number;
   /** Layout preset key; see features/pages/layouts.ts. */
   layout: string;
+  public_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -32,6 +34,11 @@ export const PUBLISHED_PAGE_LINKS_SQL = `SELECT title, slug FROM pages
 
 export async function getPage(db: D1Database, id: number): Promise<Page | null> {
   return db.prepare('SELECT * FROM pages WHERE id = ?').bind(id).first<Page>();
+}
+
+/** Page by its prefixed public ID (boundary resolution; null if missing). */
+export async function getPageByPublicId(db: D1Database, publicId: string): Promise<Page | null> {
+  return db.prepare('SELECT * FROM pages WHERE public_id = ?').bind(publicId).first<Page>();
 }
 
 export async function getPublishedPageBySlug(
@@ -71,10 +78,12 @@ export async function listPublishedPages(db: D1Database): Promise<PageLink[]> {
  */
 export async function listPublishedPageOptions(
   db: D1Database,
-): Promise<Array<{ id: number; title: string }>> {
+): Promise<Array<{ id: number; public_id: string | null; title: string }>> {
   const { results } = await db
-    .prepare('SELECT id, title FROM pages WHERE published = 1 ORDER BY title COLLATE NOCASE, id')
-    .all<{ id: number; title: string }>();
+    .prepare(
+      'SELECT id, public_id, title FROM pages WHERE published = 1 ORDER BY title COLLATE NOCASE, id',
+    )
+    .all<{ id: number; public_id: string | null; title: string }>();
   return results ?? [];
 }
 
@@ -84,12 +93,14 @@ export async function createDraft(
   title: string,
   slug: string,
 ): Promise<number> {
-  const row = await db
-    .prepare('INSERT INTO pages (title, slug, published) VALUES (?, ?, 0) RETURNING id')
-    .bind(title, slug)
-    .first<{ id: number }>();
-  if (!row) throw new Error('page insert returned no row');
-  return row.id;
+  return withPublicId('page', async (publicId) => {
+    const row = await db
+      .prepare('INSERT INTO pages (title, slug, published, public_id) VALUES (?, ?, 0, ?) RETURNING id')
+      .bind(title, slug, publicId)
+      .first<{ id: number }>();
+    if (!row) throw new Error('page insert returned no row');
+    return row.id;
+  });
 }
 
 export async function updatePage(

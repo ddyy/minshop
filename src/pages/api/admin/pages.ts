@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
-import { createDraft } from '../../../features/pages/db';
+import { createDraft, getPage } from '../../../features/pages/db';
 import { uniquePageSlug } from '../../../features/pages/slug';
 
 export const prerender = false;
@@ -17,6 +17,8 @@ export const POST: APIRoute = async ({ request, redirect }) => {
 
   const slugBase = String(form.get('slug') ?? '').trim() || title;
   const slug = await uniquePageSlug(env.DB, slugBase);
+  // The editor URL uses the page_ public ID — one read-back after the insert.
   const id = await createDraft(env.DB, title, slug);
-  return redirect(`/admin/pages/${id}/edit`, 303);
+  const created = await getPage(env.DB, id);
+  return redirect(`/admin/pages/${created?.public_id}/edit`, 303);
 };

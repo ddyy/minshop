@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 import {
   getOrder,
+  getOrderByPublicId,
   fulfillOrder,
   unfulfillOrder,
 } from '../../../../features/orders/db';
@@ -12,27 +13,34 @@ import {
   acknowledgeRefundReview,
   refundableCents,
   openReviewIfOverRefunded,
+  getRefundByPublicId,
 } from '../../../../features/refunds/db';
 import { sendRefundNotice } from '../../../../features/refunds/notify';
 import { getEmailProvider } from '../../../../features/email';
 import { orderShippedEmail } from '../../../../features/email/orderConfirmation';
+import { guestOrderUrl, reissueGuestAccess } from '../../../../features/orders/guestAccess.ts';
+import { deliverOrderNotifications } from '../../../../features/email/outbox';
+import { getStoreSettings } from '../../../../features/settings/db';
 import { shouldSendCustomerOrderEmail } from '../../../../features/email/orderPolicy';
 import { getPaymentProvider, type PaymentMethod } from '../../../../features/payments';
 import { formatPrice, getConfig } from '../../../../config';
 import { getSetting } from '../../../../features/settings/db';
+import { parseOrderOrLegacyPublicId } from '../../../../features/ids/publicId';
 
 export const prerender = false;
 
-// POST /api/admin/orders/:id — fulfill, unfulfill, or refund.
+// POST /api/admin/orders/:id — fulfill, unfulfill, refund, or reissue the guest
+// link. :id is the order public ID (ord_ or a preserved legacy shape); numeric
+// row ids are not accepted.
 export const POST: APIRoute = async ({ request, params, redirect }) => {
-  const id = Number(params.id);
-  if (!Number.isInteger(id)) {
-    return new Response('Invalid id', { status: 400 });
-  }
+  const publicId = parseOrderOrLegacyPublicId(params.id, 'order');
+  const existing = publicId ? await getOrderByPublicId(env.DB, publicId) : null;
+  if (!existing) return new Response('Not found', { status: 404 });
+  const id = existing.id;
 
   const form = await request.formData();
   const action = String(form.get('_action'));
-  const back = redirect(`/admin/orders/${id}`, 303);
+  const back = redirect(`/admin/orders/${publicId}`, 303);
 
   if (action === 'unfulfill') {
     await unfulfillOrder(env.DB, id);
@@ -40,7 +48,9 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
   }
 
   const fail = (msg: string) =>
-    redirect(`/admin/orders/${id}?error=${encodeURIComponent(msg)}`, 303);
+    redirect(`/admin/orders/${publicId}?error=${encodeURIComponent(msg)}`, 303);
+  const notice = (msg: string) =>
+    redirect(`/admin/orders/${publicId}?notice=${encodeURIComponent(msg)}`, 303);
   const cents = () => {
     const raw = String(form.get('amount') ?? '').trim();
     // Merchants type dollars; everything downstream is cents.
@@ -50,6 +60,50 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
   const admin = String(form.get('_admin') ?? '') || null;
   const note = String(form.get('note') ?? '').trim() || null;
   const reason = String(form.get('reason') ?? '').trim() || null;
+
+  // Rotate the guest access token and email the customer the replacement link.
+  // The token itself NEVER appears in admin output — the queued customer email
+  // is the only delivery path. Reissue applies to settled orders with a
+  // revocable registry token; anything else is refused with a reason.
+  if (action === 'reissue_link') {
+    if (!existing.email) {
+      return fail(
+        'This order has no customer email, so a new link cannot be delivered. Nothing was changed.',
+      );
+    }
+    if (!shouldSendCustomerOrderEmail(existing.payment_method)) {
+      return fail('Demo orders never email customers, so their link cannot be reissued.');
+    }
+    if (!existing.public_id?.startsWith('ord_')) {
+      // A legacy order's guest link IS its preserved public ID — there is no
+      // registry token to rotate.
+      return fail('This order predates revocable guest links and cannot be reissued.');
+    }
+    // Rotation kills every old link the instant it lands, so refuse up front
+    // when no email provider could deliver the replacement — otherwise the
+    // customer would lose access with nothing on the way.
+    if (!(await getEmailProvider(await getStoreSettings(env.DB)))) {
+      return fail(
+        'Email is not configured, so the replacement link could not be delivered. Nothing was changed.',
+      );
+    }
+    // Atomic: rotates the token AND queues the versioned
+    // guest-link-reissue:<generation> notification in one D1 batch; refuses
+    // unsettled checkouts (and unknown registry rows).
+    const reissued = await reissueGuestAccess(env.DB, existing.public_id);
+    if (!reissued) {
+      return fail('Only settled orders with a guest link can be reissued.');
+    }
+    try {
+      await deliverOrderNotifications(env.DB, id, new URL(request.url).origin);
+    } catch (err) {
+      // The row stays queued; the piggyback sweep will retry it.
+      console.error('Guest-link reissue delivery failed:', err);
+    }
+    return notice(
+      'The old order links no longer work. A new link is being emailed to the customer.',
+    );
+  }
 
   // Refund through the provider. Moves money.
   if (action === 'refund') {
@@ -184,13 +238,16 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     return back;
   }
 
-  // Correct a mistaken manual entry. Moves no money.
+  // Correct a mistaken manual entry. Moves no money. The form submits the
+  // refund's public ID (rfnd_ or a preserved legacy UUID); resolution happens
+  // here at the boundary and the ledger write stays integer.
   if (action === 'void_refund') {
-    const refundId = Number(form.get('refund_id'));
-    if (!Number.isInteger(refundId)) return fail('Invalid refund.');
+    const refundPublicId = parseOrderOrLegacyPublicId(form.get('refund_id'), 'refund');
+    const target = refundPublicId ? await getRefundByPublicId(env.DB, refundPublicId) : null;
+    if (!target || target.order_id !== id) return fail('Invalid refund.');
     const result = await voidRecordedRefund(env.DB, {
-      refundId,
-      idempotencyKey: `void:${refundId}`,
+      refundId: target.id,
+      idempotencyKey: `void:${target.id}`,
       reason,
       createdBy: admin,
     });
@@ -222,7 +279,10 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     if (emailer) {
       try {
         const storeName = (await getSetting(env.DB, 'store_name')) || getConfig().storeName;
-        await emailer.send(orderShippedEmail(order, new URL(request.url).origin, storeName));
+        const shipOrigin = new URL(request.url).origin;
+        await emailer.send(
+          orderShippedEmail(order, shipOrigin, storeName, await guestOrderUrl(env.DB, order.public_id, shipOrigin)),
+        );
       } catch (err) {
         console.error('Shipping email failed:', err);
       }

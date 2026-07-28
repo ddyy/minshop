@@ -10,7 +10,72 @@ import type { D1Database } from '@cloudflare/workers-types';
  */
 
 export const NOTIFICATION_KINDS = ['customer-receipt', 'owner-notification'] as const;
-export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
+
+/**
+ * Versioned-kind family for guest-link reissue (see the public-ID plan): each
+ * reissue queues `guest-link-reissue:<generation>` so a repeat reissue gets its
+ * own row and idempotency key instead of colliding with the first. The
+ * deliverer recognises the prefix rather than a fixed string, and skips any
+ * event whose generation no longer matches order_guest_access.generation.
+ */
+export const GUEST_LINK_REISSUE_PREFIX = 'guest-link-reissue:';
+export type GuestLinkReissueKind = `${typeof GUEST_LINK_REISSUE_PREFIX}${number}`;
+
+export type NotificationKind = (typeof NOTIFICATION_KINDS)[number] | GuestLinkReissueKind;
+
+export function isGuestLinkReissueKind(kind: string): kind is GuestLinkReissueKind {
+  return kind.startsWith(GUEST_LINK_REISSUE_PREFIX) && reissueGeneration(kind) !== null;
+}
+
+/** The <generation> a reissue kind carries, or null for a malformed kind. */
+export function reissueGeneration(kind: string): number | null {
+  if (!kind.startsWith(GUEST_LINK_REISSUE_PREFIX)) return null;
+  const raw = kind.slice(GUEST_LINK_REISSUE_PREFIX.length);
+  const n = Number(raw);
+  return /^\d+$/.test(raw) && Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
+export function guestLinkReissueKind(generation: number): GuestLinkReissueKind {
+  return `${GUEST_LINK_REISSUE_PREFIX}${generation}`;
+}
+
+/**
+ * Queue one notification row outside the settlement batch (reissue). INSERT OR
+ * IGNORE: the (order_id, kind) PK makes a repeat of the SAME versioned kind a
+ * no-op, which is exactly the idempotency the versioned kind exists to scope.
+ */
+export async function queueNotification(
+  db: D1Database,
+  orderId: number,
+  kind: NotificationKind,
+): Promise<void> {
+  await db
+    .prepare('INSERT OR IGNORE INTO order_notifications (order_id, kind) VALUES (?, ?)')
+    .bind(orderId, kind)
+    .run();
+}
+
+/**
+ * Every kind an order could still deliver: pending, or processing with an
+ * expired lease. The deliverer iterates THIS rather than the fixed kind list so
+ * versioned reissue rows are picked up by the same claim/send/mark machinery.
+ */
+export async function listUndeliveredKinds(
+  db: D1Database,
+  orderId: number,
+): Promise<string[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT kind FROM order_notifications
+        WHERE order_id = ?
+          AND (state = 'pending'
+               OR (state = 'processing' AND lease_expires_at < datetime('now')))
+        ORDER BY created_at, kind`,
+    )
+    .bind(orderId)
+    .all<{ kind: string }>();
+  return (results ?? []).map((r) => r.kind);
+}
 
 /** Attempts after which a row is abandoned as 'dead' (last_error says why). */
 export const MAX_ATTEMPTS = 5;

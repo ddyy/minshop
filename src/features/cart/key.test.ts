@@ -1,49 +1,68 @@
 import { describe, it, expect } from 'vitest';
 import { cartKey, parseCartKey, lineUnitPriceCents } from './key';
 
+const P = 'prod_k7m2qx8vn6';
+const V = 'var_n9fx2km7qc';
+const XA = 'xtra_0000000000';
+const XB = 'xtra_q3vr8jm2np';
+
 describe('cartKey', () => {
   it('plain product (no variant/extras)', () => {
-    expect(cartKey(5)).toBe('5');
-    expect(cartKey(5, null, [])).toBe('5');
+    expect(cartKey(P)).toBe(P);
+    expect(cartKey(P, null, [])).toBe(P);
   });
   it('with a variant', () => {
-    expect(cartKey(5, 12)).toBe('5:12');
+    expect(cartKey(P, V)).toBe(`${P}:${V}`);
   });
   it('with extras (de-duped + sorted)', () => {
-    expect(cartKey(5, null, [7, 3, 7])).toBe('5#3,7');
+    expect(cartKey(P, null, [XB, XA, XB])).toBe(`${P}#${XA},${XB}`);
   });
   it('with variant + extras', () => {
-    expect(cartKey(5, 12, [7, 3])).toBe('5:12#3,7');
+    expect(cartKey(P, V, [XB, XA])).toBe(`${P}:${V}#${XA},${XB}`);
   });
-  it('drops a zero/invalid variant', () => {
-    expect(cartKey(5, 0, [])).toBe('5');
+  it('drops an empty/invalid variant', () => {
+    expect(cartKey(P, null)).toBe(P);
+    expect(cartKey(P, '')).toBe(P);
   });
 });
 
 describe('parseCartKey', () => {
   it('round-trips every shape', () => {
     for (const [pid, vid, ex] of [
-      [5, null, []],
-      [5, 12, []],
-      [5, null, [3, 7]],
-      [5, 12, [3, 7]],
+      [P, null, []],
+      [P, V, []],
+      [P, null, [XA, XB]],
+      [P, V, [XA, XB]],
     ] as const) {
       const parsed = parseCartKey(cartKey(pid, vid, [...ex]));
-      expect(parsed).toEqual({ productId: pid, variantId: vid, extraIds: [...ex] });
+      expect(parsed).toEqual({
+        productPublicId: pid,
+        variantPublicId: vid,
+        extraPublicIds: [...ex],
+      });
     }
   });
-  it('parses a legacy plain-product key', () => {
-    expect(parseCartKey('5')).toEqual({ productId: 5, variantId: null, extraIds: [] });
+  it('rejects legacy numeric keys', () => {
+    expect(parseCartKey('5')).toBeNull();
+    expect(parseCartKey('5:12')).toBeNull();
+    expect(parseCartKey('5:12#3,7')).toBeNull();
   });
   it('rejects malformed keys', () => {
     expect(parseCartKey('abc')).toBeNull();
-    expect(parseCartKey('0')).toBeNull();
-    expect(parseCartKey('5:0')).toBeNull();
-    expect(parseCartKey('5:1:2')).toBeNull();
-    expect(parseCartKey('-3')).toBeNull();
+    expect(parseCartKey('')).toBeNull();
+    expect(parseCartKey(`${P}:${V}:${V}`)).toBeNull(); // more than one ':'
+    expect(parseCartKey(`${P}#${XA}#${XB}`)).toBeNull(); // more than one '#'
+    expect(parseCartKey(`${P}:`)).toBeNull(); // empty variant part
+    expect(parseCartKey(`${P}#`)).toBeNull(); // empty extras part
   });
-  it('drops junk extra ids but keeps the line', () => {
-    expect(parseCartKey('5#3,x,-1,7')).toEqual({ productId: 5, variantId: null, extraIds: [3, 7] });
+  it('rejects wrong-prefix parts (a variant is never a product)', () => {
+    expect(parseCartKey(V)).toBeNull();
+    expect(parseCartKey(`${P}:${XA}`)).toBeNull();
+    expect(parseCartKey(`${P}#${V}`)).toBeNull();
+  });
+  it('rejects the line when ANY extra is invalid', () => {
+    expect(parseCartKey(`${P}#${XA},junk`)).toBeNull();
+    expect(parseCartKey(`${P}#${XA},7`)).toBeNull();
   });
 });
 

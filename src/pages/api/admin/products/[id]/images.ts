@@ -1,8 +1,8 @@
 import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 import {
-  getProduct,
-  getProductImage,
+  getProductByPublicId,
+  listProductImages,
   deleteProductImageRow,
   setProductImageAlt,
   moveProductImage,
@@ -14,29 +14,33 @@ import { clearVariantImage } from '../../../../../features/products/variants';
 import { validateImage } from '../../../../../features/products/image';
 import { optimizeUpload } from '../../../../../features/products/imageOptimize';
 import { uploadMedia } from '../../../../../features/media/upload';
-import { attachMediaToProduct } from '../../../../../features/media/db';
+import { attachMediaToProduct, getMediaByPublicId } from '../../../../../features/media/db';
 import { getStorage } from '../../../../../features/storage';
+import { parsePublicId } from '../../../../../features/ids/publicId';
 
 export const prerender = false;
 
 // POST /api/admin/products/:id/images — manage a product's image gallery.
+// :id is the prod_ public ID; gallery rows are addressed by their pimg_ public
+// IDs and library items by med_ — numeric row ids are not accepted anywhere.
 // The PRIMARY image is always the first one (lowest position), so every mutation
 // re-syncs products.image_key to the gallery's first image.
 //   _action=add      → upload one or more files, append to the gallery
+//   _action=attach   → attach library media `media_id` (med_)
 //   _action=reorder  → set the full order from drag-and-drop (fetch; 204)
-//   _action=primary  → move image `image_id` to the front (→ becomes primary)
+//   _action=primary  → move image `image_id` (pimg_) to the front (→ primary)
 //   _action=move     → swap image `image_id` up/down one slot
-//   _action=delete   → remove image `image_id` (object + row)
+//   _action=alt      → set image `image_id`'s alt text
+//   _action=delete   → remove image `image_id` (association only)
 export const POST: APIRoute = async ({ request, params, redirect }) => {
-  const id = Number(params.id);
-  if (!Number.isInteger(id)) return new Response('Invalid id', { status: 400 });
-
-  const product = await getProduct(env.DB, id);
+  const publicId = parsePublicId(params.id, 'product');
+  const product = publicId ? await getProductByPublicId(env.DB, publicId) : null;
   if (!product) return new Response('Not found', { status: 404 });
+  const id = product.id;
 
   const back = (msg?: string) =>
     redirect(
-      `/admin/products/${id}/edit${msg ? `?error=${encodeURIComponent(msg)}` : ''}#gallery`,
+      `/admin/products/${publicId}/edit${msg ? `?error=${encodeURIComponent(msg)}` : ''}#gallery`,
       303,
     );
 
@@ -59,31 +63,40 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     return back();
   }
 
-  // Reuse a file already in the library. Same guarded insert as the upload path,
-  // so a stale picker selection can't attach media that has since been deleted.
+  // Reuse a file already in the library, addressed by its med_ public ID. Same
+  // guarded insert as the upload path, so a stale picker selection can't attach
+  // media that has since been deleted.
   if (action === 'attach') {
-    const mediaId = Number(form.get('media_id'));
-    if (!Number.isInteger(mediaId)) return back('Choose an image.');
-    const attached = await attachMediaToProduct(env.DB, id, mediaId);
+    const mediaPublicId = parsePublicId(form.get('media_id'), 'media');
+    const media = mediaPublicId ? await getMediaByPublicId(env.DB, mediaPublicId) : null;
+    if (!media) return back('Choose an image.');
+    const attached = await attachMediaToProduct(env.DB, id, media.id);
     if (!attached.ok) return back(attached.error);
     await syncPrimaryImage(env.DB, id);
     return back();
   }
 
+  // The remaining actions address this product's own gallery rows by pimg_
+  // public ID; resolve them to row ids here — the writes stay integer.
+  const gallery = await listProductImages(env.DB, id);
+  const byPublicId = new Map(gallery.map((img) => [img.public_id ?? '', img]));
+
   // Bulk reorder from drag-and-drop (fetch). No single image_id; returns 204.
   if (action === 'reorder') {
     const ids = form
       .getAll('order')
-      .map((v) => Number(v))
-      .filter((n) => Number.isInteger(n));
+      .map((v) => parsePublicId(v, 'productImage'))
+      .map((pid) => (pid ? byPublicId.get(pid)?.id : undefined))
+      .filter((n): n is number => n !== undefined);
     await reorderProductImages(env.DB, id, ids);
     await syncPrimaryImage(env.DB, id); // new first image becomes primary
     return new Response(null, { status: 204 });
   }
 
-  const imageId = Number(form.get('image_id'));
-  const img = Number.isInteger(imageId) ? await getProductImage(env.DB, imageId) : null;
-  if (!img || img.product_id !== id) return back('Image not found.');
+  const imagePublicId = parsePublicId(form.get('image_id'), 'productImage');
+  const img = imagePublicId ? byPublicId.get(imagePublicId) : undefined;
+  if (!img) return back('Image not found.');
+  const imageId = img.id;
 
   if (action === 'alt') {
     await setProductImageAlt(env.DB, imageId, String(form.get('alt') ?? ''));

@@ -4,6 +4,10 @@ import { env } from 'cloudflare:workers';
 import Layout from '../../layouts/Layout.astro';
 import { getConfig } from '../../config';
 import { getPendingByPublicId } from '../../features/payments/lightning/pending';
+import { getOrderByPublicId } from '../../features/orders/db';
+import { isLegacyPublicId } from '../../features/ids/publicId.ts';
+import { isAccessToken } from '../../features/ids/token.ts';
+import { resolveAccessToken } from '../../features/orders/guestAccess.ts';
 import DemoCheckout from '../../features/payments/checkout/DemoCheckout.astro';
 import LightningPay from '../../features/payments/checkout/LightningPay.astro';
 import {
@@ -12,18 +16,46 @@ import {
 } from '../../features/payments/checkout/settle';
 
 // Single "complete your payment" entry point for the self-rendered rails. The
-// publicId is the only parameter — the method is read from the stored pending
-// payment (its `backend`), so there's one URL and one source of truth. Hosted
-// providers (Stripe/OpenNode) never reach here; they hand off to their own pages.
-const { publicId } = Astro.params;
-const pending = publicId ? await getPendingByPublicId(env.DB, publicId) : null;
+// URL carries the guest access token for new checkouts (resolved through the
+// registry) or a legacy public id for pre-cutover ones — a bare ord_ public ID
+// never grants access. The method is read from the stored pending payment (its
+// `backend`), so there's one URL and one source of truth. Hosted providers
+// (Stripe/OpenNode) never reach here; they hand off to their own pages.
+const guestParam = Astro.params.publicId;
+let orderPublicId: string | null = null;
+if (guestParam && isAccessToken(guestParam)) {
+  const access = await resolveAccessToken(env.DB, guestParam);
+  orderPublicId = access?.order_public_id ?? null;
+} else if (guestParam && isLegacyPublicId(guestParam)) {
+  orderPublicId = guestParam;
+}
+if (!orderPublicId) return new Response('Not found', { status: 404 });
+
+// Capability URL: never cache, never leak in referrers.
+Astro.response.headers.set('cache-control', 'private, no-store');
+Astro.response.headers.set('referrer-policy', 'no-referrer');
+
+// STATUS-FIRST: a settled order redirects to /order/<same guest param>
+// unconditionally — even when the original pending payment has expired.
+// Expiry gates only the unpaid flow below.
+if (await getOrderByPublicId(env.DB, orderPublicId)) {
+  return Astro.redirect(`/order/${guestParam}`, 303);
+}
+
+const pending = await getPendingByPublicId(env.DB, orderPublicId);
 if (!pending) return new Response('Not found', { status: 404 });
-if (pending.status === 'settled') return Astro.redirect(`/order/${pending.public_id}`, 303);
 
 const isDemo = pending.backend === 'demo';
 const isLightning = pending.backend === 'lnbits' || pending.backend === 'phoenixd';
 // An unexpected backend landing here → just show the order page.
-if (!isDemo && !isLightning) return Astro.redirect(`/order/${pending.public_id}`, 303);
+if (!isDemo && !isLightning) return Astro.redirect(`/order/${guestParam}`, 303);
+
+// Every self-rendered pending payment now carries an expiry (Lightning: the
+// invoice's; Demo: 24h). Past it, the unpaid flow fails closed — no rendering
+// the payment UI, no settlement POST.
+const payExpired =
+  pending.status === 'expired' ||
+  (pending.expires_at != null && Date.parse(pending.expires_at) <= Date.now());
 
 // The execution context lets the confirmation emails finish after the redirect
 // — settlement commits the outbox rows with the order, delivery follows behind.
@@ -31,7 +63,7 @@ const ctx = Astro.locals.cfContext;
 const waitUntil = ctx ? ctx.waitUntil.bind(ctx) : undefined;
 
 let declined: string | null = null;
-if (isDemo && Astro.request.method === 'POST') {
+if (isDemo && Astro.request.method === 'POST' && !payExpired) {
   // Middleware already loaded the settings overlay for this document — hand it
   // down so settlement doesn't re-read it (and the three keys it derives).
   const result = await settleDemoCheckout(
@@ -41,24 +73,23 @@ if (isDemo && Astro.request.method === 'POST') {
     Astro.locals.settings,
     waitUntil,
   );
-  if (result.redirect) return Astro.redirect(result.redirect, 303);
+  // Settled → the order page, addressed by the SAME guest param (token or legacy).
+  if (result.settled) return Astro.redirect(`/order/${guestParam}`, 303);
   declined = result.declined ?? null;
 }
 
 if (
   isLightning &&
+  !payExpired &&
   (await settleLightningOnLoad(pending, Astro.url.origin, Astro.locals.settings, waitUntil))
 ) {
-  return Astro.redirect(`/order/${pending.public_id}`, 303);
+  return Astro.redirect(`/order/${guestParam}`, 303);
 }
 
-// Past its 15-min window (config.payments.lightning.invoiceExpiryMinutes) the
-// BOLT11 can no longer be paid, so render a terminal "expired" state instead of
-// the auto-reloading QR — otherwise an abandoned tab would poll the node forever.
-const lightningExpired =
-  isLightning &&
-  (pending.status === 'expired' ||
-    (pending.expires_at != null && Date.parse(pending.expires_at) <= Date.now()));
+// Past its window (Lightning: the BOLT11's expiry; Demo: 24h) the unpaid flow is
+// terminal — render an "expired" state instead of the payment UI, so an
+// abandoned tab can't poll forever and an expired demo can't settle.
+const lightningExpired = isLightning && payExpired;
 
 const { storeName } = getConfig();
 const title = isDemo ? 'Demo checkout' : 'Pay with Lightning';
@@ -68,6 +99,12 @@ const description = isDemo
 ---
 
 <Layout title={title} description={description}>
-  {isDemo && <DemoCheckout pending={pending} declined={declined} />}
+  {isDemo && payExpired && (
+    <Fragment>
+      <h1 class="mb-2 font-serif text-3xl tracking-tight sm:text-4xl">Checkout expired</h1>
+      <p class="text-gray-600">This demo checkout has expired. Please start a new one.</p>
+    </Fragment>
+  )}
+  {isDemo && !payExpired && <DemoCheckout pending={pending} declined={declined} />}
   {isLightning && <LightningPay pending={pending} expired={lightningExpired} />}
 </Layout>

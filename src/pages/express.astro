@@ -3,8 +3,9 @@ export const prerender = false;
 import { env } from 'cloudflare:workers';
 import Layout from '../layouts/Layout.astro';
 import { formatPrice } from '../config';
-import { getProduct } from '../features/products/db';
-import { listVariants, getExtrasByIds } from '../features/products/variants';
+import { getProductByPublicId } from '../features/products/db';
+import { listVariants, getExtrasByPublicIds } from '../features/products/variants';
+import { parsePublicId } from '../features/ids/publicId.ts';
 import { lineUnitPriceCents } from '../features/cart/key';
 import { shippingFor } from '../features/shipping/effective';
 import { shipmentWeightFor } from '../features/shipping/lines';
@@ -28,8 +29,10 @@ interface DisplayLine {
   qty: number;
 }
 
-const productId = Number(fld('product_id'));
-const isBuyNow = Number.isInteger(productId) && productId > 0;
+// Buy-now identifiers are prefixed public IDs (prod_/var_/xtra_); numeric row
+// IDs are never accepted.
+const productPublicId = parsePublicId(fld('product_id'), 'product');
+const isBuyNow = productPublicId !== null;
 
 let lines: DisplayLine[] = [];
 // Parallel model for the shipping question only ("does anything here ship?") —
@@ -39,25 +42,30 @@ let weightLines: Parameters<typeof shipmentWeightFor>[0] = [];
 let carry: { name: string; value: string }[] = [];
 let backHref = '/';
 
-if (isBuyNow) {
-  const product = await getProduct(env.DB, productId);
+if (isBuyNow && productPublicId) {
+  const product = await getProductByPublicId(env.DB, productPublicId);
   if (!product || !product.active) return Astro.redirect('/', 303);
   backHref = `/products/${product.slug}`;
 
-  const variantId = Number(fld('variant_id')) || 0;
-  const extraIds = (isPost ? form!.getAll('extra') : Astro.url.searchParams.getAll('extra'))
-    .map((e) => Number(e))
-    .filter((n) => Number.isInteger(n) && n > 0);
+  const variantPublicId = parsePublicId(fld('variant_id'), 'variant');
+  const extraPublicIds = (isPost ? form!.getAll('extra') : Astro.url.searchParams.getAll('extra'))
+    .map((e) => parsePublicId(e, 'extra'))
+    .filter((x): x is string => x !== null);
 
-  const variants = await listVariants(env.DB, productId);
-  const variant = variants.length > 0 ? (variants.find((v) => v.id === variantId) ?? null) : null;
+  const variants = await listVariants(env.DB, product.id);
+  const variant =
+    variants.length > 0 && variantPublicId
+      ? (variants.find((v) => v.public_id === variantPublicId) ?? null)
+      : null;
   if (variants.length > 0 && !variant) {
     return Astro.redirect(
       `/products/${product.slug}?error=${encodeURIComponent(`Please choose a ${product.variant_label || 'option'}.`)}`,
       303,
     );
   }
-  const extras = extraIds.length ? await getExtrasByIds(env.DB, productId, extraIds) : [];
+  const extras = extraPublicIds.length
+    ? await getExtrasByPublicIds(env.DB, product.id, extraPublicIds)
+    : [];
   if ((variant ? variant.stock : product.stock) <= 0) {
     return Astro.redirect(`/products/${product.slug}?error=Sold+out`, 303);
   }
@@ -73,9 +81,11 @@ if (isBuyNow) {
     },
   ];
   weightLines = [{ product, variant, qty: 1 }];
-  carry = [{ name: 'product_id', value: String(product.id) }];
-  if (variant) carry.push({ name: 'variant_id', value: String(variant.id) });
-  for (const e of extras) carry.push({ name: 'extra', value: String(e.id) });
+  carry = [{ name: 'product_id', value: productPublicId }];
+  if (variant?.public_id) carry.push({ name: 'variant_id', value: variant.public_id });
+  for (const e of extras) {
+    if (e.public_id) carry.push({ name: 'extra', value: e.public_id });
+  }
 } else {
   const { lines: cartLines } = await resolveCart(env.DB, readCart(Astro.cookies));
   if (cartLines.length === 0) return Astro.redirect('/cart', 303);
