@@ -87,14 +87,19 @@ declare namespace Cloudflare {
     //
     // ALL provider keys (Stripe, OpenNode, Lightning, Resend, Turnstile) and their
     // config (default rail, Lightning backend + node URLs) are set in the admin
-    // dashboard now — keys in the encrypted D1 vault, config in D1 settings. There
-    // are NO provider env vars; the only Worker secrets are the two below.
+    // dashboard now — keys in the encrypted D1 vault, config in D1 settings.
+    // There are NO provider env vars; two Worker secrets are required below and
+    // the cache-purge secret between them is optional.
     //
     // Customer accounts (config.features.accounts) + admin sessions: signs the
-    // magic-link login token + session cookies (HMAC). The deploy command also
-    // uses it locally to authorize a cross-version cache purge. Set via
-    // wrangler secret; never commit the value.
+    // magic-link login token + session cookies (HMAC). Set via wrangler secret;
+    // never commit the value.
     AUTH_SECRET?: string;
+    // Optional dedicated secret for the signed post-deploy cache purge. Prefer
+    // this on long-lived instances so deploy access never requires distributing
+    // or rotating AUTH_SECRET. The deploy command accepts AUTH_SECRET as a
+    // compatibility fallback.
+    CACHE_PURGE_SECRET?: string;
     // Key-encryption key (KEK) for the at-rest payment-key vault in D1
     // (src/features/secrets). REQUIRED to store/use any provider key — without it
     // the vault is dormant and the store runs demo-only. The KEK itself NEVER goes

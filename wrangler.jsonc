@@ -23,8 +23,8 @@
 	// Safe default for fresh workers.dev deployments. A rendered instance may
 	// enable Workers Caching only after it declares CANONICAL_ORIGIN and disables
 	// alternate ingress hostnames. cross_version_cache stays off unless the
-	// deploy environment has the same AUTH_SECRET as the Worker: scripts/deploy.mjs
-	// uses it to sign the mandatory post-deploy purge.
+	// deploy environment has the same CACHE_PURGE_SECRET as the Worker:
+	// scripts/deploy.mjs uses it to sign the mandatory post-deploy purge.
 	"cache": {
 		"enabled": false
 	},

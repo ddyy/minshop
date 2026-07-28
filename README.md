@@ -186,8 +186,10 @@ failures.
 
 By default, a deployment starts with a cold, version-keyed cache. An instance
 that deploys frequently may add `"cross_version_cache": true` beside
-`cache.enabled`, but only after its deploy environment has the same
-`AUTH_SECRET` as the Worker (an uncommitted `.dev.vars` is supported).
+`cache.enabled`, but only after setting the same `CACHE_PURGE_SECRET` in the
+Worker and its deploy environment (an uncommitted `.dev.vars` is supported).
+Use a dedicated random value so deploy access never requires distributing or
+rotating `AUTH_SECRET`; the latter remains a compatibility fallback.
 `npm run deploy` preflights that secret plus the single canonical hostname,
 deploys, then calls a short-lived HMAC-authenticated Worker endpoint to purge
 the shared cache. It retries transient purge failures. If all attempts fail,

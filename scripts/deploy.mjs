@@ -38,7 +38,12 @@ function parseDevVars(path) {
 }
 
 function deploySecret() {
-  return process.env.AUTH_SECRET || parseDevVars(resolve(root, '.dev.vars')).AUTH_SECRET || '';
+  const devVars = parseDevVars(resolve(root, '.dev.vars'));
+  return process.env.CACHE_PURGE_SECRET ||
+    devVars.CACHE_PURGE_SECRET ||
+    process.env.AUTH_SECRET ||
+    devVars.AUTH_SECRET ||
+    '';
 }
 
 function deploymentCacheConfig() {
@@ -68,7 +73,7 @@ function deploymentCacheConfig() {
   const secret = deploySecret();
   if (!secret) {
     throw new Error(
-      'cross_version_cache requires AUTH_SECRET in the deploy environment or .dev.vars.',
+      'cross_version_cache requires CACHE_PURGE_SECRET (or legacy AUTH_SECRET) in the deploy environment or .dev.vars.',
     );
   }
   return { crossVersion: true, origin, secret };
