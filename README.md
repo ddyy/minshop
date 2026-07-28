@@ -155,9 +155,14 @@ Then reload `/admin/setup` and set a new one. (Same effect as running `DELETE FR
 
 Local dev (`astro dev`) bypasses the gate so you're never locked out. Don't make `/admin` a "secret" path — that's security-through-obscurity; the gate is what protects it.
 
-The Worker also applies native edge rate limits to anonymous login POSTs (10/minute per store, route, and connecting client), checkout/invoice POSTs (20/minute), and cache-missing public searches (60/minute). Search input is normalized and capped at 200 characters before FTS or Workers AI sees it; repeated catalog/search GETs are cached at the edge for 60 seconds. Webhooks and authenticated admin APIs are deliberately excluded; provider signatures and the admin gate protect those paths without disrupting legitimate retries or bulk administration. The limits are declared as `AUTH_RATE_LIMITER`, `CHECKOUT_RATE_LIMITER`, and `SEARCH_RATE_LIMITER` bindings in the provisioning template; existing manually maintained Wrangler configs need the same `ratelimits` block.
+The Worker also applies native edge rate limits to anonymous login POSTs (10/minute per store, route, and connecting client), checkout/invoice POSTs (20/minute), and cache-missing public searches (60/minute). Search input is normalized and capped at 200 characters before FTS or Workers AI sees it; instances that enable Workers Caching keep public catalog/search responses for up to 10 minutes. Webhooks and authenticated admin APIs are deliberately excluded; provider signatures and the admin gate protect those paths without disrupting legitimate retries or bulk administration. The limits are declared as `AUTH_RATE_LIMITER`, `CHECKOUT_RATE_LIMITER`, and `SEARCH_RATE_LIMITER` bindings in the provisioning template; existing manually maintained Wrangler configs need the same `ratelimits` block.
 
-Public catalog HTML uses canonical cache keys: tracking/unknown parameters are discarded and page/sort/search controls are normalized, so equivalent URLs share one edge entry. The shell remains shared even when a shopper has cookies. Its only customer-specific header value, the cart count, loads from a tiny private fragment; the complete cart stays on private, `no-store` routes and is fetched only when opened.
+Workers Caching uses its native entrypoint + path/query key, so tracking parameters
+create separate entries; keep internal links canonical and measure fragmentation
+before adding a gateway solely for key normalization. The shell remains shared
+even when a shopper has cookies. Its only customer-specific header value, the
+cart count, loads from a tiny private fragment; the complete cart stays on
+private, `no-store` routes and is fetched only when opened.
 
 Workers Caching is deployment-controlled and disabled in the generic config. If
 an instance moves to a custom domain, set `CANONICAL_ORIGIN` to the full HTTPS
@@ -175,8 +180,9 @@ Checkout reservations and releases purge only when the customer-visible stock
 state changes: products cross `In stock` / `Low stock` / `Sold out`, or a variant
 crosses available / sold out. Exact stock counts appear only on private cart and
 checkout pages. Stock purges target the affected `product:prod_…` tags, are
-best-effort, and never fall back to purging the whole cache; the bounded shared
-TTL remains the safety net for rate limits or transient purge failures.
+best-effort, and never fall back to purging the whole cache; the bounded
+10-minute shared TTL remains the safety net for rate limits or transient purge
+failures.
 
 ## Payments
 
@@ -359,7 +365,7 @@ Uploads accept JPEG, PNG, WebP, and GIF up to 5 MB. **SVG is not accepted** — 
 
 Existing product images are adopted into the library by migration `0026` **without moving or renaming a single R2 object**. Those rows predate the library, so they carry no file type or size and the grid shows them as *Legacy image*; everything else about them works normally.
 
-Deleting a file is the one action with no undo. If you remove an image from a product and then delete it from Media within the same minute, a cached storefront page can briefly show a broken image (see the 60-second note under [Pages](#pages)).
+Deleting a file is the one action with no undo. Removing an image from a product purges the affected storefront cache; if that purge is transiently unavailable and you immediately delete the file from Media, an older page can reference it until the bounded 10-minute TTL expires.
 
 ## Pages
 
@@ -379,7 +385,11 @@ Nothing to enable: an empty table means the feature is simply unused, and no pag
 
 **As the home page.** `/` shows the product list by default; **Admin → Settings → Home page** can point it at a published page or an active product instead. The catalog keeps its own URL at `/products`, and the header gains a **Shop** link to it whenever `/` has been taken over — otherwise the product list would be reachable only through search or a category. The chosen target is stored by id, so renaming it does not break the setting, and anything unresolvable — unpublished, deactivated, deleted — falls back to the product list rather than serving a 404 homepage. The content keeps one canonical URL (`/pages/<slug>` or `/products/<slug>`), so serving it at `/` does not create a second indexable copy.
 
-**Caching.** Storefront HTML is cached at the edge for 60 seconds, so a published edit — like any settings or catalog change — can take up to a minute to appear. Draft and missing pages send `no-store`, so publishing is visible immediately even to someone who hit the URL beforehand.
+**Caching.** Instances with Workers Caching enabled keep storefront HTML for up
+to 10 minutes. Publishing or editing a page purges the affected cache
+immediately; the TTL bounds staleness if a purge is rate-limited or transiently
+fails. Draft and missing pages send `no-store`, so publishing is visible even
+to someone who hit the URL beforehand.
 
 ## Theming
 

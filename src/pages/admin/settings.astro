@@ -623,8 +623,8 @@ const sections = [
         }
       </div>
       <p class="mt-3 text-xs text-gray-400">
-        Replaces the store name in the header. Removing it restores the text name. Storefront
-        pages are cached for 60 seconds, so a change can take up to a minute to appear.
+        Replaces the store name in the header. Removing it restores the text name. Saving
+        purges affected storefront pages; a 10-minute TTL bounds a transient purge failure.
       </p>
     </form>
 
@@ -688,8 +688,8 @@ const sections = [
       <p class="mt-3 text-xs text-gray-400">
         Only published pages and active products are listed. If the one you pick is later
         unpublished or deleted, the home page falls back to the product list rather than
-        breaking. Storefront pages are cached for 60 seconds, so a change can take up to a
-        minute to appear.
+        breaking. Saving purges affected storefront pages; a 10-minute TTL bounds a
+        transient purge failure.
       </p>
       <button
         type="submit"
@@ -899,7 +899,7 @@ const sections = [
           Save image delivery
         </button>
         <p class="text-xs text-gray-400">
-          Public pages may take up to 60 seconds to reflect a change already held in edge cache.
+          Saving purges affected public pages; a 10-minute TTL bounds a transient purge failure.
         </p>
       </div>
       <p class="mt-3 text-xs text-gray-400">

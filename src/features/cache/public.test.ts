@@ -62,7 +62,7 @@ describe('responseCacheControl', () => {
     '/api/checkout',
   ])('marks private route %s no-store on every response path', (path) => {
     expect(responseCacheControl(path, 200, null)).toBe(PRIVATE_CACHE_CONTROL);
-    expect(responseCacheControl(path, 302, 'public, s-maxage=60')).toBe(
+    expect(responseCacheControl(path, 302, 'public, s-maxage=600')).toBe(
       PRIVATE_CACHE_CONTROL,
     );
     expect(responseCacheControl(path, 404, null)).toBe(PRIVATE_CACHE_CONTROL);

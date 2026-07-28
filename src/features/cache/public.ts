@@ -1,4 +1,4 @@
-export const PUBLIC_CACHE_CONTROL = 'public, max-age=0, s-maxage=60';
+export const PUBLIC_CACHE_CONTROL = 'public, max-age=0, s-maxage=600';
 export const PRIVATE_CACHE_CONTROL = 'private, no-store';
 
 export function isPublicCatalogApi(pathname: string): boolean {

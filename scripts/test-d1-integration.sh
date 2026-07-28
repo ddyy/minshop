@@ -211,7 +211,7 @@ assert_cache_control() {
   fi
 }
 
-public_cache='public, max-age=0, s-maxage=60'
+public_cache='public, max-age=0, s-maxage=600'
 private_cache='private, no-store'
 
 for path in \
@@ -378,7 +378,7 @@ curl --fail --silent --show-error \
   --dump-header "$storefront_headers" \
   --output "$storefront_body" \
   "http://127.0.0.1:$test_port/?utm_source=integration"
-if ! tr -d '\r' <"$storefront_headers" | grep -qi '^cache-control: public, max-age=0, s-maxage=60$'; then
+if ! tr -d '\r' <"$storefront_headers" | grep -qi '^cache-control: public, max-age=0, s-maxage=600$'; then
   echo "D1 integration failed: cookied storefront shell was not cacheable" >&2
   exit 1
 fi
