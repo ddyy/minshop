@@ -133,8 +133,8 @@ export function orderNotificationEmail(
   storeName: string,
   imageDelivery: ImageDelivery = 'original',
 ): EmailMessage {
-  const cfg = getConfig();
-  const num = orderReference(order.public_id, order.id, cfg.orderNumber);
+  const publicId = order.public_id ?? '—';
+  const subjectPublicId = order.public_id ? ` — ${order.public_id}` : '';
   const money = (cents: number) => formatPrice(cents, order.currency);
   const shipText = formatShipAddress(order);
   const adminUrl = `${baseUrl}/admin/orders/${order.public_id ?? order.id}`;
@@ -144,7 +144,8 @@ export function orderNotificationEmail(
   );
 
   const text = [
-    `New order #${num}`,
+    `New order #${order.id}`,
+    `Public ID: ${publicId}`,
     ``,
     `Customer: ${order.email ?? '-'}`,
     ``,
@@ -162,9 +163,11 @@ export function orderNotificationEmail(
 
   const html = emailShell({
     storeName,
-    heading: `New order #${num}`,
+    heading: `New order #${order.id}`,
     subheading: `${money(order.amount_total_cents)} from ${escapeHtml(order.email ?? 'an unknown address')}`,
     body:
+      emailLabel('Order identifiers') +
+      `<p style="margin:0;font-size:14px;line-height:1.6;">Order #${order.id}<br><span style="font-family:monospace;">${escapeHtml(publicId)}</span></p>` +
       emailLabel('Ship to') +
       `<p style="margin:0;font-size:14px;line-height:1.6;">${escapeHtml(shipText).replace(/\n/g, '<br>')}</p>` +
       emailItemsTable(
@@ -181,7 +184,7 @@ export function orderNotificationEmail(
 
   return {
     to,
-    subject: `New ${storeName} order #${num}`,
+    subject: `New ${storeName} order #${order.id}${subjectPublicId}`,
     html,
     text,
   };
