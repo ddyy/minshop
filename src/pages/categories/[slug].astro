@@ -1,7 +1,6 @@
 ---
 import { env } from 'cloudflare:workers';
 import Layout from '../../layouts/Layout.astro';
-import { formatPrice } from '../../config';
 import {
   getCategoryBySlug,
   ancestors,
@@ -10,7 +9,7 @@ import {
   productsInCategory,
   countProductsInCategory,
 } from '../../features/categories/db';
-import ProductImage from '../../features/products/ProductImage.astro';
+import ProductCard from '../../components/ProductCard.astro';
 import { orderByClause, parseStoreSortQuery } from '../../features/products/sort';
 import {
   MAX_PUBLIC_PAGE,
@@ -20,6 +19,7 @@ import {
 import Pagination from '../../components/Pagination.astro';
 import SortLinks from '../../components/SortLinks.astro';
 import { catalogPath } from '../../features/settings/home';
+import { addCacheTags, productCacheTags } from '../../features/cache/tags';
 
 const { slug } = Astro.params;
 const category = slug ? await getCategoryBySlug(env.DB, slug) : null;
@@ -48,6 +48,7 @@ const { page, offset, totalPages } = paginate(
   MAX_PUBLIC_PAGE,
 );
 const products = await productsInCategory(env.DB, category.id, PAGE_SIZE, offset, order);
+addCacheTags(Astro.response.headers, productCacheTags(products.map((product) => product.public_id)));
 const base = `/categories/${category.slug}`;
 const hrefFor = (p: number) =>
   queryHref(base, {
@@ -98,29 +99,7 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
   <ul class="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-3">
     {
       products.map((p, i) => (
-        <li class="reveal group" style={`animation-delay:${Math.min(i, 8) * 60}ms`}>
-          <a href={`/products/${p.slug}`} class="block">
-            <div class="relative overflow-hidden rounded-md bg-gray-100">
-              <ProductImage
-                imageKey={p.image_key}
-                alt={p.name}
-                priority={i === 0}
-                fade
-                sizes="(min-width: 1024px) 352px, calc(50vw - 36px)"
-                class={`aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]${0 >= p.stock ? ' opacity-60' : ''}`}
-              />
-              {
-                0 >= p.stock && (
-                  <span class="absolute left-3 top-3 rounded-full bg-white/90 px-2.5 py-0.5 text-xs uppercase tracking-widest text-gray-700 ring-1 ring-line">
-                    Sold out
-                  </span>
-                )
-              }
-            </div>
-            <h2 class="mt-4 text-sm font-medium tracking-tight">{p.name}</h2>
-            <p class="mt-1 text-sm tabular-nums text-gray-500">{formatPrice(p.price_cents)}</p>
-          </a>
-        </li>
+        <ProductCard product={p} index={i} priority={i === 0} />
       ))
     }
   </ul>

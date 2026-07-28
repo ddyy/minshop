@@ -18,12 +18,17 @@ import { shippingFor } from '../features/shipping/effective';
 import { shipmentWeightFor } from '../features/shipping/lines';
 import { getLightningBackend } from '../features/payments/lightning';
 import { mintLightningOrder } from '../features/payments/lightning-provider';
-import { isMethodAvailable, getPaymentProvider } from '../features/payments';
+import {
+  DEMO_CHECKOUT_TTL_SECONDS,
+  isMethodAvailable,
+  getPaymentProvider,
+} from '../features/payments';
 import {
   reserveInventory,
   releaseInventoryReservation,
   type ReservationItem,
 } from '../features/orders/reservations';
+import { purgeStockProductCache } from '../features/cache/purge';
 
 const cfg = getConfig();
 const isPost = Astro.request.method === 'POST';
@@ -257,17 +262,18 @@ if (submitted) {
             priceCents: line.unitPriceCents,
             quantity: line.qty,
           }));
-          // Demo is a simulation and never holds real stock (recordPaidOrder skips
-          // it too), so there is nothing to reserve for that rail.
-          const reserved =
-            rail === 'demo' ||
-            (await reserveInventory(
-              env.DB,
-              publicId,
-              reservedItems,
-              cfg.payments.lightning.invoiceExpiryMinutes * 60 + 5 * 60,
-              rail,
-            ));
+          const reservationTtl =
+            rail === 'demo'
+              ? DEMO_CHECKOUT_TTL_SECONDS
+              : cfg.payments.lightning.invoiceExpiryMinutes * 60 + 5 * 60;
+          const reserved = await reserveInventory(
+            env.DB,
+            publicId,
+            reservedItems,
+            reservationTtl,
+            rail,
+            purgeStockProductCache,
+          );
           if (!reserved) {
             await deleteGuestAccessIfUnsettled(env.DB, publicId);
             errors.push('Some inventory just sold out — please review your cart.');
@@ -334,7 +340,7 @@ if (submitted) {
               // the whole claim — held stock AND the guest credential — and show
               // a retryable message instead of a 500, so the shopper can try
               // again or pick another method.
-              await releaseInventoryReservation(env.DB, publicId);
+              await releaseInventoryReservation(env.DB, publicId, purgeStockProductCache);
               await deleteGuestAccessIfUnsettled(env.DB, publicId);
               console.error(
                 JSON.stringify({

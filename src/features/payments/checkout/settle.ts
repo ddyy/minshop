@@ -10,6 +10,7 @@ import { recordPaidWebhookOrder } from '../../orders/recordWebhook';
 import { resolveRequiredOrderEmail } from '../../email/orderPolicy';
 import { deliverOrderNotifications } from '../../email/outbox';
 import type { StoreSettings } from '../../settings/db';
+import { purgeStockProductCache } from '../../cache/purge';
 
 // Settlement logic for the self-rendered /pay page, one function per method. Kept
 // here (beside the views) so the route stays a thin dispatcher.
@@ -77,7 +78,7 @@ export async function settleLightningOnLoad(
   }
   if (!paid) return false;
   const order = pendingToPaidOrder(pending);
-  const orderId = await recordPaidOrder(env.DB, order);
+  const orderId = await recordPaidOrder(env.DB, order, purgeStockProductCache);
   let settledOrderId = orderId;
   if (!orderId) {
     const existing = await getOrderByProviderSessionId(env.DB, order.providerSessionId);

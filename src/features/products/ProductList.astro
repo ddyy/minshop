@@ -7,6 +7,7 @@ import { listProducts, countProducts } from './db';
 import { listCategories, childrenOf } from '../categories/db';
 import { orderByClause, parseStoreSortQuery } from './sort';
 import { MAX_PUBLIC_PAGE, paginate, queryHref } from '../../pagination';
+import { addCacheTags, productCacheTags } from '../cache/tags';
 
 /**
  * The catalog list. Mounted at `/` and at `/products` — the store needs a URL
@@ -43,6 +44,7 @@ const { page, offset, totalPages } = paginate(
   MAX_PUBLIC_PAGE,
 );
 const products = await listProducts(env.DB, PAGE_SIZE, offset, order);
+addCacheTags(Astro.response.headers, productCacheTags(products.map((product) => product.public_id)));
 const topCategories = childrenOf(categories, null);
 const hrefFor = (p: number) =>
   queryHref(base, {

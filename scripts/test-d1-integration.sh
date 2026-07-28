@@ -25,6 +25,9 @@ npx wrangler d1 execute DB --local --persist-to "$state_dir" \
   --command "WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 30) INSERT INTO products (name, slug, description, price_cents, stock) SELECT 'Pagination Item ' || n, 'pagination-item-' || n, 'pagination fixture', 1000 + n, 10 FROM seq;" >/dev/null
 npx wrangler d1 execute DB --local --persist-to "$state_dir" \
   --command "INSERT INTO categories (name, slug) VALUES ('Apparel', 'apparel'); INSERT INTO product_categories (product_id, category_id) SELECT p.id, c.id FROM products p, categories c WHERE p.slug = 'sample-tee' AND c.slug = 'apparel';" >/dev/null
+npx wrangler r2 object put minshop-images/media/cache-header-fixture.svg \
+  --local --persist-to "$state_dir" --file public/favicon.svg \
+  --content-type image/svg+xml >/dev/null
 # Fixture rows need valid public_ids (hex ⊂ the Crockford alphabet) — the
 # public serializers refuse rows without one.
 npx wrangler d1 execute DB --local --persist-to "$state_dir" \
@@ -44,6 +47,7 @@ done
 npx wrangler dev \
   --config dist/server/wrangler.json \
   --persist-to "$state_dir" \
+  --var CANONICAL_ORIGIN:https://canonical.example \
   --ip 127.0.0.1 \
   --port "$test_port" >"$worker_log" 2>&1 &
 worker_pid="$!"
@@ -73,6 +77,12 @@ node -e '
   if (!body.products[0].slug || !Number.isInteger(body.products[0].price?.cents)) {
     throw new Error("catalog product shape is invalid");
   }
+  if (!body.products[0].url?.startsWith("https://canonical.example/products/")) {
+    throw new Error("catalog product URL did not use CANONICAL_ORIGIN");
+  }
+  if (!body.products[0].image?.startsWith("https://canonical.example/")) {
+    throw new Error("catalog image URL did not use CANONICAL_ORIGIN");
+  }
 ' "$catalog"
 
 # Search pagination must operate at the FTS query, not slice a fixed-size result.
@@ -97,6 +107,12 @@ node -e '
     throw new Error("catalog list did not include the product category");
   }
 ' "$sample_page"
+sample_id="$(node -e '
+  const body = JSON.parse(process.argv[1]);
+  const tee = body.products.find((p) => p.slug === "sample-tee");
+  if (!tee?.id) process.exit(1);
+  process.stdout.write(String(tee.id));
+' "$sample_page")"
 
 # The media library must exist and already contain every product image key, so
 # existing uploads are manageable without moving a single R2 object.
@@ -163,6 +179,101 @@ if [[ "$page_body" != *"We ship worldwide."* ]]; then
   exit 1
 fi
 
+# Workers Caching runs before the Worker and heuristically stores headerless
+# responses. Crawl every GET/HEAD route class so only known public responses can
+# ever leave with a shared directive; redirects, errors, and private routes must
+# also be explicit.
+assert_cache_control() {
+  local path="$1"
+  local expected="$2"
+  local method="${3:-GET}"
+  local headers="$state_dir/cache-headers.txt"
+
+  if [[ "$method" == "HEAD" ]]; then
+    curl --silent --head --output /dev/null --dump-header "$headers" \
+      "http://127.0.0.1:$test_port$path"
+  else
+    curl --silent --output /dev/null --dump-header "$headers" \
+      "http://127.0.0.1:$test_port$path"
+  fi
+
+  local actual
+  actual="$(tr -d '\r' <"$headers" | awk 'tolower($0) ~ /^cache-control:/ { sub(/^[^:]+:[[:space:]]*/, ""); print; exit }')"
+  if [[ "$actual" != "$expected" ]]; then
+    echo "D1 integration failed: $method $path cache-control was '$actual' (expected '$expected')" >&2
+    exit 1
+  fi
+}
+
+public_cache='public, max-age=0, s-maxage=60'
+private_cache='private, no-store'
+
+for path in \
+  / /products /products/sample-tee /categories/apparel '/search?q=sample' \
+  /pages/shipping /robots.txt /sitemap.xml /llms.txt \
+  /api/products /api/products/sample-tee
+do
+  assert_cache_control "$path" "$public_cache"
+done
+assert_cache_control / "$public_cache" HEAD
+
+for path in \
+  /cart /checkout /express /payment-setup /partials/cart-count \
+  /account /account/login /order/not-a-token /pay/not-an-id \
+  /admin /api/admin/products /api/cart /api/checkout
+do
+  assert_cache_control "$path" "$private_cache"
+done
+
+assert_cache_control /product/sample-tee "$public_cache"
+assert_cache_control /category/apparel "$public_cache"
+assert_cache_control /images/media/cache-header-fixture.svg \
+  'public, max-age=31536000, immutable'
+assert_cache_control /pages/no-such-page 'no-store'
+assert_cache_control /not-a-route "$private_cache"
+
+# Purge metadata follows the same allowlist. Product-bearing responses carry
+# narrow product tags in addition to their family tags; private/error responses
+# carry none.
+assert_cache_tags() {
+  local path="$1"
+  local expected="$2"
+  local headers="$state_dir/cache-tag-headers.txt"
+
+  curl --silent --output /dev/null --dump-header "$headers" \
+    "http://127.0.0.1:$test_port$path"
+
+  local actual
+  actual="$(tr -d '\r' <"$headers" | awk 'tolower($0) ~ /^cache-tag:/ { sub(/^[^:]+:[[:space:]]*/, ""); print; exit }')"
+  if [[ "$actual" != "$expected" ]]; then
+    echo "D1 integration failed: GET $path cache-tag was '$actual' (expected '$expected')" >&2
+    exit 1
+  fi
+}
+
+assert_cache_tags_match() {
+  local path="$1"
+  local expected_pattern="$2"
+  local headers="$state_dir/cache-tag-headers.txt"
+
+  curl --silent --output /dev/null --dump-header "$headers" \
+    "http://127.0.0.1:$test_port$path"
+
+  local actual
+  actual="$(tr -d '\r' <"$headers" | awk 'tolower($0) ~ /^cache-tag:/ { sub(/^[^:]+:[[:space:]]*/, ""); print; exit }')"
+  if [[ ! "$actual" =~ $expected_pattern ]]; then
+    echo "D1 integration failed: GET $path cache-tag was '$actual' (expected pattern '$expected_pattern')" >&2
+    exit 1
+  fi
+}
+
+assert_cache_tags /pages/shipping 'catalog,shell'
+assert_cache_tags /robots.txt 'catalog,shell'
+assert_cache_tags_match /api/products/sample-tee '^catalog,product:prod_[0-9a-z]+$'
+assert_cache_tags_match /products/sample-tee '^catalog,product:prod_[0-9a-z]+,shell$'
+assert_cache_tags /cart ''
+assert_cache_tags /not-a-route ''
+
 # A draft must 404, and must say no-store so a browser or proxy cannot keep
 # serving that 404 after the page is published.
 draft_headers="$(curl --silent --include --output /dev/null --write-out '%{http_code}' \
@@ -210,17 +321,21 @@ for surface in sitemap.xml llms.txt; do
     echo "D1 integration failed: draft page leaked into $surface" >&2
     exit 1
   fi
+  if [[ "$body" != *"https://canonical.example/"* ]]; then
+    echo "D1 integration failed: $surface did not use CANONICAL_ORIGIN" >&2
+    exit 1
+  fi
 done
+
+robots="$(curl --fail --silent --show-error "http://127.0.0.1:$test_port/robots.txt")"
+if [[ "$robots" != *"Sitemap: https://canonical.example/sitemap.xml"* ]]; then
+  echo "D1 integration failed: robots.txt did not use CANONICAL_ORIGIN" >&2
+  exit 1
+fi
 
 # A shopper's cart stays private while the catalog shell remains shared. The
 # count fragment reads only the HttpOnly cookie, and the full drawer resolves
 # all cart rows through the batched product/variant/extra path.
-sample_id="$(node -e '
-  const body = JSON.parse(process.argv[1]);
-  const tee = body.products.find((p) => p.slug === "sample-tee");
-  if (!tee?.id) process.exit(1);
-  process.stdout.write(String(tee.id));
-' "$sample_page")"
 cookie_jar="$state_dir/cart-cookies.txt"
 cart_status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
   --cookie-jar "$cookie_jar" \
@@ -261,19 +376,34 @@ if ! tr -d '\r' <"$storefront_headers" | grep -qi '^cache-control: public, max-a
   echo "D1 integration failed: cookied storefront shell was not cacheable" >&2
   exit 1
 fi
+if ! grep -q '<link rel="canonical" href="https://canonical.example/"' "$storefront_body"; then
+  echo "D1 integration failed: storefront canonical did not use CANONICAL_ORIGIN" >&2
+  exit 1
+fi
 if grep -q 'Cart (1)' "$storefront_body"; then
   echo "D1 integration failed: shared storefront leaked a personalized cart count" >&2
   exit 1
 fi
 
 # Exercise a real application write through the binding: demo checkout creates a
-# pending payment, settlement atomically writes the paid order + items, and the
-# confirmation page reads that committed state back.
+# stock reservation + pending payment, settlement atomically writes the paid
+# order + items without decrementing twice, and the confirmation page reads that
+# committed state back.
+stock_before_demo="$(npx wrangler d1 execute DB --local --persist-to "$state_dir" --json \
+  --command "SELECT stock FROM products WHERE slug = 'sample-tee';" |
+  node -e 'let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(String(JSON.parse(s)[0].results[0].stock)))')"
 checkout="$(curl --fail --silent --show-error \
   -H 'content-type: application/json' \
   -H "origin: http://127.0.0.1:$test_port" \
   --data '{"items":[{"slug":"sample-tee","quantity":1}],"method":"demo","ship_to":{"email":"integration@example.com","name":"Integration Test","line1":"1 Test St","city":"Testville","postal":"12345","country":"US"}}' \
   "http://127.0.0.1:$test_port/api/checkout")"
+stock_after_demo_hold="$(npx wrangler d1 execute DB --local --persist-to "$state_dir" --json \
+  --command "SELECT stock FROM products WHERE slug = 'sample-tee';" |
+  node -e 'let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(String(JSON.parse(s)[0].results[0].stock)))')"
+if [[ "$stock_after_demo_hold" -ne $((stock_before_demo - 1)) ]]; then
+  echo "D1 integration failed: demo checkout did not reserve one unit of stock" >&2
+  exit 1
+fi
 
 # In-app rails must be judged on the destination they SUBMIT, not on a preflight
 # quote of the first configured zone. Zone 1 here is weight-only (and the seeded
@@ -333,6 +463,23 @@ fi
 
 pay_path="$(node -e 'const b=JSON.parse(process.argv[1]); if (!b.checkout_url) process.exit(1); process.stdout.write(new URL(b.checkout_url).pathname)' "$checkout")"
 order_id="$(node -e 'const b=JSON.parse(process.argv[1]); if (!b.order_public_id) process.exit(1); process.stdout.write(b.order_public_id)' "$checkout")"
+
+# Some privacy-focused clients omit Origin on ordinary same-site form POSTs.
+# The otk_ URL is already the bearer credential, so its demo form must remain
+# usable without relaxing origin checks for any cookie-authenticated route.
+originless_decline="$state_dir/originless-decline.html"
+originless_status="$(curl --silent --output "$originless_decline" --write-out '%{http_code}' \
+  -H 'content-type: application/x-www-form-urlencoded' \
+  --data 'outcome=decline&email=integration%40example.com' \
+  "http://127.0.0.1:$test_port$pay_path")"
+if [[ "$originless_status" != "200" ]] || ! grep -q 'Payment declined' "$originless_decline"; then
+  echo "D1 integration failed: originless capability payment returned HTTP $originless_status" >&2
+  exit 1
+fi
+
+stock_before_demo_settle="$(npx wrangler d1 execute DB --local --persist-to "$state_dir" --json \
+  --command "SELECT stock FROM products WHERE slug = 'sample-tee';" |
+  node -e 'let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(String(JSON.parse(s)[0].results[0].stock)))')"
 settle_status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
   -H 'content-type: application/x-www-form-urlencoded' \
   -H "origin: http://127.0.0.1:$test_port" \
@@ -340,6 +487,20 @@ settle_status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
   "http://127.0.0.1:$test_port$pay_path")"
 if [[ "$settle_status" != "303" ]]; then
   echo "D1 integration failed: demo settlement returned HTTP $settle_status" >&2
+  exit 1
+fi
+stock_after_demo_settle="$(npx wrangler d1 execute DB --local --persist-to "$state_dir" --json \
+  --command "SELECT stock FROM products WHERE slug = 'sample-tee';" |
+  node -e 'let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(String(JSON.parse(s)[0].results[0].stock)))')"
+if [[ "$stock_after_demo_settle" -ne "$stock_before_demo_settle" ]]; then
+  echo "D1 integration failed: demo settlement decremented reserved stock twice" >&2
+  exit 1
+fi
+reservation_status="$(npx wrangler d1 execute DB --local --persist-to "$state_dir" --json \
+  --command "SELECT status FROM checkout_reservations WHERE public_id = '$order_id';" |
+  node -e 'let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(String(JSON.parse(s)[0].results[0].status)))')"
+if [[ "$reservation_status" != "settled" ]]; then
+  echo "D1 integration failed: demo reservation ended as $reservation_status, expected settled" >&2
   exit 1
 fi
 

@@ -1,0 +1,116 @@
+---
+// Admin list filter bar.
+//
+// A plain GET form: the browser turns the controls into the query string the
+// page already parses, so filters survive reload, bookmarking, sharing and the
+// back button with no client-side state. Submitting on change keeps it to one
+// interaction per filter without a JS framework — and the Apply button means it
+// still works with JS off.
+
+export interface SelectFilter {
+  name: string;
+  label: string;
+  /** Wording for the unfiltered choice, e.g. "All statuses". */
+  anyLabel: string;
+  value: string | null;
+  options: { value: string; label: string }[];
+}
+
+interface Props {
+  action: string;
+  selects: SelectFilter[];
+  /** Free-text search box; omitted when the list has none. */
+  search?: { name: string; value: string | null; placeholder: string };
+  /** Extra state to carry through so filtering doesn't drop the sort. */
+  hidden?: Record<string, string | undefined>;
+  active: boolean;
+  /** Result count, shown only while filtered so the empty case is explicable. */
+  count?: number;
+  noun?: string;
+}
+
+const { action, selects, search, hidden = {}, active, count, noun = 'result' } = Astro.props;
+---
+
+<form method="GET" action={action} class="mb-6 flex flex-wrap items-end gap-3" data-filter-bar>
+  {
+    /* Sort and any other list state ride along as hidden inputs — without this,
+       changing a filter would silently reset the column you sorted by. `page` is
+       deliberately NOT carried: a new filter means page 1. */
+    Object.entries(hidden).map(([name, value]) =>
+      value ? <input type="hidden" name={name} value={value} /> : null,
+    )
+  }
+
+  {
+    search && (
+      <label class="flex flex-col gap-1">
+        <span class="text-xs uppercase tracking-widest text-gray-400">Search</span>
+        <input
+          type="search"
+          name={search.name}
+          value={search.value ?? ''}
+          placeholder={search.placeholder}
+          class="w-56 rounded-md border border-gray-200 px-3 py-1.5 text-sm"
+        />
+      </label>
+    )
+  }
+
+  {
+    selects.map((s) => (
+      <label class="flex flex-col gap-1">
+        <span class="text-xs uppercase tracking-widest text-gray-400">{s.label}</span>
+        <select
+          name={s.name}
+          class="rounded-md border border-gray-200 px-2 py-1.5 text-sm"
+          data-filter-select
+        >
+          <option value="">{s.anyLabel}</option>
+          {s.options.map((o) => (
+            <option value={o.value} selected={s.value === o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </label>
+    ))
+  }
+
+  <button
+    type="submit"
+    class="rounded-md border border-line px-4 py-1.5 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand hover:text-brand"
+  >
+    Apply
+  </button>
+
+  {
+    active && (
+      <a
+        href={action}
+        class="py-1.5 text-xs uppercase tracking-widest text-gray-400 hover:text-brand"
+      >
+        Clear
+      </a>
+    )
+  }
+
+  {
+    active && count !== undefined && (
+      <span class="py-1.5 text-xs text-gray-500">
+        {count} {noun}
+        {count === 1 ? '' : 's'}
+      </span>
+    )
+  }
+</form>
+
+<script>
+  // Progressive enhancement only: with JS the dropdowns apply immediately, and
+  // without it the Apply button still submits the same form.
+  document.querySelectorAll('[data-filter-bar]').forEach((form) => {
+    form.querySelectorAll('[data-filter-select]').forEach((select) => {
+      select.addEventListener('change', () => (form as HTMLFormElement).requestSubmit());
+    });
+  });
+</script>

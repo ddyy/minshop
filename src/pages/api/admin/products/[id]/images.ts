@@ -17,6 +17,8 @@ import { uploadMedia } from '../../../../../features/media/upload';
 import { attachMediaToProduct, getMediaByPublicId } from '../../../../../features/media/db';
 import { getStorage } from '../../../../../features/storage';
 import { parsePublicId } from '../../../../../features/ids/publicId';
+import { CACHE_TAG } from '../../../../../features/cache/tags';
+import { purgeCacheTags } from '../../../../../features/cache/purge';
 
 export const prerender = false;
 
@@ -35,7 +37,7 @@ export const prerender = false;
 export const POST: APIRoute = async ({ request, params, redirect }) => {
   const publicId = parsePublicId(params.id, 'product');
   const product = publicId ? await getProductByPublicId(env.DB, publicId) : null;
-  if (!product) return new Response('Not found', { status: 404 });
+  if (!publicId || !product) return new Response('Not found', { status: 404 });
   const id = product.id;
 
   const back = (msg?: string) =>
@@ -47,6 +49,8 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
   const form = await request.formData();
   const action = String(form.get('_action'));
   const storage = getStorage();
+  const purgeProduct = () =>
+    purgeCacheTags([CACHE_TAG.catalog, CACHE_TAG.product(publicId)]);
 
   if (action === 'add') {
     const files = form.getAll('images').filter((f): f is File => f instanceof File && f.size > 0);
@@ -60,6 +64,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
       if (!attached.ok) return back(attached.error);
     }
     await syncPrimaryImage(env.DB, id); // first image stays primary
+    await purgeProduct();
     return back();
   }
 
@@ -73,6 +78,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     const attached = await attachMediaToProduct(env.DB, id, media.id);
     if (!attached.ok) return back(attached.error);
     await syncPrimaryImage(env.DB, id);
+    await purgeProduct();
     return back();
   }
 
@@ -90,6 +96,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
       .filter((n): n is number => n !== undefined);
     await reorderProductImages(env.DB, id, ids);
     await syncPrimaryImage(env.DB, id); // new first image becomes primary
+    await purgeProduct();
     return new Response(null, { status: 204 });
   }
 
@@ -100,11 +107,13 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
 
   if (action === 'alt') {
     await setProductImageAlt(env.DB, imageId, String(form.get('alt') ?? ''));
+    await purgeProduct();
     return back();
   }
 
   if (action === 'primary') {
     await makeImagePrimary(env.DB, id, imageId);
+    await purgeProduct();
     return back();
   }
 
@@ -112,6 +121,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     const dir = form.get('direction') === 'up' ? 'up' : 'down';
     await moveProductImage(env.DB, imageId, dir);
     await syncPrimaryImage(env.DB, id);
+    await purgeProduct();
     return back();
   }
 
@@ -123,6 +133,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     await deleteProductImageRow(env.DB, imageId);
     await clearVariantImage(env.DB, imageId); // drop dangling variant references
     await syncPrimaryImage(env.DB, id); // promotes the new first image (or null)
+    await purgeProduct();
     return back();
   }
 

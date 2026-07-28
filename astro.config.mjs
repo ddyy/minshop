@@ -8,6 +8,10 @@ import tailwindcss from '@tailwindcss/vite';
 // integration is deprecated).
 export default defineConfig({
   output: 'server',
+  // Replaced by the equivalent middleware guard so the bearer-capability
+  // /pay/otk_… form can support clients that omit Origin without weakening
+  // cookie-authenticated Admin/account forms.
+  security: { checkOrigin: false },
   adapter: cloudflare({
     // Keep Cloudflare Images opt-in. The adapter otherwise auto-provisions an
     // IMAGES binding even though minshop stores and serves originals from R2.

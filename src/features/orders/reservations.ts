@@ -1,4 +1,8 @@
 import type { D1Database } from '@cloudflare/workers-types';
+import {
+  visibleStockChanged,
+  type StockTransitionPurger,
+} from '../products/stock.ts';
 import type { OrderItemInput } from './db';
 
 export interface ReservationItem extends OrderItemInput {
@@ -16,6 +20,15 @@ interface StockTarget {
   productId: number;
   variantId: number | null;
   quantity: number;
+}
+
+interface StockUpdateRow {
+  stock: number;
+}
+
+interface ProductPublicIdRow {
+  id: number;
+  public_id: string | null;
 }
 
 /** Combine lines that share the same finite stock target (for example extras). */
@@ -64,25 +77,57 @@ async function getReservation(db: D1Database, publicId: string): Promise<Reserva
     .first<ReservationRow>();
 }
 
-/** Release one still-active reservation and put its inventory back exactly once. */
-export async function releaseInventoryReservation(
+async function publicIdsForProducts(
+  db: D1Database,
+  productIds: Iterable<number>,
+): Promise<string[]> {
+  const ids = [...new Set(productIds)];
+  if (ids.length === 0) return [];
+  const placeholders = ids.map(() => '?').join(',');
+  const { results } = await db
+    .prepare(`SELECT id, public_id FROM products WHERE id IN (${placeholders})`)
+    .bind(...ids)
+    .all<ProductPublicIdRow>();
+  return (results ?? [])
+    .map((row) => row.public_id)
+    .filter((publicId): publicId is string => typeof publicId === 'string');
+}
+
+async function purgeTransitions(
+  db: D1Database,
+  productIds: Iterable<number>,
+  purger?: StockTransitionPurger,
+): Promise<void> {
+  if (!purger) return;
+  const publicIds = await publicIdsForProducts(db, productIds);
+  if (publicIds.length > 0) await purger(publicIds);
+}
+
+async function releaseReservation(
   db: D1Database,
   publicId: string,
-): Promise<boolean> {
+): Promise<{ released: boolean; changedProductIds: number[] }> {
   const row = await getReservation(db, publicId);
-  if (!row || (row.status !== 'active' && row.status !== 'payment_pending')) return false;
+  if (!row || (row.status !== 'active' && row.status !== 'payment_pending')) {
+    return { released: false, changedProductIds: [] };
+  }
   const items = parseItems(row.items);
   if (!items) throw new Error(`Reservation ${publicId} has an invalid item snapshot.`);
 
+  const targets = aggregateStockTargets(items);
   const releasableGuard =
     "EXISTS (SELECT 1 FROM checkout_reservations WHERE public_id = ? AND status IN ('active', 'payment_pending'))";
-  const statements = aggregateStockTargets(items).map((target) =>
+  const statements = targets.map((target) =>
     target.variantId == null
       ? db
-          .prepare(`UPDATE products SET stock = stock + ? WHERE id = ? AND ${releasableGuard}`)
+          .prepare(
+            `UPDATE products SET stock = stock + ? WHERE id = ? AND ${releasableGuard} RETURNING stock`,
+          )
           .bind(target.quantity, target.productId, publicId)
       : db
-          .prepare(`UPDATE product_variants SET stock = stock + ? WHERE id = ? AND ${releasableGuard}`)
+          .prepare(
+            `UPDATE product_variants SET stock = stock + ? WHERE id = ? AND ${releasableGuard} RETURNING stock`,
+          )
           .bind(target.quantity, target.variantId, publicId),
   );
   statements.push(
@@ -92,23 +137,53 @@ export async function releaseInventoryReservation(
       )
       .bind(publicId),
   );
-  const results = await db.batch<{ public_id: string }>(statements);
-  return Boolean(results.at(-1)?.results[0]);
+  const results = await db.batch<StockUpdateRow & { public_id?: string }>(statements);
+  const released = Boolean(results.at(-1)?.results[0]);
+  if (!released) return { released: false, changedProductIds: [] };
+
+  const changedProductIds = targets.flatMap((target, index) => {
+    const after = results[index]?.results[0]?.stock;
+    return typeof after === 'number' &&
+      visibleStockChanged(target.variantId != null, after - target.quantity, after)
+      ? [target.productId]
+      : [];
+  });
+  return { released: true, changedProductIds };
+}
+
+/** Release one still-active reservation and put its inventory back exactly once. */
+export async function releaseInventoryReservation(
+  db: D1Database,
+  publicId: string,
+  purger?: StockTransitionPurger,
+): Promise<boolean> {
+  const result = await releaseReservation(db, publicId);
+  await purgeTransitions(db, result.changedProductIds, purger);
+  return result.released;
 }
 
 /**
- * Reclaim expired self-rendered Lightning invoices before a new hold. Hosted
- * methods release only from verified provider expiry/failure webhooks: a payment
- * may have completed before local expiry while its webhook delivery is delayed.
+ * Reclaim expired self-rendered Lightning and Demo payments before a new hold.
+ * Hosted methods release only from verified provider expiry/failure webhooks: a
+ * payment may have completed before local expiry while its webhook is delayed.
  */
-export async function releaseExpiredReservations(db: D1Database, limit = 50): Promise<void> {
+export async function releaseExpiredReservations(
+  db: D1Database,
+  limit = 50,
+  purger?: StockTransitionPurger,
+): Promise<void> {
   const { results } = await db
     .prepare(
-      "SELECT public_id FROM checkout_reservations WHERE payment_method = 'lightning' AND status = 'active' AND expires_at <= datetime('now') ORDER BY expires_at LIMIT ?",
+      "SELECT public_id FROM checkout_reservations WHERE payment_method IN ('lightning', 'demo') AND status = 'active' AND expires_at <= datetime('now') ORDER BY expires_at LIMIT ?",
     )
     .bind(limit)
     .all<{ public_id: string }>();
-  for (const row of results ?? []) await releaseInventoryReservation(db, row.public_id);
+  const changedProductIds: number[] = [];
+  for (const row of results ?? []) {
+    const released = await releaseReservation(db, row.public_id);
+    changedProductIds.push(...released.changedProductIds);
+  }
+  await purgeTransitions(db, changedProductIds, purger);
 }
 
 /**
@@ -121,10 +196,11 @@ export async function reserveInventory(
   publicId: string,
   items: ReservationItem[],
   ttlSeconds: number,
-  paymentMethod: 'stripe' | 'opennode' | 'lightning',
+  paymentMethod: 'stripe' | 'opennode' | 'lightning' | 'demo',
+  purger?: StockTransitionPurger,
 ): Promise<boolean> {
   if (items.length === 0 || !Number.isInteger(ttlSeconds) || ttlSeconds < 60) return false;
-  await releaseExpiredReservations(db);
+  await releaseExpiredReservations(db, 50, purger);
 
   const targets = aggregateStockTargets(items);
   const checks: string[] = [];
@@ -154,14 +230,29 @@ export async function reserveInventory(
   const decrements = targets.map((target) =>
     target.variantId == null
       ? db
-          .prepare(`UPDATE products SET stock = stock - ? WHERE id = ? AND ${activeGuard}`)
+          .prepare(
+            `UPDATE products SET stock = stock - ? WHERE id = ? AND ${activeGuard} RETURNING stock`,
+          )
           .bind(target.quantity, target.productId, publicId)
       : db
-          .prepare(`UPDATE product_variants SET stock = stock - ? WHERE id = ? AND ${activeGuard}`)
+          .prepare(
+            `UPDATE product_variants SET stock = stock - ? WHERE id = ? AND ${activeGuard} RETURNING stock`,
+          )
           .bind(target.quantity, target.variantId, publicId),
   );
-  const results = await db.batch<{ public_id: string }>([insert, ...decrements]);
-  return Boolean(results[0]?.results[0]);
+  const results = await db.batch<StockUpdateRow & { public_id?: string }>([insert, ...decrements]);
+  const reserved = Boolean(results[0]?.results[0]);
+  if (!reserved) return false;
+
+  const changedProductIds = targets.flatMap((target, index) => {
+    const after = results[index + 1]?.results[0]?.stock;
+    return typeof after === 'number' &&
+      visibleStockChanged(target.variantId != null, after + target.quantity, after)
+      ? [target.productId]
+      : [];
+  });
+  await purgeTransitions(db, changedProductIds, purger);
+  return true;
 }
 
 /** Load the server-side item snapshot for settlement; null means not reservable. */

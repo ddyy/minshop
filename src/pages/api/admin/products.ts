@@ -18,6 +18,8 @@ import { optimizeUpload } from '../../../features/products/imageOptimize';
 import { uploadMedia } from '../../../features/media/upload';
 import { attachMediaToProduct } from '../../../features/media/db';
 import { getStorage } from '../../../features/storage';
+import { CACHE_TAG } from '../../../features/cache/tags';
+import { purgeCacheTags } from '../../../features/cache/purge';
 
 export const prerender = false;
 
@@ -78,12 +80,16 @@ export const POST: APIRoute = async ({ request, redirect, locals }) => {
 
   // Keep the semantic-search index in sync (no-op unless vector search is on).
   // Never let an indexing hiccup block the create.
+  const created = await getProduct(env.DB, productId);
   try {
-    const created = await getProduct(env.DB, productId);
     if (created) await indexProduct(created);
   } catch (err) {
     console.error('Search index (create) failed:', err);
   }
 
+  await purgeCacheTags([
+    CACHE_TAG.catalog,
+    ...(created?.public_id ? [CACHE_TAG.product(created.public_id)] : []),
+  ]);
   return redirect('/admin/products', 303);
 };

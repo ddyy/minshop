@@ -9,6 +9,8 @@ import { indexProducts } from '../../../../features/search';
 import { getConfig } from '../../../../config';
 import { getStoreSettings } from '../../../../features/settings/db';
 import { parsePublicId } from '../../../../features/ids/publicId';
+import { CACHE_TAG } from '../../../../features/cache/tags';
+import { purgeCacheTags } from '../../../../features/cache/purge';
 
 export const prerender = false;
 
@@ -77,6 +79,9 @@ export const POST: APIRoute = async ({ request, redirect }) => {
     const processed = Math.min(total, processedBefore + n);
     const done = rows.length <= BATCH_SIZE;
     const nextCursor = done ? null : (batch.at(-1)?.public_id ?? cursorPublicId);
+    // One purge at completion, not one per five-row batch: the Free-plan purge
+    // bucket is intentionally small and reindex advances batches rapidly.
+    if (done) await purgeCacheTags([CACHE_TAG.catalog]);
 
     if (wantsJson) {
       return Response.json({ processed, total, nextCursor, done });

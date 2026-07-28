@@ -20,6 +20,12 @@
 	"observability": {
 		"enabled": true
 	},
+	// Safe default for fresh workers.dev deployments. A rendered instance may
+	// enable Workers Caching only after it declares CANONICAL_ORIGIN and disables
+	// alternate ingress hostnames.
+	"cache": {
+		"enabled": false
+	},
 	// Native Workers rate limiting. Namespace ids are account-scoped; keys also
 	// include the hostname so multiple stores can safely share these namespaces.
 	"ratelimits": [

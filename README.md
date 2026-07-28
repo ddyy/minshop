@@ -159,9 +159,28 @@ The Worker also applies native edge rate limits to anonymous login POSTs (10/min
 
 Public catalog HTML uses canonical cache keys: tracking/unknown parameters are discarded and page/sort/search controls are normalized, so equivalent URLs share one edge entry. The shell remains shared even when a shopper has cookies. Its only customer-specific header value, the cart count, loads from a tiny private fragment; the complete cart stays on private, `no-store` routes and is fetched only when opened.
 
+Workers Caching is deployment-controlled and disabled in the generic config. If
+an instance moves to a custom domain, set `CANONICAL_ORIGIN` to the full HTTPS
+origin (for example, `https://shop.example.com`) and set `workers_dev: false` in
+the same rendered `wrangler.jsonc`. Only then may that instance set
+`cache.enabled: true`. `CANONICAL_ORIGIN` stabilizes absolute URLs in shared
+HTML, catalog JSON, sitemap, robots, and `llms.txt`; internal storefront links
+remain root-relative. This is not an Admin setting because cache lookup occurs
+before the Worker runs.
+
+Cacheable responses carry `shell`, `catalog`, and public
+`product:prod_…` tags. Low-frequency Admin changes purge the affected tags after
+their D1 write; a failed tag purge falls back to purging the entrypoint cache.
+Checkout reservations and releases purge only when the customer-visible stock
+state changes: products cross `In stock` / `Low stock` / `Sold out`, or a variant
+crosses available / sold out. Exact stock counts appear only on private cart and
+checkout pages. Stock purges target the affected `product:prod_…` tags, are
+best-effort, and never fall back to purging the whole cache; the bounded shared
+TTL remains the safety net for rate limits or transient purge failures.
+
 ## Payments
 
-Checkout and the webhook depend on a `PaymentProvider` port (`src/features/payments`). Every rail is configured in **Admin → Settings → Payments** — its keys go in the encrypted vault, its config (default rail, node URLs) in D1 settings; a rail's checkout button appears automatically once its key is set, and the always-on **Demo** checkout works with zero keys. The "default rail" selector picks which one is offered first:
+Checkout and the webhook depend on a `PaymentProvider` port (`src/features/payments`). Every rail is configured in **Admin → Settings → Payments** — its keys go in the encrypted vault, its config (default rail, node URLs) in D1 settings; a rail's checkout button appears automatically once its key is set, and the always-on **Demo** checkout works with zero keys. Demo reserves and decreases inventory like a real checkout, but never charges the buyer. The "default rail" selector picks which one is offered first:
 
 | Rail | What it is | Setup (all in Settings → Payments) |
 |---|---|---|

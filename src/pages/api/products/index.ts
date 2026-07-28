@@ -7,6 +7,8 @@ import { toCatalogProduct } from '../../../features/catalog/serialize';
 import { catalogJson, catalogPreflight } from '../../../features/catalog/http';
 import { parseCatalogListQuery } from '../../../features/catalog/query';
 import { getConfig } from '../../../config';
+import { publicOrigin } from '../../../features/http/origin';
+import { addCacheTags, productCacheTags } from '../../../features/cache/tags';
 
 export const prerender = false;
 
@@ -21,7 +23,7 @@ export const OPTIONS: APIRoute = () => catalogPreflight();
  */
 export const GET: APIRoute = async ({ url }) => {
   const { query: q, limit, offset } = parseCatalogListQuery(url.searchParams);
-  const origin = url.origin;
+  const origin = publicOrigin(url.origin, env.CANONICAL_ORIGIN);
 
   let page;
   let total;
@@ -48,5 +50,7 @@ export const GET: APIRoute = async ({ url }) => {
     ),
   );
 
-  return catalogJson({ products, total, limit, offset, query: q || null });
+  const response = catalogJson({ products, total, limit, offset, query: q || null });
+  addCacheTags(response.headers, productCacheTags(page.map((product) => product.public_id)));
+  return response;
 };

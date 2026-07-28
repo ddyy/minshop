@@ -47,7 +47,7 @@ export interface NewPendingPayment {
   shippingWeightGrams?: number | null;
   /** Pre-serialized JSON ShippingAddress, or null. */
   shipAddressJson?: string | null;
-  /** Inventory hold created with this payment; absent for demo and legacy rows. */
+  /** Inventory hold created with this payment; absent for legacy rows. */
   reservationId?: string | null;
   expiresAt: string | null;
 }

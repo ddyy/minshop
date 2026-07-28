@@ -19,6 +19,8 @@ import { getPageByPublicId } from '../../../features/pages/db';
 import { getProductByPublicId } from '../../../features/products/db';
 import { getCategoryByPublicId } from '../../../features/categories/db';
 import { parsePublicId } from '../../../features/ids/publicId';
+import { CACHE_TAG } from '../../../features/cache/tags';
+import { purgeCacheTags } from '../../../features/cache/purge';
 
 export const prerender = false;
 
@@ -109,6 +111,10 @@ export const POST: APIRoute = async ({ request, redirect }) => {
     else params.set('saved', '1');
     return redirect(`/admin/navigation?${params}`, 303);
   };
+  const saved = async () => {
+    await purgeCacheTags([CACHE_TAG.shell]);
+    return back();
+  };
 
   if (action === 'add') {
     const location = form.get('location');
@@ -134,7 +140,7 @@ export const POST: APIRoute = async ({ request, redirect }) => {
       targetId,
       label: normalizeLabel(form.get('label')),
     });
-    if (result.ok) return back();
+    if (result.ok) return saved();
 
     const what = targetType === 'home' ? 'Home' : 'Catalog';
     return back(
@@ -165,7 +171,7 @@ export const POST: APIRoute = async ({ request, redirect }) => {
     // the real order rather than an optimistic one.
     const applied = await reorderMenuItems(env.DB, location, ids);
     if (!applied) return back('That reorder did not match the menu. Reloading.');
-    return back();
+    return saved();
   }
 
   // Row actions address the item by its nav_ public ID.
@@ -175,17 +181,17 @@ export const POST: APIRoute = async ({ request, redirect }) => {
 
   if (action === 'move') {
     await moveMenuItem(env.DB, id, form.get('direction') === 'up' ? 'up' : 'down');
-    return back();
+    return saved();
   }
 
   if (action === 'remove') {
     await removeMenuItem(env.DB, id);
-    return back();
+    return saved();
   }
 
   if (action === 'label') {
     await setMenuItemLabel(env.DB, id, normalizeLabel(form.get('label')));
-    return back();
+    return saved();
   }
 
   return back('Unknown action.');

@@ -8,6 +8,8 @@ import { normalizeTimeZone, allTimeZones } from '../../features/settings/timeZon
 import { setAdminPassword, adminPasswordHash } from '../../features/auth/admin';
 import { signSession } from '../../features/auth/session';
 import { catalogIsEmpty, seedDemoCatalog } from '../../features/seed/demo';
+import { CACHE_TAG } from '../../features/cache/tags';
+import { purgeCacheTags } from '../../features/cache/purge';
 
 // First-run setup wizard (onboarding). Reachable unauthenticated ONLY while no
 // admin password is set yet (bootstrap — see src/middleware.ts); once a password
@@ -72,6 +74,7 @@ if (Astro.request.method === 'POST') {
       }
     }
     await setSetting(env.DB, 'setup_complete', '1');
+    await purgeCacheTags([CACHE_TAG.shell, CACHE_TAG.catalog]);
     return Astro.redirect('/admin?msg=setup-complete', 303);
   }
 }

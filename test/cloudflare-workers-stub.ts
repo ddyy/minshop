@@ -7,3 +7,11 @@
 // Anything that needs a REAL binding (D1/R2) still belongs in the integration
 // scripts, not here.
 export const env = {} as Record<string, unknown>;
+
+// Cache-purge unit tests inject their own purger. This sentinel makes an
+// accidental un-injected runtime call fail loudly in plain Node.
+export const cache = {
+  purge(): never {
+    throw new Error('Workers cache is unavailable in unit tests.');
+  },
+};

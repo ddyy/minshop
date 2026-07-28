@@ -13,6 +13,15 @@ import { orderByClause } from '../../../features/orders/sort';
 import { orderReference } from '../../../features/orders/number';
 import { paginate, queryHref } from '../../../pagination';
 import Pagination from '../../../components/Pagination.astro';
+import FilterBar from '../../../components/FilterBar.astro';
+import {
+  parseOrderFilters,
+  orderFilterClause,
+  orderFilterParams,
+  hasOrderFilters,
+  ORDER_STATUS_OPTIONS,
+  ORDER_METHOD_OPTIONS,
+} from '../../../features/orders/filter';
 import { listUnmatchedRefundEvents } from '../../../features/refunds/db';
 import {
   parseOrderOrLegacyPublicId,
@@ -47,21 +56,36 @@ if (rawQuery !== null) {
 
 const sort = Astro.url.searchParams.get('sort');
 const dir = Astro.url.searchParams.get('dir');
+const filters = parseOrderFilters(Astro.url.searchParams);
+// One clause, both queries — otherwise the pager counts rows the table filtered out.
+const filterClause = orderFilterClause(filters);
+const filtered = hasOrderFilters(filters);
+const filterQuery = orderFilterParams(filters);
+
 const PAGE_SIZE = 50;
-const { page, offset, totalPages } = paginate(
-  Astro.url.searchParams,
-  await countOrders(env.DB),
+const matchCount = await countOrders(env.DB, filterClause);
+const { page, offset, totalPages } = paginate(Astro.url.searchParams, matchCount, PAGE_SIZE);
+const orders = await listOrders(
+  env.DB,
   PAGE_SIZE,
+  orderByClause(sort, dir),
+  offset,
+  filterClause,
 );
-const orders = await listOrders(env.DB, PAGE_SIZE, orderByClause(sort, dir), offset);
+// Sort and pagination links carry the active filters, so paging or re-sorting a
+// filtered list doesn't silently drop back to everything.
 const hrefFor = (p: number) =>
-  queryHref('/admin/orders', { sort, dir, page: p > 1 ? p : undefined });
+  queryHref('/admin/orders', { ...filterQuery, sort, dir, page: p > 1 ? p : undefined });
 const onCfg = getConfig().orderNumber;
 const timeZone = Astro.locals.settings?.timeZone ?? getConfig().timeZone;
 
 // Column header → sort by it, toggling direction (default desc on a new column).
 const sortHref = (col: string) =>
-  queryHref('/admin/orders', { sort: col, dir: sort === col && dir === 'desc' ? 'asc' : 'desc' });
+  queryHref('/admin/orders', {
+    ...filterQuery,
+    sort: col,
+    dir: sort === col && dir === 'desc' ? 'asc' : 'desc',
+  });
 const arrow = (col: string) => (sort === col ? (dir === 'asc' ? ' ↑' : ' ↓') : '');
 
 // Refunds a provider reported that no order claims — real money that moved, so
@@ -179,11 +203,13 @@ const listError = Astro.url.searchParams.get('error');
           Find
         </button>
       </form>
+      {/* Exports exactly what's on screen. Handing back the whole table right
+          after someone narrowed it is a quiet way to ship the wrong numbers. */}
       <a
-        href="/admin/orders/export.csv"
+        href={queryHref('/admin/orders/export.csv', filterQuery)}
         class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand hover:text-brand"
       >
-        Export CSV
+        {filtered ? 'Export these' : 'Export CSV'}
       </a>
     </div>
   </div>
@@ -196,13 +222,48 @@ const listError = Astro.url.searchParams.get('error');
     )
   }
 
+  <FilterBar
+    action="/admin/orders"
+    active={filtered}
+    count={matchCount}
+    noun="order"
+    hidden={{ sort: sort ?? undefined, dir: dir ?? undefined }}
+    selects={[
+      {
+        name: 'status',
+        label: 'Payment',
+        anyLabel: 'All payments',
+        value: filters.status,
+        options: ORDER_STATUS_OPTIONS,
+      },
+      {
+        name: 'fulfillment',
+        label: 'Fulfillment',
+        anyLabel: 'Any fulfillment',
+        value: filters.fulfillment,
+        options: [
+          { value: 'unfulfilled', label: 'Unfulfilled' },
+          { value: 'fulfilled', label: 'Fulfilled' },
+        ],
+      },
+      {
+        name: 'method',
+        label: 'Method',
+        anyLabel: 'All methods',
+        value: filters.method,
+        options: ORDER_METHOD_OPTIONS,
+      },
+    ]}
+  />
+
   <div class="sm:overflow-x-auto">
-    <table class="admin-table w-full text-left text-sm sm:min-w-[52rem]">
+    <table class="admin-table w-full text-left text-sm sm:min-w-[64rem]">
     <thead>
       <tr class="border-b border-line text-xs uppercase tracking-widest text-gray-400">
         <th class="py-3 pr-4 font-normal">
-          <a href={sortHref('order')} class="hover:text-brand">Order{arrow('order')}</a>
+          <a href={sortHref('order')} class="hover:text-brand">Order #{arrow('order')}</a>
         </th>
+        <th class="py-3 pr-4 font-normal">Public ID</th>
         <th class="py-3 pr-4 font-normal">
           <a href={sortHref('email')} class="hover:text-brand">Email{arrow('email')}</a>
         </th>
@@ -224,9 +285,14 @@ const listError = Astro.url.searchParams.get('error');
       {
         orders.map((o) => (
           <tr class="border-b border-line">
-            <td class="py-3 pr-4">
+            <td data-label="Order #" class="py-3 pr-4">
               <a href={`/admin/orders/${o.public_id}`} class="text-accent tabular-nums hover:underline">
-                #{orderReference(o.public_id, o.id, onCfg)}
+                #{o.id}
+              </a>
+            </td>
+            <td data-label="Public ID" class="py-3 pr-4 font-mono text-xs">
+              <a href={`/admin/orders/${o.public_id}`} class="text-accent hover:underline">
+                {o.public_id}
               </a>
             </td>
             <td data-label="Email" class="py-3 pr-4">
@@ -265,8 +331,8 @@ const listError = Astro.url.searchParams.get('error');
       {
         orders.length === 0 && (
           <tr>
-            <td colspan="6" class="py-8 text-center text-gray-400">
-              No orders yet.
+            <td colspan="7" class="py-8 text-center text-gray-400">
+              {filtered ? 'No orders match these filters.' : 'No orders yet.'}
             </td>
           </tr>
         )

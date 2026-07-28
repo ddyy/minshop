@@ -11,6 +11,8 @@ import { mediaUsageForIds, isUnused } from '../../../features/media/usage';
 import { mediaUrl } from '../../../features/media/url';
 import { uploadMedia, validateUpload } from '../../../features/media/upload';
 import { optimizeUpload } from '../../../features/products/imageOptimize';
+import { prewarmImageTransforms } from '../../../features/products/image';
+import { getSetting } from '../../../features/settings/db';
 import { getStorage } from '../../../features/storage';
 
 export const prerender = false;
@@ -31,7 +33,8 @@ export function parseMediaListQuery(params: URLSearchParams): {
 }
 
 export interface MediaListItem {
-  id: number;
+  /** The med_ public ID — admin JSON never carries numeric row ids. */
+  id: string | null;
   imageKey: string;
   url: string;
   originalName: string;
@@ -61,7 +64,7 @@ export async function loadMediaPage(limit: number, offset: number) {
 
 function serialize(media: Media, inUse: boolean, baseUrl: string): MediaListItem {
   return {
-    id: media.id,
+    id: media.public_id,
     imageKey: media.image_key,
     url: mediaUrl(media.image_key, baseUrl),
     originalName: media.original_name,
@@ -99,7 +102,7 @@ export const GET: APIRoute = async ({ url }) => {
 
 // POST /api/admin/media — upload one or more images into the library.
 // Answers JSON to the picker (fetch) and redirects for a plain form post.
-export const POST: APIRoute = async ({ request, redirect }) => {
+export const POST: APIRoute = async ({ request, redirect, locals }) => {
   const form = await request.formData();
   const wantsJson = request.headers.get('accept')?.includes('application/json');
   const files = form.getAll('files').filter((f): f is File => f instanceof File && f.size > 0);
@@ -126,11 +129,29 @@ export const POST: APIRoute = async ({ request, redirect }) => {
   for (const file of files) {
     const media = await uploadMedia(env.DB, getStorage(), await optimizeUpload(file), file.name);
     uploaded.push({
-      id: media.id,
+      // med_ public ID — never the row id.
+      id: media.public_id,
       imageKey: media.image_key,
       url: mediaUrl(media.image_key, baseUrl),
       originalName: media.original_name,
     });
+  }
+
+  // Pre-generate each upload's responsive ladder behind the response, so the
+  // first shopper hits warm cache instead of ~2.4s cold AVIF encodes. The
+  // delivery-mode read happens inside the background task — middleware doesn't
+  // load settings for /api/ routes, and the admin shouldn't wait on it either.
+  const ctx = locals.cfContext;
+  if (ctx && baseUrl) {
+    const transformOrigin = new URL(request.url).origin;
+    ctx.waitUntil(
+      (async () => {
+        if ((await getSetting(env.DB, 'image_delivery')) !== 'cloudflare') return;
+        for (const m of uploaded) {
+          await prewarmImageTransforms(m.imageKey, baseUrl, transformOrigin);
+        }
+      })().catch((err) => console.error('Image pre-warm failed:', err)),
+    );
   }
 
   return wantsJson

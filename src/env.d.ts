@@ -68,6 +68,10 @@ declare namespace Cloudflare {
     // Absolute base URL for product images (e.g. an R2 custom domain) so they
     // bypass the Worker's /images route. Absent = serve via /images.
     IMAGE_BASE_URL?: string;
+    // Stable HTTPS origin for absolute URLs embedded in public cached responses.
+    // Set when a custom domain is the sole ingress; fresh workers.dev instances
+    // omit it and use their request origin until a custom domain is attached.
+    CANONICAL_ORIGIN?: string;
     // Admin auth (src/middleware.ts): the password is set in the first-run setup
     // wizard and stored as a PBKDF2 hash in D1 — there is no ADMIN_PASSWORD env var.
     // Until one is set the wizard is reachable to create it (bootstrap); Cloudflare

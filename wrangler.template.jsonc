@@ -23,6 +23,10 @@
   "compatibility_date": "2026-07-20",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
+  // Fresh instances begin on workers.dev and therefore stay uncached. A later
+  // custom-domain config may enable this only alongside CANONICAL_ORIGIN and
+  // workers_dev: false.
+  "cache": { "enabled": false },
   "ratelimits": [
     {
       "name": "AUTH_RATE_LIMITER",

@@ -1,12 +1,5 @@
-import {
-  DEFAULT_CATALOG_LIMIT,
-  parseCatalogListQuery,
-} from '../catalog/query';
-import { parseStoreSortQuery } from '../products/sort';
-import { normalizeSearchQuery } from '../search/query';
-import { MAX_PUBLIC_PAGE, requestedPage } from '../../pagination';
-
 export const PUBLIC_CACHE_CONTROL = 'public, max-age=0, s-maxage=60';
+export const PRIVATE_CACHE_CONTROL = 'private, no-store';
 
 export function isPublicCatalogApi(pathname: string): boolean {
   return pathname === '/api/products' || pathname.startsWith('/api/products/');
@@ -17,8 +10,10 @@ export function isPublicStorefrontPath(pathname: string): boolean {
   return (
     pathname === '/' ||
     pathname === '/products' ||
+    pathname.startsWith('/product/') ||
     pathname === '/search' ||
     pathname.startsWith('/products/') ||
+    pathname.startsWith('/category/') ||
     pathname.startsWith('/categories/') ||
     pathname.startsWith('/pages/') ||
     pathname === '/robots.txt' ||
@@ -27,57 +22,56 @@ export function isPublicStorefrontPath(pathname: string): boolean {
   );
 }
 
-function canonicalizeStoreList(url: URL): void {
-  const { sort, dir } = parseStoreSortQuery(
-    url.searchParams.get('sort'),
-    url.searchParams.get('dir'),
+/**
+ * Pages/endpoints whose response can contain shopper, payment, or admin data.
+ * Their policy is authoritative: responseCacheControl deliberately replaces
+ * any route-set directive with private, no-store on every response path.
+ */
+export function isPrivatePath(pathname: string): boolean {
+  return (
+    pathname === '/admin' ||
+    pathname.startsWith('/admin/') ||
+    pathname === '/api/admin' ||
+    pathname.startsWith('/api/admin/') ||
+    pathname === '/account' ||
+    pathname.startsWith('/account/') ||
+    pathname === '/order' ||
+    pathname.startsWith('/order/') ||
+    pathname === '/pay' ||
+    pathname.startsWith('/pay/') ||
+    pathname === '/payment-setup' ||
+    pathname.startsWith('/payment-setup/') ||
+    pathname === '/partials' ||
+    pathname.startsWith('/partials/') ||
+    pathname === '/express' ||
+    pathname === '/cart' ||
+    pathname === '/checkout' ||
+    pathname === '/api/cart' ||
+    pathname === '/api/checkout'
   );
-  const page = requestedPage(url.searchParams, MAX_PUBLIC_PAGE);
-  url.search = '';
-  if (sort !== 'newest') url.searchParams.set('sort', sort);
-  if (dir !== 'desc') url.searchParams.set('dir', dir);
-  if (page > 1) url.searchParams.set('page', String(page));
 }
 
 /**
- * Canonicalize cache keys for routes whose ignored/default query parameters
- * would otherwise create needless misses. The response route parses the same
- * helpers, so equivalent requests cannot disagree with their cache key.
+ * Explicit allowlist for the shared page policy. Known public successes and
+ * permanent legacy redirects get the storefront directive; private paths are
+ * always no-store; other routes retain an explicit policy of their own and
+ * otherwise fall back to no-store. Cloudflare's heuristic caching never decides.
  */
-export function publicCacheRequest(request: Request): Request {
-  const url = new URL(request.url);
-  const path = url.pathname;
+export function responseCacheControl(
+  pathname: string,
+  status: number,
+  existing: string | null,
+  productError = false,
+): string {
+  if (isPrivatePath(pathname) || productError) return PRIVATE_CACHE_CONTROL;
 
-  if (path === '/api/products') {
-    const { query, limit, offset } = parseCatalogListQuery(url.searchParams);
-    url.search = '';
-    if (query) url.searchParams.set('q', query);
-    if (limit !== DEFAULT_CATALOG_LIMIT) url.searchParams.set('limit', String(limit));
-    if (offset > 0) url.searchParams.set('offset', String(offset));
-  } else if (path.startsWith('/api/products/')) {
-    // Product detail ignores query parameters.
-    url.search = '';
-  } else if (path === '/search') {
-    const query = normalizeSearchQuery(url.searchParams.get('q') ?? '');
-    const page = requestedPage(url.searchParams, MAX_PUBLIC_PAGE);
-    url.search = '';
-    if (query) url.searchParams.set('q', query);
-    if (page > 1) url.searchParams.set('page', String(page));
-  } else if (path === '/' || path === '/products' || path.startsWith('/categories/')) {
-    canonicalizeStoreList(url);
-  } else if (
-    path.startsWith('/products/') ||
-    path.startsWith('/pages/') ||
-    path === '/robots.txt' ||
-    path === '/sitemap.xml' ||
-    path === '/llms.txt'
-  ) {
-    url.search = '';
-  } else {
-    url.searchParams.sort();
-  }
+  const publicResponse =
+    (status === 200 || status === 301) &&
+    (isPublicCatalogApi(pathname) || isPublicStorefrontPath(pathname));
+  if (publicResponse) return existing ?? PUBLIC_CACHE_CONTROL;
 
-  const headers = new Headers(request.headers);
-  headers.delete('cookie');
-  return new Request(url, { method: request.method, headers });
+  // Non-page routes such as immutable /images objects may own a more specific
+  // policy. Preserve explicit choices; only close the heuristic-cache gap when
+  // the route emitted no directive.
+  return existing ?? PRIVATE_CACHE_CONTROL;
 }

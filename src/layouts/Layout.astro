@@ -1,5 +1,7 @@
 ---
+import { env } from 'cloudflare:workers';
 import { getConfig } from '../config';
+import { publicOrigin } from '../features/http/origin';
 import { normalizeSearchQuery } from '../features/search/query';
 import { mediaUrl } from '../features/media/url';
 import { EMPTY_MENUS, visibleItems } from '../features/navigation/db';
@@ -47,8 +49,9 @@ const query =
     : '';
 
 const desc = (description ?? `Shop ${storeName}.`).slice(0, 160);
-const canonical = canonicalOverride ?? new URL(Astro.url.pathname, Astro.url.origin).href;
-const ogImage = image ? new URL(image, Astro.url.origin).href : undefined;
+const origin = publicOrigin(Astro.url.origin, env.CANONICAL_ORIGIN);
+const canonical = canonicalOverride ?? new URL(Astro.url.pathname, origin).href;
+const ogImage = image ? new URL(image, origin).href : undefined;
 ---
 
 <!doctype html>

@@ -6,6 +6,8 @@ import { categoriesForProduct } from '../../../features/categories/db';
 import { toCatalogProduct } from '../../../features/catalog/serialize';
 import { catalogJson, catalogPreflight } from '../../../features/catalog/http';
 import { getConfig } from '../../../config';
+import { publicOrigin } from '../../../features/http/origin';
+import { addCacheTags, productCacheTags } from '../../../features/cache/tags';
 
 export const prerender = false;
 
@@ -23,11 +25,18 @@ export const GET: APIRoute = async ({ params, url }) => {
     listVariants(env.DB, product.id),
     listExtras(env.DB, product.id),
   ]);
-  return catalogJson(
-    toCatalogProduct(product, cats.map((c) => c.name), url.origin, {
-      variants,
-      extras,
-      imageBaseUrl: getConfig().images.baseUrl,
-    }),
+  const response = catalogJson(
+    toCatalogProduct(
+      product,
+      cats.map((c) => c.name),
+      publicOrigin(url.origin, env.CANONICAL_ORIGIN),
+      {
+        variants,
+        extras,
+        imageBaseUrl: getConfig().images.baseUrl,
+      },
+    ),
   );
+  addCacheTags(response.headers, productCacheTags([product.public_id]));
+  return response;
 };

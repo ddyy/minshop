@@ -69,6 +69,10 @@ export function productImageUrl(imageKey: string | null, baseUrl = ''): string {
  */
 const TRANSFORMABLE_KEY = /^(?:products|media)\/[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 
+/** Shared by the storefront srcset and the upload pre-warm — one string, so the
+ *  pre-warmed cache entries are byte-identical to the URLs pages emit. */
+const TRANSFORM_OPTIONS = 'fit=scale-down,format=auto,quality=82,onerror=redirect';
+
 function versionedTransformSource(imageKey: string, baseUrl: string): string | null {
   // On-demand transforms require a public absolute source. Keep transformation
   // requests scoped to the store's own image prefixes on the configured origin;
@@ -137,7 +141,7 @@ export function productImageSources(
 
   const usage = options.usage ?? 'card';
   const defaults = USAGE_DEFAULTS[usage];
-  const common = 'fit=scale-down,format=auto,quality=82,onerror=redirect';
+  const common = TRANSFORM_OPTIONS;
   const candidates = PRODUCT_IMAGE_WIDTHS.flatMap((width) => {
     const url = transformedUrl(
       source,
@@ -158,6 +162,52 @@ export function productImageSources(
     srcset: candidates.join(', '),
     sizes: options.sizes ?? defaults.sizes,
   };
+}
+
+/**
+ * Pre-generate a fresh upload's responsive ladder so the first shopper gets
+ * cache hits instead of cold transforms — a cold AVIF encode measured ~2.4s
+ * per variant in production, and a catalog page requests several at once.
+ *
+ * Fetches every srcset width in the two modern Accept buckets (avif, webp) so
+ * both encodings exist; `format=auto` varies its cache on Accept. Failures are
+ * harmless — an unwarmed variant just falls back to a cold transform later —
+ * so results are logged, never thrown. Callers run this via waitUntil.
+ *
+ * Warms the cache of whichever colo serves the admin's upload; with zone
+ * Tiered Cache that spreads further. Bills as 4 unique transformations per
+ * image (one per width — format=auto's AVIF/WebP outputs count once, per
+ * Images pricing) against the 5,000/month free tier.
+ */
+export async function prewarmImageTransforms(
+  imageKey: string,
+  baseUrl: string,
+  transformOrigin: string,
+): Promise<void> {
+  const source = versionedTransformSource(imageKey, baseUrl);
+  if (!source) return;
+  const results = await Promise.allSettled(
+    PRODUCT_IMAGE_WIDTHS.flatMap((width) => {
+      const url = transformedUrl(source, `width=${width},${TRANSFORM_OPTIONS}`, transformOrigin);
+      if (!url) return [];
+      return ['image/avif,image/webp,image/apng,*/*', 'image/webp,*/*'].map((accept) =>
+        fetch(url, {
+          headers: { accept },
+          // A wedged resize must not pin the background task to its 30s bound.
+          signal: AbortSignal.timeout(15_000),
+        }).then((res) => {
+          // Drain so the edge caches the full body, not an abandoned stream.
+          return res.ok ? res.arrayBuffer().then(() => undefined) : undefined;
+        }),
+      );
+    }),
+  );
+  const failed = results.filter((r) => r.status === 'rejected').length;
+  if (failed > 0) {
+    console.error(
+      JSON.stringify({ event: 'image_prewarm_incomplete', key: imageKey, failed }),
+    );
+  }
 }
 
 /** Fixed-size JPEG thumbnail for email clients, using the same original fallback. */

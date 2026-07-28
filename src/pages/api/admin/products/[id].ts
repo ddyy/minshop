@@ -32,6 +32,8 @@ import {
 import { getStorage } from '../../../../features/storage';
 import { indexProduct, unindexProduct } from '../../../../features/search';
 import { parsePublicId } from '../../../../features/ids/publicId';
+import { CACHE_TAG } from '../../../../features/cache/tags';
+import { purgeCacheTags } from '../../../../features/cache/purge';
 
 export const prerender = false;
 
@@ -98,7 +100,7 @@ async function resolveVariantFormIds(
 export const POST: APIRoute = async ({ request, params, redirect, locals }) => {
   const publicId = parsePublicId(params.id, 'product');
   const existing = publicId ? await getProductByPublicId(env.DB, publicId) : null;
-  if (!existing) return new Response('Not found', { status: 404 });
+  if (!publicId || !existing) return new Response('Not found', { status: 404 });
   const id = existing.id;
 
   const form = await request.formData();
@@ -114,6 +116,7 @@ export const POST: APIRoute = async ({ request, params, redirect, locals }) => {
     } catch (err) {
       console.error('Search unindex (delete) failed:', err);
     }
+    await purgeCacheTags([CACHE_TAG.catalog, CACHE_TAG.product(publicId)]);
     return redirect('/admin/products', 303);
   }
 
@@ -204,5 +207,6 @@ export const POST: APIRoute = async ({ request, params, redirect, locals }) => {
     console.error('Search index (update) failed:', err);
   }
 
+  await purgeCacheTags([CACHE_TAG.catalog, CACHE_TAG.product(publicId)]);
   return redirect('/admin/products', 303);
 };

@@ -1,4 +1,8 @@
 import type { D1Database } from '@cloudflare/workers-types';
+import {
+  visibleStockChanged,
+  type StockTransitionPurger,
+} from '../products/stock.ts';
 
 export interface ShippingAddress {
   name: string | null;
@@ -94,23 +98,41 @@ export interface PaidOrderInput {
   settlePaymentHash?: string | null;
 }
 
+/**
+ * A prebuilt WHERE clause and its bound values, from features/orders/filter.ts.
+ * Pass the SAME value to listOrders and countOrders — filtering the list but
+ * not the count makes the pager offer pages that don't exist.
+ */
+export interface OrderFilter {
+  where: string;
+  params: string[];
+}
+const EMPTY_FILTER: OrderFilter = { where: '', params: [] };
+
 /** Recent orders for the admin view, newest first. */
 export async function listOrders(
   db: D1Database,
   limit = 50,
   orderBy = 'created_at DESC',
   offset = 0,
+  filter: OrderFilter = EMPTY_FILTER,
 ): Promise<Order[]> {
   const { results } = await db
-    .prepare(`SELECT * FROM orders ORDER BY ${orderBy} LIMIT ? OFFSET ?`)
-    .bind(limit, offset)
+    .prepare(`SELECT * FROM orders ${filter.where} ORDER BY ${orderBy} LIMIT ? OFFSET ?`)
+    .bind(...filter.params, limit, offset)
     .all<Order>();
   return results ?? [];
 }
 
 /** Total settled orders, for admin/MCP pagination. */
-export async function countOrders(db: D1Database): Promise<number> {
-  const row = await db.prepare('SELECT COUNT(*) AS n FROM orders').first<{ n: number }>();
+export async function countOrders(
+  db: D1Database,
+  filter: OrderFilter = EMPTY_FILTER,
+): Promise<number> {
+  const row = await db
+    .prepare(`SELECT COUNT(*) AS n FROM orders ${filter.where}`)
+    .bind(...filter.params)
+    .first<{ n: number }>();
   return row?.n ?? 0;
 }
 
@@ -312,12 +334,14 @@ export async function listOrderItemsWithImages(
  * The return value is the claimed order id, or null when another delivery already
  * completed it; callers use that to send confirmation email once after commit.
  *
- * Demo orders (`paymentMethod === 'demo'`) record their items but NEVER touch real
- * stock — demo is a simulation, so anonymous demo checkouts can't drain inventory.
+ * Demo follows the same reservation lifecycle as other new checkouts. This keeps
+ * its end-to-end exercise realistic while the reservation guard prevents a
+ * settlement from decrementing inventory twice.
  */
 export async function recordPaidOrder(
   db: D1Database,
   o: PaidOrderInput,
+  stockPurger?: StockTransitionPurger,
 ): Promise<number | null> {
   // Post-cutover checkouts ALWAYS pass the ord_ id claimed with the guest
   // registry row. The fallback exists only for legacy webhooks whose session
@@ -377,9 +401,15 @@ export async function recordPaidOrder(
       )
       .bind(settlementToken, o.providerSessionId),
   ];
+  const stockUpdates: Array<{
+    statementIndex: number;
+    productId: number;
+    hasVariant: boolean;
+    quantity: number;
+  }> = [];
 
   const items = o.items ?? [];
-  const skipStock = o.paymentMethod === 'demo' || Boolean(o.reservationId);
+  const skipStock = Boolean(o.reservationId);
   for (const it of items) {
     const variantId = it.variantId ?? null;
     stmts.push(
@@ -399,7 +429,7 @@ export async function recordPaidOrder(
           settlementToken,
         ),
     );
-    // Demo orders record the full simulation without touching real inventory.
+    // A reservation already consumed this inventory before provider handoff.
     if (skipStock) continue;
     if (variantId != null) {
       stmts.push(
@@ -409,10 +439,19 @@ export async function recordPaidOrder(
               WHERE id = ? AND EXISTS (
                 SELECT 1 FROM orders
                  WHERE provider_session_id = ? AND settlement_token = ?
-              )`,
+              ) AND stock > 0
+              RETURNING stock`,
           )
           .bind(it.quantity, variantId, o.providerSessionId, settlementToken),
       );
+      if (it.productId != null) {
+        stockUpdates.push({
+          statementIndex: stmts.length - 1,
+          productId: it.productId,
+          hasVariant: true,
+          quantity: it.quantity,
+        });
+      }
     } else if (it.productId != null) {
       stmts.push(
         db
@@ -421,10 +460,17 @@ export async function recordPaidOrder(
               WHERE id = ? AND EXISTS (
                 SELECT 1 FROM orders
                  WHERE provider_session_id = ? AND settlement_token = ?
-              )`,
+              ) AND stock > 0
+              RETURNING stock`,
           )
           .bind(it.quantity, it.productId, o.providerSessionId, settlementToken),
       );
+      stockUpdates.push({
+        statementIndex: stmts.length - 1,
+        productId: it.productId,
+        hasVariant: false,
+        quantity: it.quantity,
+      });
     }
   }
 
@@ -480,7 +526,32 @@ export async function recordPaidOrder(
     );
   }
 
-  const results = await db.batch<{ id: number }>(stmts);
+  const results = await db.batch<{ id?: number; stock?: number }>(stmts);
   const claimed = results[1]?.results[0];
-  return claimed?.id ?? null;
+  if (!claimed?.id) return null;
+
+  const changedProductIds = stockUpdates.flatMap((update) => {
+    const after = results[update.statementIndex]?.results[0]?.stock;
+    if (typeof after !== 'number') return [];
+    // A clamped legacy decrement returning zero started above zero because the
+    // update guard excludes an already-empty row. Any positive result can
+    // reconstruct the exact prior quantity.
+    const before = after === 0 ? 1 : after + update.quantity;
+    return visibleStockChanged(update.hasVariant, before, after)
+      ? [update.productId]
+      : [];
+  });
+  if (stockPurger && changedProductIds.length > 0) {
+    const unique = [...new Set(changedProductIds)];
+    const placeholders = unique.map(() => '?').join(',');
+    const { results: products } = await db
+      .prepare(`SELECT public_id FROM products WHERE id IN (${placeholders})`)
+      .bind(...unique)
+      .all<{ public_id: string | null }>();
+    const publicIds = (products ?? [])
+      .map((product) => product.public_id)
+      .filter((publicId): publicId is string => typeof publicId === 'string');
+    if (publicIds.length > 0) await stockPurger(publicIds);
+  }
+  return claimed.id;
 }

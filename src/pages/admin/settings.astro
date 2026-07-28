@@ -45,6 +45,8 @@ import SecretField from '../../components/SecretField.astro';
 import MethodToggle from '../../components/MethodToggle.astro';
 import { onDemandImageDeliveryAvailable } from '../../features/products/image';
 import { catalogIsOrphaned } from '../../features/navigation/db';
+import { CACHE_TAG } from '../../features/cache/tags';
+import { purgeCacheTags } from '../../features/cache/purge';
 
 const capabilities: RuntimeCapabilities = {
   vault: vaultReady(),
@@ -297,6 +299,10 @@ if (Astro.request.method === 'POST') {
     await setSetting(env.DB, 'opennode_api_url', String(form.get('opennode_api_url') ?? '').trim() || null);
     await applySecrets(['opennode_api_key']);
   }
+  // Admin saves are deliberately coarse and infrequent. Purge both public
+  // dependency roots after the write rather than risk a newly added setting
+  // silently missing its invalidation edge.
+  await purgeCacheTags([CACHE_TAG.shell, CACHE_TAG.catalog]);
   // Background (JS) submit → no redirect; the client re-fetches + swaps the section.
   if (Astro.request.headers.get('x-requested-with') === 'fetch') {
     return validationError
@@ -1061,7 +1067,9 @@ const sections = [
         <div class="flex items-center justify-between gap-3">
           <div>
             <p class="font-medium">Demo checkout</p>
-            <p class="text-xs text-gray-500">Always available — places a real, demo-tagged order (no charge).</p>
+            <p class="text-xs text-gray-500">
+              Always available — reserves stock and places a real, demo-tagged order (no charge).
+            </p>
           </div>
           <MethodToggle method="demo" enabled={pmMap.demo.enabled} label="Demo checkout" />
         </div>

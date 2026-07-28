@@ -27,7 +27,7 @@ try {
   // Minimal production-shaped schema for the reservation state machine. The
   // separate Wrangler integration gate applies every real migration clean-room.
   for (const sql of [
-    'CREATE TABLE products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, description TEXT NOT NULL, price_cents INTEGER NOT NULL, currency TEXT NOT NULL, stock INTEGER NOT NULL, active INTEGER NOT NULL)',
+    'CREATE TABLE products (id INTEGER PRIMARY KEY AUTOINCREMENT, public_id TEXT UNIQUE, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, description TEXT NOT NULL, price_cents INTEGER NOT NULL, currency TEXT NOT NULL, stock INTEGER NOT NULL, active INTEGER NOT NULL)',
     'CREATE TABLE orders (id INTEGER PRIMARY KEY AUTOINCREMENT, provider_session_id TEXT NOT NULL UNIQUE, public_id TEXT NOT NULL UNIQUE, email TEXT, amount_total_cents INTEGER NOT NULL, shipping_cents INTEGER NOT NULL DEFAULT 0, shipping_label TEXT, shipping_weight_grams INTEGER, discount_cents INTEGER NOT NULL DEFAULT 0, tax_cents INTEGER NOT NULL DEFAULT 0, currency TEXT NOT NULL, ship_address TEXT, status TEXT NOT NULL, payment_method TEXT, settlement_token TEXT, provider_payment_id TEXT)',
     'CREATE TABLE order_items (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL, product_id INTEGER, variant_id INTEGER, name TEXT NOT NULL, price_cents INTEGER NOT NULL, quantity INTEGER NOT NULL)',
     'CREATE TABLE product_variants (id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER NOT NULL, label TEXT NOT NULL, price_delta_cents INTEGER NOT NULL DEFAULT 0, stock INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1)',
@@ -42,8 +42,8 @@ try {
 
   await db
     .prepare(
-      `INSERT INTO products (name, slug, description, price_cents, currency, stock, active)
-       VALUES ('Reserved product', 'reserved-product', '', 1200, 'usd', 5, 1)`,
+      `INSERT INTO products (public_id, name, slug, description, price_cents, currency, stock, active)
+       VALUES ('prod_0123456789', 'Reserved product', 'reserved-product', '', 1200, 'usd', 5, 1)`,
     )
     .run();
   const product = await db
@@ -57,6 +57,100 @@ try {
     priceCents: 1200,
     quantity: 4,
   };
+
+  // Cache invalidation follows rendered state, not every decrement. Product
+  // quantities purge only when they cross in/low/out; variant quantities purge
+  // only when their available/sold-out boolean flips.
+  await db
+    .prepare(
+      `INSERT INTO products (public_id, name, slug, description, price_cents, currency, stock, active)
+       VALUES ('prod_abcdefghj', 'Transition product', 'transition-product', '', 1200, 'usd', 7, 1)`,
+    )
+    .run();
+  const transitionProduct = await db
+    .prepare("SELECT id FROM products WHERE slug = 'transition-product'")
+    .first();
+  assert(transitionProduct?.id);
+  const purges = [];
+  const collectPurge = async (ids) => purges.push([...ids]);
+  const transitionItem = {
+    productId: transitionProduct.id,
+    name: 'Transition product',
+    priceCents: 1200,
+    quantity: 1,
+  };
+  const firstTransition = crypto.randomUUID();
+  const secondTransition = crypto.randomUUID();
+  assert.equal(
+    await reserveInventory(
+      db,
+      firstTransition,
+      [transitionItem],
+      600,
+      'lightning',
+      collectPurge,
+    ),
+    true,
+  );
+  assert.deepEqual(purges, []); // 7 → 6 stays "in"
+  assert.equal(
+    await reserveInventory(
+      db,
+      secondTransition,
+      [transitionItem],
+      600,
+      'lightning',
+      collectPurge,
+    ),
+    true,
+  );
+  assert.deepEqual(purges, [['prod_abcdefghj']]); // 6 → 5 enters "low"
+  assert.equal(
+    await releaseInventoryReservation(db, secondTransition, collectPurge),
+    true,
+  );
+  assert.deepEqual(purges, [['prod_abcdefghj'], ['prod_abcdefghj']]); // 5 → 6 leaves "low"
+  assert.equal(
+    await releaseInventoryReservation(db, firstTransition, collectPurge),
+    true,
+  );
+  assert.equal(purges.length, 2); // 6 → 7 stays "in"
+
+  await db
+    .prepare(
+      `INSERT INTO product_variants (product_id, label, stock)
+       VALUES (?, 'Limited', 2)`,
+    )
+    .bind(transitionProduct.id)
+    .run();
+  const transitionVariant = await db
+    .prepare("SELECT id FROM product_variants WHERE product_id = ? AND label = 'Limited'")
+    .bind(transitionProduct.id)
+    .first();
+  assert(transitionVariant?.id);
+  const variantItem = { ...transitionItem, variantId: transitionVariant.id };
+  const firstVariant = crypto.randomUUID();
+  const secondVariant = crypto.randomUUID();
+  assert.equal(
+    await reserveInventory(db, firstVariant, [variantItem], 600, 'lightning', collectPurge),
+    true,
+  );
+  assert.equal(purges.length, 2); // 2 → 1 stays available
+  assert.equal(
+    await reserveInventory(db, secondVariant, [variantItem], 600, 'lightning', collectPurge),
+    true,
+  );
+  assert.equal(purges.length, 3); // 1 → 0 becomes sold out
+  assert.equal(
+    await releaseInventoryReservation(db, secondVariant, collectPurge),
+    true,
+  );
+  assert.equal(purges.length, 4); // 0 → 1 becomes available
+  assert.equal(
+    await releaseInventoryReservation(db, firstVariant, collectPurge),
+    true,
+  );
+  assert.equal(purges.length, 4); // 1 → 2 stays available
 
   // Two competing holds cannot both consume the same finite stock.
   const concurrent = await Promise.all([
@@ -102,6 +196,85 @@ try {
     'settled',
   );
   assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM order_items').first()).n, 1);
+
+  // Demo uses the same hold-and-settle lifecycle: checkout decrements once,
+  // approval settles the hold, and settlement cannot decrement a second time.
+  await db
+    .prepare(
+      `INSERT INTO products (public_id, name, slug, description, price_cents, currency, stock, active)
+       VALUES ('prod_dem0123456', 'Demo product', 'demo-product', '', 900, 'usd', 2, 1)`,
+    )
+    .run();
+  const demoProduct = await db
+    .prepare("SELECT id FROM products WHERE slug = 'demo-product'")
+    .first();
+  assert(demoProduct?.id);
+  const demoReservationId = crypto.randomUUID();
+  const demoItem = {
+    productId: demoProduct.id,
+    name: 'Demo product',
+    priceCents: 900,
+    quantity: 1,
+  };
+  assert.equal(
+    await reserveInventory(db, demoReservationId, [demoItem], 600, 'demo'),
+    true,
+  );
+  assert.equal(
+    (await db.prepare('SELECT stock FROM products WHERE id = ?').bind(demoProduct.id).first()).stock,
+    1,
+  );
+  assert(
+    await recordPaidOrder(db, {
+      providerSessionId: 'demo-session-1',
+      publicId: demoReservationId,
+      reservationId: demoReservationId,
+      email: 'demo@example.com',
+      amountTotalCents: 900,
+      currency: 'usd',
+      paymentMethod: 'demo',
+      items: [demoItem],
+    }),
+  );
+  assert.equal(
+    (await db.prepare('SELECT stock FROM products WHERE id = ?').bind(demoProduct.id).first()).stock,
+    1,
+  );
+  assert.equal(
+    (
+      await db
+        .prepare('SELECT status FROM checkout_reservations WHERE public_id = ?')
+        .bind(demoReservationId)
+        .first()
+    ).status,
+    'settled',
+  );
+
+  // An abandoned Demo hold is safe to reclaim from its local expiry because the
+  // self-rendered pay page also refuses settlement after that timestamp.
+  const expiredDemoId = crypto.randomUUID();
+  assert.equal(
+    await reserveInventory(db, expiredDemoId, [demoItem], 600, 'demo'),
+    true,
+  );
+  await db
+    .prepare("UPDATE checkout_reservations SET expires_at = datetime('now', '-1 minute') WHERE public_id = ?")
+    .bind(expiredDemoId)
+    .run();
+  await releaseExpiredReservations(db);
+  assert.equal(
+    (
+      await db
+        .prepare('SELECT status FROM checkout_reservations WHERE public_id = ?')
+        .bind(expiredDemoId)
+        .first()
+    ).status,
+    'released',
+  );
+  assert.equal(
+    (await db.prepare('SELECT stock FROM products WHERE id = ?').bind(demoProduct.id).first()).stock,
+    1,
+  );
 
   // Expired ordinary holds are reclaimed lazily.
   const expiredId = crypto.randomUUID();
@@ -203,9 +376,9 @@ try {
     (await db.prepare("SELECT status FROM pending_payments WHERE payment_hash = 'blocked-payment'").first()).status,
     'pending',
   );
-  // ...and no outbox rows either: no order, no email intent. (4 = the two
+  // ...and no outbox rows either: no order, no email intent. (6 = the three
   // successful orders above × two kinds; the blocked one added none.)
-  assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM order_notifications').first()).n, 4);
+  assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM order_notifications').first()).n, 6);
 
   // Outbox state machine against REAL D1 — the exact statements outboxStore.ts
   // ships, not a unit-test interpretation of them: claim exclusivity, expired-

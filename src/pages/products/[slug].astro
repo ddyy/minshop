@@ -11,6 +11,8 @@ import { productImageSources, productImageUrl } from '../../features/products/im
 import { stockState } from '../../features/products/stock';
 import { formatPrice, toMajorUnits, currencyDecimals, getConfig } from '../../config';
 import { catalogPath } from '../../features/settings/home';
+import { publicOrigin } from '../../features/http/origin';
+import { addCacheTags, productCacheTags } from '../../features/cache/tags';
 
 const { slug } = Astro.params;
 const product = slug ? await getProductBySlug(env.DB, slug) : null;
@@ -47,6 +49,10 @@ if (related.length < RELATED_TARGET) {
   const byCategory = await relatedProducts(env.DB, product.id, RELATED_TARGET + semantic.length);
   related = [...related, ...byCategory.filter((p) => !seen.has(p.id))].slice(0, RELATED_TARGET);
 }
+addCacheTags(
+  Astro.response.headers,
+  productCacheTags([product.public_id, ...related.map((candidate) => candidate.public_id)]),
+);
 
 // Variants (pick one, own stock/price) + extras (checkbox add-ons, price deltas).
 // Either may be empty; a product with neither behaves exactly as before.
@@ -119,7 +125,8 @@ const galleryImages = gallery.map((image) => ({
 }));
 // SEO: absolute image URL for OpenGraph + JSON-LD.
 const imagePath = productImageUrl(product.image_key, imgBase);
-const imageAbs = new URL(imagePath, Astro.url.origin).href;
+const origin = publicOrigin(Astro.url.origin, env.CANONICAL_ORIGIN);
+const imageAbs = new URL(imagePath, origin).href;
 const jsonLd = {
   '@context': 'https://schema.org',
   '@type': 'Product',
@@ -135,7 +142,7 @@ const jsonLd = {
     availability: soldOut
       ? 'https://schema.org/OutOfStock'
       : 'https://schema.org/InStock',
-    url: Astro.url.href,
+    url: new URL(Astro.url.pathname, origin).href,
   },
 };
 // Escape "<" so a product name can't break out of the <script> tag.
@@ -258,7 +265,7 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
       </p>
       {
         !hasVariants && state === 'low' && (
-          <p class="mt-2 text-sm text-amber-700">Only {product.stock} left</p>
+          <p class="mt-2 text-sm text-amber-700">Low stock</p>
         )
       }
       <p class="mt-6 max-w-prose leading-relaxed text-gray-600">{product.description}</p>

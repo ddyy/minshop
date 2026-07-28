@@ -13,6 +13,7 @@ import {
 } from './reservations';
 import { markPendingSettled } from '../payments/lightning/pending';
 import { deleteGuestAccessIfUnsettled } from './guestAccess';
+import { purgeStockProductCache } from '../cache/purge';
 
 /**
  * Persist a verified paid-webhook order (idempotent on the provider session id)
@@ -47,7 +48,11 @@ export async function recordPaidWebhookOrder(
     }
   };
   if (result.releaseReservationId) {
-    await releaseInventoryReservation(env.DB, result.releaseReservationId);
+    await releaseInventoryReservation(
+      env.DB,
+      result.releaseReservationId,
+      purgeStockProductCache,
+    );
     // Provider-confirmed terminal (expired/failed) checkout: collect the guest
     // credential too. The delete is atomic with a no-settled-order check, so a
     // paid webhook racing this expiry keeps its row (reservation id IS the
@@ -110,7 +115,11 @@ export async function recordPaidWebhookOrder(
 
   // recordPaidOrder returns the new id, or null if this session was already
   // recorded (re-delivered webhook) — so emails send exactly once.
-  const orderId = await recordPaidOrder(env.DB, { ...paidOrder, paymentMethod });
+  const orderId = await recordPaidOrder(
+    env.DB,
+    { ...paidOrder, paymentMethod },
+    purgeStockProductCache,
+  );
   if (!orderId) {
     const existing = await getOrderByProviderSessionId(env.DB, paidOrder.providerSessionId);
     if (existing) {

@@ -3,6 +3,8 @@ import { env } from 'cloudflare:workers';
 import { createCategory, getCategoryByPublicId } from '../../../features/categories/db';
 import { parseCategoryForm } from '../../../features/categories/form';
 import { uniqueCategorySlug } from '../../../features/categories/slug';
+import { CACHE_TAG } from '../../../features/cache/tags';
+import { purgeCacheTags } from '../../../features/cache/purge';
 
 export const prerender = false;
 
@@ -29,5 +31,6 @@ export const POST: APIRoute = async ({ request, redirect }) => {
     slug,
     parent_id: parentId,
   });
+  await purgeCacheTags([CACHE_TAG.catalog]);
   return redirect('/admin/categories', 303);
 };

@@ -7,6 +7,8 @@ import type {
 } from './provider';
 import { createPendingPayment } from './lightning/pending';
 
+export const DEMO_CHECKOUT_TTL_SECONDS = 24 * 60 * 60;
+
 /**
  * Demo payment provider — the automatic fallback when NO real rail is configured
  * (see getPaymentProvider). Collects nothing real: createCheckout stashes the
@@ -42,10 +44,11 @@ export function createDemoProvider(db: D1Database): PaymentProvider {
         shipAddressJson: params.selectedShipping
           ? JSON.stringify(params.selectedShipping.address)
           : null,
+        reservationId: params.metadata?.reservation_id ?? null,
         // Fixed 24h window: past it the pay page refuses to render, poll, or
         // settle the demo checkout (the guest token stays valid for the order
         // if one settled).
-        expiresAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+        expiresAt: new Date(Date.now() + DEMO_CHECKOUT_TTL_SECONDS * 1000).toISOString(),
       });
       // Point at the unified self-rendered pay page, absolute (origin from
       // successUrl). New checkouts address it by guest access token; the bare

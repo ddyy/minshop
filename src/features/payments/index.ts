@@ -15,6 +15,7 @@ export {
   OPENNODE_CHECKOUT_TTL_SECONDS,
   RESERVATION_EXPIRY_GRACE_SECONDS,
 } from './provider';
+export { DEMO_CHECKOUT_TTL_SECONDS } from './demo';
 
 // 'demo' is a first-class method — a simulated checkout that's ALWAYS offered
 // (records a real, demo-tagged order). The real rails work only when configured.

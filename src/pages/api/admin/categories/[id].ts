@@ -9,6 +9,8 @@ import {
 import { parseCategoryForm } from '../../../../features/categories/form';
 import { uniqueCategorySlug } from '../../../../features/categories/slug';
 import { parsePublicId } from '../../../../features/ids/publicId';
+import { CACHE_TAG } from '../../../../features/cache/tags';
+import { purgeCacheTags } from '../../../../features/cache/purge';
 
 export const prerender = false;
 
@@ -24,6 +26,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
 
   if (String(form.get('_action')) === 'delete') {
     await deleteCategory(env.DB, id);
+    await purgeCacheTags([CACHE_TAG.catalog]);
     return redirect('/admin/categories', 303);
   }
 
@@ -55,5 +58,6 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     slug,
     parent_id: parentId,
   });
+  await purgeCacheTags([CACHE_TAG.catalog]);
   return redirect('/admin/categories', 303);
 };

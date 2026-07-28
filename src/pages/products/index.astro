@@ -1,6 +1,8 @@
 ---
+import { env } from 'cloudflare:workers';
 import Layout from '../../layouts/Layout.astro';
 import ProductList from '../../features/products/ProductList.astro';
+import { publicOrigin } from '../../features/http/origin';
 
 /**
  * The catalog's own URL.
@@ -14,7 +16,9 @@ import ProductList from '../../features/products/ProductList.astro';
  * to `/` rather than competing with it for the same content.
  */
 const homeIsOverridden = !!Astro.locals.settings?.homePage;
-const canonical = homeIsOverridden ? undefined : new URL('/', Astro.url.origin).href;
+const canonical = homeIsOverridden
+  ? undefined
+  : new URL('/', publicOrigin(Astro.url.origin, env.CANONICAL_ORIGIN)).href;
 ---
 
 <Layout title="All products" canonical={canonical}>

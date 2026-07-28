@@ -22,12 +22,11 @@ import {
   rateLimitedResponse,
 } from './features/auth/rateLimit';
 import {
-  isPublicCatalogApi,
-  isPublicStorefrontPath,
-  publicCacheRequest,
-  PUBLIC_CACHE_CONTROL,
+  responseCacheControl,
 } from './features/cache/public';
+import { addCacheTags, responseCacheTags } from './features/cache/tags';
 import { normalizeSearchQuery } from './features/search/query';
+import { isForbiddenFormOrigin } from './features/auth/formOrigin';
 
 /**
  * Admin auth gate. Protects BOTH the admin UI (`/admin/*`) and the admin API
@@ -62,38 +61,6 @@ function isProtected(pathname: string): boolean {
     pathname.startsWith('/admin/') ||
     pathname === '/api/admin' ||
     pathname.startsWith('/api/admin/')
-  );
-}
-
-/**
- * Pages/endpoints that render per-customer or admin data. These get an explicit
- * `private, no-store` so a browser, shared proxy, or any future edge rule can't
- * retain a personalized response. Cloudflare doesn't edge-cache dynamic Worker
- * responses by default, so this is defense-in-depth, not a fix for active
- * caching. The public catalog (/, /product, /api/products) is deliberately NOT
- * listed so it stays cache-eligible.
- */
-function isPrivatePath(pathname: string): boolean {
-  return (
-    pathname === '/admin' ||
-    pathname.startsWith('/admin/') ||
-    pathname === '/api/admin' ||
-    pathname.startsWith('/api/admin/') ||
-    pathname === '/account' ||
-    pathname.startsWith('/account/') ||
-    pathname === '/order' ||
-    pathname.startsWith('/order/') ||
-    pathname === '/pay' ||
-    pathname.startsWith('/pay/') ||
-    pathname === '/payment-setup' ||
-    pathname.startsWith('/payment-setup/') ||
-    pathname === '/partials' ||
-    pathname.startsWith('/partials/') ||
-    pathname === '/express' ||
-    pathname === '/cart' ||
-    pathname === '/checkout' ||
-    pathname === '/api/cart' ||
-    pathname === '/api/checkout'
   );
 }
 
@@ -255,76 +222,51 @@ async function gate(context: APIContext, next: MiddlewareNext): Promise<Response
 }
 
 async function route(context: APIContext, next: MiddlewareNext): Promise<Response> {
-  const req = context.request;
   const path = context.url.pathname;
   const productError = path.startsWith('/products/') && context.url.searchParams.has('error');
 
-  // Edge-cache the explicitly public storefront shell and catalog API. Cart
-  // contents stay on private routes and the header badge loads as a separate
-  // fragment, so the shell is identical even when the request carries cookies.
-  // Product validation errors are request-specific and deliberately bypass the
-  // shared cache. `caches` is absent under `astro dev`, hence the typeof guard.
-  const publicCatalogApi = isPublicCatalogApi(path);
-  const publicStorefront = isPublicStorefrontPath(path);
-  const edgeCacheable =
-    req.method === 'GET' &&
-    (publicCatalogApi || publicStorefront) &&
-    !productError;
-  const cacheKey = edgeCacheable ? publicCacheRequest(req) : req;
-  const cache = edgeCacheable && typeof caches !== 'undefined' ? caches.default : null;
-  if (cache) {
-    const hit = await cache.match(cacheKey);
-    if (hit) return hit;
-  }
+  let response = isForbiddenFormOrigin(context.request, context.url)
+    ? new Response(`Cross-site ${context.request.method} form submissions are forbidden`, {
+        status: 403,
+      })
+    : await gate(context, next);
 
-  const response = await gate(context, next);
-
-  // Stamp personalized responses as uncacheable, whichever branch produced them
-  // (page render, redirect, 401). Leave a route's own Cache-Control intact.
-  if ((isPrivatePath(path) || productError) && !response.headers.has('cache-control')) {
+  // Workers Caching heuristically stores headerless responses, so make every
+  // response explicit: only allowlisted public successes/301s are shared.
+  const cacheControl = responseCacheControl(
+    path,
+    response.status,
+    response.headers.get('cache-control'),
+    productError,
+  );
+  if (response.headers.get('cache-control') !== cacheControl) {
     try {
-      response.headers.set('cache-control', 'private, no-store');
+      response.headers.set('cache-control', cacheControl);
     } catch {
-      // Some responses (e.g. Response.redirect to a payment provider) have
-      // immutable headers — rebuild with a mutable copy so the directive still
-      // applies and the request never throws.
-      const rebuilt = new Response(response.body, {
+      // Redirect responses can have immutable headers.
+      response = new Response(response.body, {
         status: response.status,
         statusText: response.statusText,
         headers: new Headers(response.headers),
       });
-      rebuilt.headers.set('cache-control', 'private, no-store');
-      return rebuilt;
+      response.headers.set('cache-control', cacheControl);
     }
   }
 
-  // Store anonymous storefront/catalog responses with a short shared TTL so
-  // repeat hits within the window skip the origin. Cache API does not implement
-  // stale-while-revalidate, so the directive is intentionally a plain 60s TTL.
-  // A route that set its OWN directive is opting out — except when the directive
-  // is the one this block writes. That happens when `/` rewrites to a page or a
-  // product: the nested middleware pass caches the target and stamps the header,
-  // and the response then bubbles back here. Refusing it left `/` with no entry
-  // of its own, so every homepage request re-ran the settings/footer batch and
-  // the home lookup before the nested pass could serve its cached copy.
-  const directive = response.headers.get('cache-control');
-  if (
-    cache &&
-    response.status === 200 &&
-    (directive === null || directive === PUBLIC_CACHE_CONTROL) &&
-    !response.headers.has('set-cookie')
-  ) {
-    const headers = new Headers(response.headers);
-    headers.set('cache-control', PUBLIC_CACHE_CONTROL);
-    const toStore = new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers,
-    });
-    const ctx = context.locals.cfContext;
-    if (ctx) ctx.waitUntil(cache.put(cacheKey, toStore.clone()));
-    else await cache.put(cacheKey, toStore.clone());
-    return toStore;
+  const cacheTags = responseCacheTags(path, response.status);
+  if (cacheTags.length > 0) {
+    try {
+      addCacheTags(response.headers, cacheTags);
+    } catch {
+      // A route-specific response can have immutable headers even when its
+      // Cache-Control already matched. Rebuild before adding purge metadata.
+      response = new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: new Headers(response.headers),
+      });
+      addCacheTags(response.headers, cacheTags);
+    }
   }
 
   return response;

@@ -7,6 +7,7 @@ import ProductCard from '../components/ProductCard.astro';
 import { MAX_PUBLIC_PAGE, paginate, queryHref, requestedPage } from '../pagination';
 import Pagination from '../components/Pagination.astro';
 import { normalizeSearchQuery } from '../features/search/query';
+import { addCacheTags, productCacheTags } from '../features/cache/tags';
 
 const q = normalizeSearchQuery(Astro.url.searchParams.get('q') ?? '');
 const PAGE_SIZE = 24;
@@ -42,6 +43,10 @@ const fillers =
         TARGET - products.length,
       )
     : [];
+addCacheTags(
+  Astro.response.headers,
+  productCacheTags([...products, ...fillers].map((product) => product.public_id)),
+);
 ---
 
 <Layout title={q ? `Search: ${q}` : 'Search'}>

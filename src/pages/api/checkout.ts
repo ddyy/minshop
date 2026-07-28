@@ -24,6 +24,7 @@ import {
   STRIPE_CHECKOUT_TTL_SECONDS,
   OPENNODE_CHECKOUT_TTL_SECONDS,
   RESERVATION_EXPIRY_GRACE_SECONDS,
+  DEMO_CHECKOUT_TTL_SECONDS,
 } from '../../features/payments';
 import { getStoreSettings } from '../../features/settings/db';
 import { createConfigRatesCalculator } from '../../features/shipping/calculator';
@@ -36,6 +37,7 @@ import {
   releaseInventoryReservation,
   type ReservationItem,
 } from '../../features/orders/reservations';
+import { purgeStockProductCache } from '../../features/cache/purge';
 import { mintLightningOrder } from '../../features/payments/lightning-provider';
 import { getLightningBackend } from '../../features/payments/lightning';
 
@@ -91,6 +93,7 @@ const reservationItems = (lines: LineDraft[]): ReservationItem[] =>
   }));
 
 function reservationTtlSeconds(method: PaymentMethod): number {
+  if (method === 'demo') return DEMO_CHECKOUT_TTL_SECONDS;
   if (method === 'lightning') {
     return (
       getConfig().payments.lightning.invoiceExpiryMinutes * 60 +
@@ -376,9 +379,14 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
   // at /order/<token>; the webhook stores the ord_ id on the order.
   const { publicId, accessToken } = await claimOrderIdentity(env.DB);
   const items = reservationItems(lines);
-  const reserved =
-    selected === 'demo' ||
-    (await reserveInventory(env.DB, publicId, items, reservationTtlSeconds(selected), selected));
+  const reserved = await reserveInventory(
+    env.DB,
+    publicId,
+    items,
+    reservationTtlSeconds(selected),
+    selected,
+    purgeStockProductCache,
+  );
   if (!reserved) {
     await deleteGuestAccessIfUnsettled(env.DB, publicId);
     return redirect(
@@ -413,14 +421,14 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
       // the cart snapshot is held in D1.
       metadata: {
         public_id: publicId,
-        ...(selected !== 'demo' && { reservation_id: publicId }),
+        reservation_id: publicId,
       },
       accessToken,
     });
     checkoutUrl = result.url;
   } catch (error) {
     // Compensate the whole claim: stock hold AND the guest credential.
-    if (selected !== 'demo') await releaseInventoryReservation(env.DB, publicId);
+    await releaseInventoryReservation(env.DB, publicId, purgeStockProductCache);
     await deleteGuestAccessIfUnsettled(env.DB, publicId);
     throw error;
   }
@@ -783,6 +791,7 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
       reservationItems(lines),
       reservationTtlSeconds('lightning'),
       'lightning',
+      purgeStockProductCache,
     );
     if (!lnReserved) {
       await deleteGuestAccessIfUnsettled(env.DB, lnPublicId);
@@ -846,7 +855,7 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
       // The Lightning node can be briefly unreachable. Release the held stock and
       // the guest credential, and return a retryable 503 rather than a 500, so an
       // agent can back off + retry.
-      await releaseInventoryReservation(env.DB, lnPublicId);
+      await releaseInventoryReservation(env.DB, lnPublicId, purgeStockProductCache);
       await deleteGuestAccessIfUnsettled(env.DB, lnPublicId);
       console.error(
         JSON.stringify({
@@ -864,9 +873,14 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
   const { publicId, accessToken } = await claimOrderIdentity(env.DB);
   const provider = await getPaymentProvider(method);
   const items = reservationItems(lines);
-  const reserved =
-    method === 'demo' ||
-    (await reserveInventory(env.DB, publicId, items, reservationTtlSeconds(method), method));
+  const reserved = await reserveInventory(
+    env.DB,
+    publicId,
+    items,
+    reservationTtlSeconds(method),
+    method,
+    purgeStockProductCache,
+  );
   if (!reserved) {
     await deleteGuestAccessIfUnsettled(env.DB, publicId);
     return cjson({ error: 'Some inventory just sold out. Refresh the catalog and retry.' }, 409);
@@ -910,12 +924,12 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
       ),
       metadata: {
         public_id: publicId,
-        ...(method !== 'demo' && { reservation_id: publicId }),
+        reservation_id: publicId,
       },
       accessToken,
     });
   } catch (error) {
-    if (method !== 'demo') await releaseInventoryReservation(env.DB, publicId);
+    await releaseInventoryReservation(env.DB, publicId, purgeStockProductCache);
     await deleteGuestAccessIfUnsettled(env.DB, publicId);
     throw error;
   }

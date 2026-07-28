@@ -1,9 +1,11 @@
 import type { APIRoute } from 'astro';
+import { PUBLIC_CACHE_CONTROL } from '../features/cache/public';
 import { env } from 'cloudflare:workers';
 import { getConfig, formatPrice } from '../config';
 import { listProducts, countProducts } from '../features/products/db';
 import { listCategories } from '../features/categories/db';
 import { listPublishedPages } from '../features/pages/db';
+import { publicOrigin } from '../features/http/origin';
 
 export const prerender = false;
 
@@ -20,7 +22,7 @@ const oneLine = (s: string | null, max = 100) => {
 // for LLMs/agents. Beyond the usual catalog, it documents the JSON checkout so an
 // agentic buyer can go from "what's for sale" to "place the order" without scraping.
 export const GET: APIRoute = async ({ url }) => {
-  const origin = url.origin;
+  const origin = publicOrigin(url.origin, env.CANONICAL_ORIGIN);
   const { storeName, currency } = getConfig();
 
   const total = await countProducts(env.DB);
@@ -30,8 +32,10 @@ export const GET: APIRoute = async ({ url }) => {
 
   const productLines = products.map((p) => {
     const desc = oneLine(p.description);
-    const stock = p.stock <= 0 ? ' (out of stock)' : '';
-    return `- [${linkText(p.name)}](${origin}/products/${p.slug}): ${formatPrice(p.price_cents, currency)}${stock}${desc ? ` — ${desc}` : ''}`;
+    // This whole-catalog response carries coarse tags, so checkout-frequency
+    // product-tag purges cannot keep stock honest here. Omit availability; the
+    // catalog API and checkout resolve it through product-scoped/live reads.
+    return `- [${linkText(p.name)}](${origin}/products/${p.slug}): ${formatPrice(p.price_cents, currency)}${desc ? ` — ${desc}` : ''}`;
   });
 
   const categoryLines = categories.map(
@@ -63,7 +67,7 @@ ${pageLines.length > 0 ? `\n## Pages\n${pageLines.join('\n')}\n` : ''}
   return new Response(body, {
     headers: {
       'content-type': 'text/plain; charset=utf-8',
-      'cache-control': 'public, max-age=3600',
+      'cache-control': PUBLIC_CACHE_CONTROL,
     },
   });
 };

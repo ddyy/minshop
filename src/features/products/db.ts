@@ -76,11 +76,22 @@ export interface AdminProduct extends Product {
  * `sold` count (sum of quantities across paid orders). The correlated subquery
  * keeps `sold` sortable via the same ORDER BY whitelist as the other columns.
  */
+/**
+ * A prebuilt WHERE clause and its bound values, from features/products/filter.ts.
+ * Pass the SAME value to listAllProducts and countAllProducts.
+ */
+export interface ProductFilter {
+  where: string;
+  params: string[];
+}
+const EMPTY_PRODUCT_FILTER: ProductFilter = { where: '', params: [] };
+
 export async function listAllProducts(
   db: D1Database,
   limit: number,
   offset = 0,
   orderBy = 'created_at DESC',
+  filter: ProductFilter = EMPTY_PRODUCT_FILTER,
 ): Promise<AdminProduct[]> {
   const { results } = await db
     .prepare(
@@ -92,16 +103,25 @@ export async function listAllProducts(
                  WHERE oi.product_id = p.id AND o.status = 'paid'
               ), 0) AS sold
          FROM products p
+        ${filter.where}
         ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
     )
-    .bind(limit, offset)
+    .bind(...filter.params, limit, offset)
     .all<AdminProduct>();
   return results ?? [];
 }
 
 /** Total products including inactive (for admin pagination). */
-export async function countAllProducts(db: D1Database): Promise<number> {
-  const row = await db.prepare('SELECT COUNT(*) AS n FROM products').first<{ n: number }>();
+export async function countAllProducts(
+  db: D1Database,
+  filter: ProductFilter = EMPTY_PRODUCT_FILTER,
+): Promise<number> {
+  // Aliased `p` even without a join: the filter fragments are written against
+  // the same alias listAllProducts uses, so one clause serves both queries.
+  const row = await db
+    .prepare(`SELECT COUNT(*) AS n FROM products p ${filter.where}`)
+    .bind(...filter.params)
+    .first<{ n: number }>();
   return row?.n ?? 0;
 }
 

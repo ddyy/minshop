@@ -8,6 +8,15 @@ import { orderByClause } from '../../../features/products/sort';
 import { paginate, queryHref } from '../../../pagination';
 import Pagination from '../../../components/Pagination.astro';
 import { menuReferencesFor } from '../../../features/navigation/admin';
+import FilterBar from '../../../components/FilterBar.astro';
+import {
+  parseProductFilters,
+  productFilterClause,
+  productFilterParams,
+  hasProductFilters,
+  PRODUCT_STATUS_OPTIONS,
+  PRODUCT_STOCK_OPTIONS,
+} from '../../../features/products/filter';
 
 // Auth: /admin + /api/admin are gated by src/middleware.ts. The admin password is
 // set in the first-run setup wizard (hashed in D1); Cloudflare Access at the edge
@@ -17,22 +26,35 @@ const sort = Astro.url.searchParams.get('sort');
 const dir = Astro.url.searchParams.get('dir');
 const order = orderByClause(sort, dir);
 
+const filters = parseProductFilters(Astro.url.searchParams);
+// One clause, both queries — otherwise the pager counts rows the table filtered out.
+const filterClause = productFilterClause(filters);
+const filtered = hasProductFilters(filters);
+
 const PAGE_SIZE = 30;
+const matchCount = await countAllProducts(env.DB, filterClause);
 const { page, offset, totalPages } = paginate(
   Astro.url.searchParams,
-  await countAllProducts(env.DB),
+  matchCount,
   PAGE_SIZE,
 );
-const products = await listAllProducts(env.DB, PAGE_SIZE, offset, order);
+const products = await listAllProducts(env.DB, PAGE_SIZE, offset, order, filterClause);
 // Bounded to this page of rows, so the nav warning costs one query, not one
 // per product.
 const menuRefs = await menuReferencesFor(env.DB, 'product', products.map((p) => p.id));
+// Sort and pagination links carry the active filters, so paging or re-sorting
+// a filtered list doesn't silently drop back to everything.
+const filterQuery = productFilterParams(filters);
 const hrefFor = (p: number) =>
-  queryHref('/admin/products', { sort, dir, page: p > 1 ? p : undefined });
+  queryHref('/admin/products', { ...filterQuery, sort, dir, page: p > 1 ? p : undefined });
 
 // Column header → sort by it, toggling direction (default asc on a new column).
 const sortHref = (col: string) =>
-  queryHref('/admin/products', { sort: col, dir: sort === col && dir === 'asc' ? 'desc' : 'asc' });
+  queryHref('/admin/products', {
+    ...filterQuery,
+    sort: col,
+    dir: sort === col && dir === 'asc' ? 'desc' : 'asc',
+  });
 const arrow = (col: string) => (sort === col ? (dir === 'asc' ? ' ↑' : ' ↓') : '');
 ---
 
@@ -46,6 +68,31 @@ const arrow = (col: string) => (sort === col ? (dir === 'asc' ? ' ↑' : ' ↓')
       New product
     </a>
   </div>
+
+  <FilterBar
+    action="/admin/products"
+    active={filtered}
+    count={matchCount}
+    noun="product"
+    hidden={{ sort: sort ?? undefined, dir: dir ?? undefined }}
+    search={{ name: 'q', value: filters.q, placeholder: 'Product name' }}
+    selects={[
+      {
+        name: 'status',
+        label: 'Visibility',
+        anyLabel: 'All products',
+        value: filters.status,
+        options: PRODUCT_STATUS_OPTIONS,
+      },
+      {
+        name: 'stock',
+        label: 'Stock',
+        anyLabel: 'Any stock',
+        value: filters.stock,
+        options: PRODUCT_STOCK_OPTIONS,
+      },
+    ]}
+  />
 
   <div class="sm:overflow-x-auto">
     <table class="admin-table w-full text-left text-sm sm:min-w-[42rem]">
@@ -129,7 +176,9 @@ const arrow = (col: string) => (sort === col ? (dir === 'asc' ? ' ↑' : ' ↓')
         products.length === 0 && (
           <tr>
             <td colspan="6" class="py-8 text-center text-gray-400">
-              No products yet.
+              {/* "No products yet" would be wrong — and confusing — when the
+                  store has plenty and the filter simply excluded them all. */}
+              {filtered ? 'No products match these filters.' : 'No products yet.'}
             </td>
           </tr>
         )
