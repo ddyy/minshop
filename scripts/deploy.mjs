@@ -83,7 +83,10 @@ const wait = (milliseconds) =>
   new Promise((resolveWait) => setTimeout(resolveWait, milliseconds));
 
 async function purgeAfterDeploy(origin, secret) {
-  const delays = [0, 1_000, 2_000, 4_000];
+  // The custom domain can briefly continue routing to the previous version
+  // after Wrangler reports success. Keep retrying long enough for that
+  // propagation window as well as transient purge-plane rate limits.
+  const delays = [0, 2_000, 5_000, 10_000, 20_000];
   for (let attempt = 0; attempt < delays.length; attempt++) {
     if (delays[attempt] > 0) await wait(delays[attempt]);
     const authorization = await signDeployPurgeAuthorization(
