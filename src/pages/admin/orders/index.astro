@@ -26,6 +26,7 @@ import { listUnmatchedRefundEvents } from '../../../features/refunds/db';
 import {
   parseOrderOrLegacyPublicId,
   parsePublicId,
+  truncatePublicId,
   PUBLIC_ID_TOKEN_LENGTH,
 } from '../../../features/ids/publicId';
 
@@ -257,7 +258,7 @@ const listError = Astro.url.searchParams.get('error');
   />
 
   <div class="sm:overflow-x-auto">
-    <table class="admin-table w-full text-left text-sm sm:min-w-[64rem]">
+    <table class="admin-table w-full text-left text-sm">
     <thead>
       <tr class="border-b border-line text-xs uppercase tracking-widest text-gray-400">
         <th class="py-3 pr-4 font-normal">
@@ -291,15 +292,28 @@ const listError = Astro.url.searchParams.get('error');
               </a>
             </td>
             <td data-label="Public ID" class="py-3 pr-4 font-mono text-xs">
-              <a href={`/admin/orders/${o.public_id}`} class="text-accent hover:underline">
-                {o.public_id}
+              {/* Shortened to the width of a current-format ID. Legacy hex/UUID
+                  IDs are more than twice as long and would otherwise stretch
+                  the column for every row. The link and the title keep the full
+                  value, so it stays copyable. */}
+              <a
+                href={`/admin/orders/${o.public_id}`}
+                title={o.public_id ?? undefined}
+                class="text-accent hover:underline"
+              >
+                {o.public_id ? truncatePublicId(o.public_id, 'order') : ''}
               </a>
             </td>
             <td data-label="Email" class="py-3 pr-4">
+              {/* A long address is one unbreakable token, so left alone it sets
+                  the table's width on its own and brings back the horizontal
+                  scrollbar. Capped at sm+ only — the mobile card layout wraps
+                  it fine and has the room. The title keeps it readable. */}
               {o.email ? (
                 <a
                   href={`/admin/customers/${encodeURIComponent(o.email)}`}
-                  class="text-accent hover:underline"
+                  title={o.email}
+                  class="text-accent hover:underline sm:block sm:max-w-[13rem] sm:truncate"
                 >
                   {o.email}
                 </a>

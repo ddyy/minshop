@@ -85,6 +85,28 @@ export function parseOrderOrLegacyPublicId(value: unknown, kind: 'order' | 'refu
   return null;
 }
 
+/** Rendered width of a current-format ID: prefix + separator + token. */
+export function publicIdDisplayLength(kind: PublicIdKind): number {
+  return PUBLIC_ID_PREFIXES[kind].length + 1 + PUBLIC_ID_TOKEN_LENGTH;
+}
+
+/**
+ * Fit a public ID into the width a current-format one occupies.
+ *
+ * Current IDs are already exactly that long and pass through untouched. The
+ * preserved legacy shapes (32-char hex, 36-char UUID) are more than twice as
+ * wide and would otherwise stretch a column that is uniform for every order
+ * placed since. The ellipsis is counted INSIDE the budget, so truncated and
+ * full IDs still align in a monospace column.
+ *
+ * Display only — the full value remains the identifier for links and lookups.
+ */
+export function truncatePublicId(value: string, kind: PublicIdKind): string {
+  const width = publicIdDisplayLength(kind);
+  if (value.length <= width) return value;
+  return `${value.slice(0, width - 1)}\u2026`;
+}
+
 /** True when an insert failed on a public_id unique index (retry with a fresh ID). */
 export function isPublicIdConflict(err: unknown): boolean {
   return err instanceof Error && /UNIQUE/i.test(err.message) && /public_id|access_token/i.test(err.message);
