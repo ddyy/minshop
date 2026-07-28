@@ -54,6 +54,7 @@ npx wrangler dev \
   --config dist/server/wrangler.json \
   --persist-to "$state_dir" \
   --var CANONICAL_ORIGIN:https://canonical.example \
+  --var AUTH_SECRET:integration-auth-secret \
   --ip 127.0.0.1 \
   --port "$test_port" >"$worker_log" 2>&1 &
 worker_pid="$!"
@@ -226,10 +227,28 @@ assert_cache_control / "$public_cache" HEAD
 for path in \
   /cart /checkout /express /payment-setup /partials/cart-count \
   /account /account/login /order/not-a-token /pay/not-an-id \
-  /admin /api/admin/products /api/cart /api/checkout
+  /admin /api/admin/products /api/internal/cache-purge /api/cart /api/checkout
 do
   assert_cache_control "$path" "$private_cache"
 done
+
+deploy_purge_headers="$state_dir/deploy-purge-headers.txt"
+deploy_purge_status="$(curl --silent --output /dev/null \
+  --dump-header "$deploy_purge_headers" \
+  --write-out '%{http_code}' \
+  --request POST \
+  --header 'content-type: application/json' \
+  --header 'authorization: MinshopDeploy invalid' \
+  --data '{}' \
+  "http://127.0.0.1:$test_port/api/internal/cache-purge")"
+if [[ "$deploy_purge_status" != "401" ]]; then
+  echo "D1 integration failed: unsigned deploy purge returned $deploy_purge_status" >&2
+  exit 1
+fi
+if ! tr -d '\r' <"$deploy_purge_headers" | grep -qi '^cache-control: private, no-store$'; then
+  echo "D1 integration failed: deploy purge response was cacheable" >&2
+  exit 1
+fi
 
 assert_cache_control /product/sample-tee "$public_cache"
 assert_cache_control /category/apparel "$public_cache"

@@ -33,6 +33,8 @@ export function isPrivatePath(pathname: string): boolean {
     pathname.startsWith('/admin/') ||
     pathname === '/api/admin' ||
     pathname.startsWith('/api/admin/') ||
+    pathname === '/api/internal' ||
+    pathname.startsWith('/api/internal/') ||
     pathname === '/account' ||
     pathname.startsWith('/account/') ||
     pathname === '/order' ||

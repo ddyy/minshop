@@ -91,7 +91,9 @@ declare namespace Cloudflare {
     // are NO provider env vars; the only Worker secrets are the two below.
     //
     // Customer accounts (config.features.accounts) + admin sessions: signs the
-    // magic-link login token + session cookies (HMAC). Set via wrangler secret.
+    // magic-link login token + session cookies (HMAC). The deploy command also
+    // uses it locally to authorize a cross-version cache purge. Set via
+    // wrangler secret; never commit the value.
     AUTH_SECRET?: string;
     // Key-encryption key (KEK) for the at-rest payment-key vault in D1
     // (src/features/secrets). REQUIRED to store/use any provider key — without it

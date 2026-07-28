@@ -56,6 +56,20 @@ export function purgeProductCache(
   return purgeCacheTags(productCacheTags(productPublicIds), purger);
 }
 
+/** Purge the owning Worker entrypoint's complete cache after a deployment. */
+export async function purgeEntireCache(
+  purger: CachePurger = cache,
+): Promise<void> {
+  try {
+    const result = await purger.purge({ purgeEverything: true });
+    if (result.success) return;
+    purgeFailure('everything', result.errors);
+  } catch (error) {
+    purgeFailure('everything', error instanceof Error ? error.message : String(error));
+  }
+  throw new Error('The Workers cache could not be purged.');
+}
+
 /**
  * Inventory transitions are checkout-frequency events. Purge only the narrow
  * product tags and never fall back to purge-everything: if Cloudflare rate

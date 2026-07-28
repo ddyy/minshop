@@ -58,6 +58,7 @@ describe('responseCacheControl', () => {
     '/admin',
     '/admin/products',
     '/api/admin/products',
+    '/api/internal/cache-purge',
     '/api/cart',
     '/api/checkout',
   ])('marks private route %s no-store on every response path', (path) => {

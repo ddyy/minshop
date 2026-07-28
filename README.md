@@ -132,7 +132,7 @@ npm run db:migrate:remote          # applies migrations/ to the production DB
 openssl rand -base64 32 | npx wrangler secret put AUTH_SECRET   # signs sessions
 openssl rand -base64 32 | npx wrangler secret put SECRETS_KEK   # encrypts the key vault
 
-npm run deploy                     # astro build && wrangler deploy
+npm run deploy                     # migrate, build, deploy, then purge shared cache if enabled
 ```
 
 Then open the site — it funnels to the **setup wizard**: set the admin password (required to finish; until then `/admin/setup` is open, so do it right away or front `/admin` with Access), then paste your payment keys in **Settings → Payments**. Finally point a **production Stripe webhook** at `https://<your-host>/api/webhook/stripe` (events: `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired`, and `charge.refunded`; async success fulfils delayed methods, failure/expiry releases held inventory, and `charge.refunded` keeps refunds made in the Stripe Dashboard — including partial ones — in sync with your order totals) and paste its `whsec_…` signing secret in the same card. Tear an instance down with `npm run destroy:cf <slug>`; reset its data in place with `npm run reset:remote`.
@@ -183,6 +183,17 @@ checkout pages. Stock purges target the affected `product:prod_…` tags, are
 best-effort, and never fall back to purging the whole cache; the bounded
 10-minute shared TTL remains the safety net for rate limits or transient purge
 failures.
+
+By default, a deployment starts with a cold, version-keyed cache. An instance
+that deploys frequently may add `"cross_version_cache": true` beside
+`cache.enabled`, but only after its deploy environment has the same
+`AUTH_SECRET` as the Worker (an uncommitted `.dev.vars` is supported).
+`npm run deploy` preflights that secret plus the single canonical hostname,
+deploys, then calls a short-lived HMAC-authenticated Worker endpoint to purge
+the shared cache. It retries transient purge failures. If all attempts fail,
+the new Worker is already live: retry the deploy, then temporarily set
+`cross_version_cache` to `false` and deploy again to recover with a cold
+version-keyed cache.
 
 ## Payments
 

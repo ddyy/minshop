@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   purgeCacheTags,
+  purgeEntireCache,
   purgeProductCache,
   purgeStockProductCache,
   type CachePurger,
@@ -43,6 +44,19 @@ describe('Workers cache purge', () => {
     const purge = vi.fn(async () => result(true));
     await purgeProductCache(['prod_z', 'prod_a', 'prod_z'], { purge });
     expect(purge).toHaveBeenCalledWith({ tags: ['product:prod_a', 'product:prod_z'] });
+  });
+
+  it('purges the complete entrypoint cache for a deployment', async () => {
+    const purge = vi.fn(async () => result(true));
+    await purgeEntireCache({ purge });
+    expect(purge).toHaveBeenCalledOnce();
+    expect(purge).toHaveBeenCalledWith({ purgeEverything: true });
+  });
+
+  it('fails a deployment purge when Cloudflare rejects it', async () => {
+    const purge = vi.fn(async () => result(false));
+    await expect(purgeEntireCache({ purge })).rejects.toThrow('could not be purged');
+    expect(purge).toHaveBeenCalledOnce();
   });
 
   it('does not turn a rate-limited stock transition into purge-everything', async () => {

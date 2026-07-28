@@ -25,7 +25,8 @@
   "observability": { "enabled": true },
   // Fresh instances begin on workers.dev and therefore stay uncached. A later
   // custom-domain config may enable this only alongside CANONICAL_ORIGIN and
-  // workers_dev: false.
+  // workers_dev: false. cross_version_cache additionally requires AUTH_SECRET
+  // in the deploy environment so scripts/deploy.mjs can purge after every deploy.
   "cache": { "enabled": false },
   "ratelimits": [
     {
