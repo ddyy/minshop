@@ -1,0 +1,66 @@
+---
+import type {
+  ProductDetailModel,
+  ProductPurchaseModel,
+} from '../../../../src/features/storefront/models';
+import ProductGallery from '../../../../src/features/storefront/controls/ProductGallery.astro';
+import ProductPurchaseForm from '../../../../src/features/storefront/controls/ProductPurchaseForm.astro';
+
+/**
+ * A structurally different product page: purchase controls ABOVE the gallery,
+ * description in a <details>, categories as a definition list, related products
+ * rendered from the card models directly instead of through ProductCard.
+ *
+ * The ordering inversion is the point — the purchase form and the gallery are
+ * coupled through DOM anchors and the live-price script, so a composition that
+ * reverses them proves that coupling is expressed in the contract rather than
+ * in the default template's layout.
+ */
+interface Props {
+  model: ProductDetailModel;
+  purchase: ProductPurchaseModel;
+}
+
+const { model, purchase } = Astro.props;
+---
+
+<article class="alt-detail">
+  <h1>{model.name}</h1>
+  <p class="alt-detail__price">
+    {model.priceVaries && 'from '}
+    {model.formattedPrice}
+  </p>
+
+  <ProductPurchaseForm model={purchase} />
+
+  <ProductGallery
+    images={model.images}
+    hero={model.heroImage}
+    soldOut={model.soldOut}
+    soldOutLabel="Unavailable"
+    class="alt-detail__media"
+  />
+
+  {model.description && (
+    <details class="alt-detail__description">
+      <summary>Details</summary>
+      <p>{model.description}</p>
+    </details>
+  )}
+
+  <dl class="alt-detail__categories">
+    {model.categories.map((category) => (
+      <dd>
+        <a href={category.href}>{category.text}</a>
+      </dd>
+    ))}
+  </dl>
+
+  <ul class="alt-detail__related">
+    {model.related.map((card) => (
+      <li data-related={card.id}>
+        <a href={card.href}>{card.name}</a> — {card.formattedPrice}
+      </li>
+    ))}
+  </ul>
+</article>

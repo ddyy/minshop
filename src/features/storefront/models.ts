@@ -130,3 +130,97 @@ export interface CatalogPageModel {
   sort: StorefrontSortModel;
   pagination: StorefrontPaginationModel;
 }
+
+/**
+ * One gallery image. `anchor` is the in-page target the thumbnails link to and
+ * the variant selector points at — a `pimg_` public ID (the object key only as
+ * a pre-backfill fallback), never a row ID.
+ */
+export interface StorefrontGalleryImage {
+  anchor: string;
+  hero: StorefrontImage;
+  thumbnail: StorefrontImage;
+}
+
+/** A selectable variant. `priceCents` is present because the live price script
+ *  reads it; it is display-only, and the server recomputes every total. */
+export interface StorefrontVariant {
+  id: string;
+  label: string;
+  formattedPrice: string;
+  priceCents: number;
+  soldOut: boolean;
+  /** The first in-stock variant, pre-selected so the form is submittable. */
+  defaultSelected: boolean;
+  /** Gallery anchor to scroll to when this variant is chosen; '' when none. */
+  imageAnchor: string;
+}
+
+/** A checkbox add-on layered on the line price. */
+export interface StorefrontExtra {
+  id: string;
+  label: string;
+  formattedPriceDelta: string;
+  priceDeltaCents: number;
+}
+
+/**
+ * Everything the purchase controls need, with every decision already made.
+ *
+ * A template must not receive stock quantities or re-derive which buttons to
+ * show: `soldOut` already accounts for variant-level inventory, and
+ * `showAddToCart`/`showBuyNow` already fold in the store's runtime cart and
+ * buy-now toggles and whether any payment rail can actually take money.
+ */
+export interface ProductPurchaseModel {
+  /** `prod_` public ID, submitted by both forms. */
+  productId: string;
+  cartAction: string;
+  expressAction: string;
+  hasOptions: boolean;
+  soldOut: boolean;
+  showAddToCart: boolean;
+  showBuyNow: boolean;
+  /** Merchant's name for the variant group, e.g. "Size". */
+  variantLabel: string | null;
+  variants: StorefrontVariant[];
+  extras: StorefrontExtra[];
+}
+
+/** Metadata the ROUTE emits. Never handed to a template: escaping and canonical
+ *  correctness are not presentation decisions. */
+export interface ProductSeoModel {
+  title: string;
+  description: string | null;
+  /** Root-relative image path for the social card. */
+  imagePath: string;
+  /** Serialized JSON-LD, already escaped for embedding in a script tag. */
+  jsonLd: string;
+}
+
+export interface ProductDetailModel {
+  id: string;
+  name: string;
+  description: string | null;
+  /** Lowest variant price when they differ, else the product price. */
+  formattedPrice: string;
+  /** Raw minor units for the live price script; display-only. */
+  priceCents: number;
+  currency: string;
+  /** True when variants disagree on price, so the header reads "from …". */
+  priceVaries: boolean;
+  soldOut: boolean;
+  /** Low-stock nudge, already gated: never set for a product with variants. */
+  lowStock: boolean;
+  categories: StorefrontLink[];
+  /** More than one image means the gallery renderer; one or none is the single
+   *  hero. The distinction is the template's to make. */
+  images: StorefrontGalleryImage[];
+  /** Hero for the single-image case, already resolved. */
+  heroImage: StorefrontImage;
+  related: ProductCardModel[];
+  /** Where "back to shop" goes — the catalog, wherever the merchant put it. */
+  backHref: string;
+  /** Validated message from ?error=, or null. */
+  error: string | null;
+}

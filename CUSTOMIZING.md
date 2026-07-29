@@ -15,9 +15,9 @@ theme engine and no code editor in Admin — you edit source, build, and deploy.
 | `src/storefront/Footer.astro` | Footer navigation and store attribution. |
 | `src/storefront/ProductCard.astro` | Every product card — catalog, category, search, and the "You may also like" row. |
 | `src/storefront/Catalog.astro` | The catalog page at both `/` and `/products`: headings, category links, grid, empty state. |
+| `src/storefront/ProductDetail.astro` | The product page: gallery, details, purchase panel, and recommendations. |
 
-More surfaces (product page, content pages) land in later releases and will
-appear in this table as they do.
+Content pages land in a later release and will appear in this table then.
 
 ### The header renders on every page
 
@@ -135,6 +135,31 @@ with `class`; don't rebuild their links.
 The same `Catalog.astro` renders `/` and `/products`, so one edit changes both —
 which is why sort and page links are built from the current path rather than a
 hardcoded one.
+
+## The product page contract
+
+`ProductDetail.astro` receives two models. `model` is presentation — name,
+formatted price, categories, gallery images, related cards, availability.
+`purchase` is everything the buy controls need, with the decisions already made:
+`soldOut` accounts for variant-level inventory, and `showAddToCart`/`showBuyNow`
+already fold in the store's cart and buy-now toggles and whether any payment
+rail can actually take money.
+
+The route keeps the 404, the page metadata, and the JSON-LD. Those are not
+presentation, and getting them subtly wrong is invisible on the page.
+
+| Control | What it owns |
+| --- | --- |
+| `<ProductGallery>` | Frame anchors the variant selector scrolls to, and LCP treatment on the first frame only. |
+| `<ProductPurchaseForm>` | Form actions and methods, `product_id`/`variant_id`/`extra` field names, sold-out and required states, and `data-fullpage`. |
+
+`data-fullpage` deserves a specific warning. The shell's cart script intercepts
+submits to open the drawer; that attribute is what tells it to stand back so
+Buy now performs a real navigation to `/express`. Rebuild the form without it
+and nothing errors — Buy now just quietly stops working.
+
+Both controls take a `class`. `<ProductGallery>` also takes `soldOutLabel` if
+you want different wording.
 
 ## Rules
 

@@ -1,0 +1,159 @@
+---
+import type { ProductPurchaseModel } from '../models';
+
+/**
+ * The purchase controls — the one part of the storefront a template must never
+ * reimplement.
+ *
+ * It owns the form actions and methods, the hidden public IDs, the variant and
+ * extra field names (`variant_id`, `extra`), the required/disabled states that
+ * keep a sold-out option unselectable, and `data-fullpage` on Buy now.
+ *
+ * `data-fullpage` is the subtle one: the shell's cart script intercepts submits
+ * to open the drawer, and this attribute is what tells it to stand back so
+ * /express gets a real full-page navigation. Losing it silently routes buy-now
+ * through the cart drawer instead.
+ *
+ * Two shapes, because they are genuinely different contracts. With options,
+ * ONE form holds the selectors so both buttons share the chosen variant and
+ * add-ons; Buy now overrides method and action so /express is a safe history
+ * entry (Back never asks to resubmit). Without options there is nothing to
+ * share, so each button is its own minimal form.
+ */
+interface Props {
+  model: ProductPurchaseModel;
+}
+
+const { model } = Astro.props;
+const showAny = model.showAddToCart || model.showBuyNow;
+---
+
+{
+  showAny &&
+    (model.hasOptions ? (
+      <form method="POST" action={model.cartAction} class="mt-8 max-w-sm" data-options-form>
+        <input type="hidden" name="_action" value="add" />
+        <input type="hidden" name="product_id" value={model.productId} />
+
+        {model.variants.length > 0 && (
+          <fieldset class="mb-6">
+            <legend class="mb-2 text-xs uppercase tracking-widest text-gray-500">
+              {model.variantLabel || 'Option'}
+            </legend>
+            <div class="flex flex-col gap-2">
+              {model.variants.map((variant) => (
+                <label
+                  class={`flex items-center justify-between gap-3 rounded-md border px-4 py-2.5 text-sm transition ${
+                    variant.soldOut
+                      ? 'cursor-not-allowed border-line text-gray-400'
+                      : 'cursor-pointer border-line hover:border-brand'
+                  }`}
+                >
+                  <span class="flex items-center gap-3">
+                    <input
+                      type="radio"
+                      name="variant_id"
+                      value={variant.id}
+                      required
+                      disabled={variant.soldOut}
+                      checked={variant.defaultSelected}
+                      data-price={variant.priceCents}
+                      data-image-id={variant.imageAnchor}
+                      class="accent-brand"
+                    />
+                    <span>
+                      {variant.label}
+                      {variant.soldOut && ' — sold out'}
+                    </span>
+                  </span>
+                  <span class="tabular-nums text-gray-500">{variant.formattedPrice}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        )}
+
+        {model.extras.length > 0 && (
+          <fieldset class="mb-6">
+            <legend class="mb-2 text-xs uppercase tracking-widest text-gray-500">Add-ons</legend>
+            <div class="flex flex-col gap-2">
+              {model.extras.map((extra) => (
+                <label class="flex cursor-pointer items-center justify-between gap-3 rounded-md border border-line px-4 py-2.5 text-sm transition hover:border-brand">
+                  <span class="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      name="extra"
+                      value={extra.id}
+                      data-price={extra.priceDeltaCents}
+                      class="accent-brand"
+                    />
+                    <span>{extra.label}</span>
+                  </span>
+                  <span class="tabular-nums text-gray-500">+{extra.formattedPriceDelta}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        )}
+
+        {model.soldOut ? (
+          <span class="inline-block cursor-not-allowed rounded-md border border-line px-8 py-3 text-sm font-medium uppercase tracking-wider text-gray-400">
+            Sold out
+          </span>
+        ) : (
+          <div class="flex flex-wrap gap-3">
+            {model.showAddToCart && (
+              <button
+                type="submit"
+                class="rounded-md border border-line px-8 py-3 text-sm font-medium uppercase tracking-wider text-gray-700 transition hover:border-brand hover:text-brand"
+              >
+                Add to cart
+              </button>
+            )}
+            {model.showBuyNow && (
+              <button
+                type="submit"
+                formaction={model.expressAction}
+                formmethod="GET"
+                data-fullpage
+                class="rounded-md bg-brand px-8 py-3 text-sm font-medium uppercase tracking-wider text-white transition hover:bg-brand-hover"
+              >
+                Buy now
+              </button>
+            )}
+          </div>
+        )}
+      </form>
+    ) : (
+      <div class="mt-10 flex gap-3">
+        {model.soldOut && (
+          <span class="cursor-not-allowed rounded-md border border-line px-8 py-3 text-sm font-medium uppercase tracking-wider text-gray-400">
+            Sold out
+          </span>
+        )}
+        {!model.soldOut && model.showAddToCart && (
+          <form method="POST" action={model.cartAction}>
+            <input type="hidden" name="_action" value="add" />
+            <input type="hidden" name="product_id" value={model.productId} />
+            <button
+              type="submit"
+              class="rounded-md border border-line px-8 py-3 text-sm font-medium uppercase tracking-wider text-gray-700 transition hover:border-brand hover:text-brand"
+            >
+              Add to cart
+            </button>
+          </form>
+        )}
+        {!model.soldOut && model.showBuyNow && (
+          <form method="GET" action={model.expressAction}>
+            <input type="hidden" name="product_id" value={model.productId} />
+            <button
+              type="submit"
+              class="rounded-md bg-brand px-8 py-3 text-sm font-medium uppercase tracking-wider text-white transition hover:bg-brand-hover"
+            >
+              Buy now
+            </button>
+          </form>
+        )}
+      </div>
+    ))
+}
