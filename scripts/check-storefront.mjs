@@ -159,7 +159,11 @@ const problems = [];
 const describeChain = (chain) => chain.join('\n      → ');
 
 function checkDeniedDependency(specifier, resolved, chain) {
-  const module = DENIED_MODULES.find((rule) => rule.name === specifier);
+  // Subpath-aware: an exact match would let `node:fs/promises` or
+  // `cloudflare:workers/foo` through while banning the bare module.
+  const module = DENIED_MODULES.find(
+    (rule) => specifier === rule.name || specifier.startsWith(`${rule.name}/`),
+  );
   if (module) {
     problems.push(
       `${describeChain(chain)}\n    imports "${specifier}" — ${module.why}.\n` +

@@ -66,6 +66,13 @@ npx wrangler d1 execute DB --local --persist-to "$state_dir" \
 npx wrangler d1 execute DB --local --persist-to "$state_dir" \
   --command "INSERT INTO product_images (product_id, image_key, position) SELECT id, 'media/tee-front.jpg', 0 FROM products WHERE slug = 'sample-tee' UNION ALL SELECT id, 'media/tee-back.jpg', 1 FROM products WHERE slug = 'sample-tee';" >/dev/null
 
+# A product row carrying a legacy currency different from the store's. The
+# storefront has always DISPLAYED the store currency, so this pins that the
+# live-price hook and the JSON-LD offer agree with what is on the page rather
+# than announcing the row's currency underneath it.
+npx wrangler d1 execute DB --local --persist-to "$state_dir" \
+  --command "UPDATE products SET currency = 'eur' WHERE slug = 'pagination-item-3';" >/dev/null
+
 # Public serializers refuse rows without a public ID; the values are random per
 # run and normalized out of the baselines.
 npx wrangler d1 execute DB --local --persist-to "$state_dir" \

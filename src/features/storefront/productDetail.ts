@@ -9,6 +9,7 @@ import { productImageSources, productImageUrl, type ImageDelivery } from '../pro
 import { stockState } from '../products/stock';
 import { catalogPath } from '../settings/home';
 import { formatMoney, toMajorUnits, currencyDecimals } from '../../money';
+import { requirePublicId } from '../catalog/serialize';
 import { buildProductCard } from './productCard';
 import type {
   ProductDetailModel,
@@ -117,15 +118,18 @@ export async function loadProductDetail(
   const displayPriceCents = hasVariants ? Math.min(...variantPrices) : product.price_cents;
   const priceVaries = hasVariants && Math.min(...variantPrices) !== Math.max(...variantPrices);
 
-  // A variant's linked image reaches the markup as the gallery anchor (pimg_
-  // public ID, image_key fallback) — the image_id row FK stays server-side.
+  // A variant's linked image reaches the markup as the gallery anchor — a pimg_
+  // public ID, never the row FK and never the storage key. The old image_key
+  // fallback published R2 object names into DOM ids and data-image-id, which is
+  // the same boundary violation as leaking a row ID: a public page should say
+  // nothing about how the store names its objects.
   const galleryAnchor = (imageId: number | null): string => {
     const image = imageId == null ? undefined : gallery.find((g) => g.id === imageId);
-    return image ? (image.public_id ?? image.image_key) : '';
+    return image ? requirePublicId(image.public_id, image.id, 'product image') : '';
   };
   const firstInStockIndex = variants.findIndex((v) => v.stock > 0);
 
-  const images: StorefrontGalleryImage[] = gallery.map((image) => {
+  const images: StorefrontGalleryImage[] = gallery.map((image, index) => {
     const hero = productImageSources(image.image_key, {
       baseUrl: options.imageBaseUrl,
       delivery: options.delivery,
@@ -139,8 +143,11 @@ export async function loadProductDetail(
       sizes: THUMBNAIL_SIZES,
     });
     return {
-      anchor: image.public_id ?? image.image_key,
-      hero: { ...hero, alt: image.alt || product.name, priority: false },
+      anchor: requirePublicId(image.public_id, image.id, 'product image'),
+      // The first frame is what a shopper sees before scrolling, so it is the
+      // page's LCP candidate. Saying so on the model keeps the rendered
+      // attributes and the fade decision from drifting apart.
+      hero: { ...hero, alt: image.alt || product.name, priority: index === 0 },
       thumbnail: { ...thumbnail, alt: '', priority: false },
     };
   });
@@ -159,10 +166,15 @@ export async function loadProductDetail(
     image: new URL(imagePath, options.origin).href,
     offers: {
       '@type': 'Offer',
-      price: toMajorUnits(displayPriceCents, product.currency).toFixed(
-        currencyDecimals(product.currency),
+      // The SAME currency the page displays. These previously disagreed: the
+      // header formatted in the store currency while JSON-LD and the live-price
+      // script announced the product row's, so a legacy row advertised one
+      // currency and rendered another, and picking a variant switched between
+      // them mid-page.
+      price: toMajorUnits(displayPriceCents, options.currency).toFixed(
+        currencyDecimals(options.currency),
       ),
-      priceCurrency: product.currency.toUpperCase(),
+      priceCurrency: options.currency.toUpperCase(),
       availability: soldOut ? 'https://schema.org/OutOfStock' : 'https://schema.org/InStock',
       url: new URL(options.pathname, options.origin).href,
     },
@@ -181,12 +193,12 @@ export async function loadProductDetail(
       jsonLd: JSON.stringify(jsonLd).replace(/</g, '\\u003c'),
     },
     model: {
-      id: product.public_id ?? '',
+      id: requirePublicId(product.public_id, product.id, 'product'),
       name: product.name,
       description: product.description,
       formattedPrice: formatMoney(displayPriceCents, options.currency),
       priceCents: product.price_cents,
-      currency: product.currency,
+      currency: options.currency,
       priceVaries,
       soldOut,
       // Deliberately never shown for a product with variants: the product-level
@@ -210,7 +222,7 @@ export async function loadProductDetail(
       error: options.searchParams.get('error'),
     },
     purchase: {
-      productId: product.public_id ?? '',
+      productId: requirePublicId(product.public_id, product.id, 'product'),
       cartAction: '/api/cart',
       expressAction: '/express',
       hasOptions: hasVariants || extras.length > 0,
@@ -221,7 +233,7 @@ export async function loadProductDetail(
       showBuyNow: buyNowEnabled && canCheckout,
       variantLabel: product.variant_label,
       variants: variants.map((variant, index) => ({
-        id: variant.public_id ?? '',
+        id: requirePublicId(variant.public_id, variant.id, 'variant'),
         label: variant.label,
         formattedPrice: formatMoney(variant.price_cents, options.currency),
         priceCents: variant.price_cents,
@@ -230,7 +242,7 @@ export async function loadProductDetail(
         imageAnchor: galleryAnchor(variant.image_id),
       })),
       extras: extras.map((extra) => ({
-        id: extra.public_id ?? '',
+        id: requirePublicId(extra.public_id, extra.id, 'extra'),
         label: extra.label,
         formattedPriceDelta: formatMoney(extra.price_delta_cents, options.currency),
         priceDeltaCents: extra.price_delta_cents,

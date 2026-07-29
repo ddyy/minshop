@@ -10,6 +10,10 @@ import StoreImage from './StoreImage.astro';
  * the LCP treatment on the first frame — eager and high priority, with every
  * later frame lazy. Both are easy to lose when restyling and invisible when
  * they go missing.
+ *
+ * The priority frame is never faded, for the same reason StoreImage refuses the
+ * combination: an opacity:0 element is not a valid LCP candidate, so fading it
+ * holds the paint back until load and undoes the head start `priority` bought.
  */
 interface Props {
   images: StorefrontGalleryImage[];
@@ -36,7 +40,7 @@ const hasGallery = images.length > 1;
         data-hero-track
         class="no-scrollbar relative flex snap-x snap-mandatory overflow-x-auto scroll-smooth rounded-lg bg-gray-100"
       >
-        {images.map((image, index) => (
+        {images.map((image) => (
           <img
             id={`pi-${image.anchor}`}
             src={image.hero.src}
@@ -45,10 +49,10 @@ const hasGallery = images.length > 1;
             alt={image.hero.alt}
             width="800"
             height="800"
-            loading={index === 0 ? 'eager' : 'lazy'}
-            fetchpriority={index === 0 ? 'high' : 'auto'}
+            loading={image.hero.priority ? 'eager' : 'lazy'}
+            fetchpriority={image.hero.priority ? 'high' : 'auto'}
             decoding="async"
-            data-image-fade
+            {...(image.hero.priority ? {} : { 'data-image-fade': '' })}
             class={`aspect-square w-full shrink-0 snap-center bg-gray-100 object-cover${soldOut ? ' opacity-60' : ''}`}
           />
         ))}

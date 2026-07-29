@@ -23,6 +23,13 @@ const galleryImage = (anchor: string): StorefrontGalleryImage => ({
   thumbnail: { ...image(`/images/${anchor}-thumb.jpg`, ''), priority: false },
 });
 
+/** Frames as the loader builds them: the first is the LCP candidate. */
+const galleryFrames = (...anchors: string[]): StorefrontGalleryImage[] =>
+  anchors.map((anchor, index) => {
+    const frame = galleryImage(anchor);
+    return { ...frame, hero: { ...frame.hero, priority: index === 0 } };
+  });
+
 const purchase = (overrides: Partial<ProductPurchaseModel> = {}): ProductPurchaseModel => ({
   productId: 'prod_k7m2qx8vn6',
   cartAction: '/api/cart',
@@ -199,7 +206,7 @@ describe('the purchase form', () => {
 describe('the product gallery', () => {
   it('gives only the first frame LCP treatment', async () => {
     const html = await render(ProductGallery, {
-      images: [galleryImage('pimg_one'), galleryImage('pimg_two')],
+      images: galleryFrames('pimg_one', 'pimg_two'),
       hero: { ...image('/images/tee.jpg'), priority: true },
       soldOut: false,
     });
@@ -209,9 +216,26 @@ describe('the product gallery', () => {
     expect(html.match(/loading="lazy"/g)?.length).toBeGreaterThan(1);
   });
 
+  it('never fades the LCP frame', async () => {
+    // An opacity:0 element is not a valid LCP candidate, so fading the eager
+    // frame holds the paint back until load and undoes the head start.
+    const html = await render(ProductGallery, {
+      images: galleryFrames('pimg_one', 'pimg_two'),
+      hero: { ...image('/images/tee.jpg'), priority: true },
+      soldOut: false,
+    });
+    const frames = html.match(/<img[^>]*id="pi-[^"]*"[^>]*>/g) ?? [];
+
+    expect(frames).toHaveLength(2);
+    expect(frames[0]).toContain('loading="eager"');
+    expect(frames[0]).not.toContain('data-image-fade');
+    expect(frames[1]).toContain('loading="lazy"');
+    expect(frames[1]).toContain('data-image-fade');
+  });
+
   it('anchors each frame so variants and thumbnails can target it', async () => {
     const html = await render(ProductGallery, {
-      images: [galleryImage('pimg_one'), galleryImage('pimg_two')],
+      images: galleryFrames('pimg_one', 'pimg_two'),
       hero: { ...image('/images/tee.jpg'), priority: true },
       soldOut: false,
     });
@@ -290,7 +314,7 @@ describe('an independently authored product page', () => {
     // composition that reverses them proves the coupling lives in the contract
     // rather than in the default template's ordering.
     const html = await render(AltProductDetail, {
-      model: detail({ images: [galleryImage('pimg_one'), galleryImage('pimg_two')] }),
+      model: detail({ images: galleryFrames('pimg_one', 'pimg_two') }),
       purchase: withOptions(),
     });
 

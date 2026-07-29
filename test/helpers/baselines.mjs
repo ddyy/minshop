@@ -59,6 +59,8 @@ export const ROUTES = [
   { name: 'product-detail', path: '/products/sample-tee' },
   { name: 'product-detail-plain', path: '/products/pagination-item-2' },
   { name: 'product-detail-sold-out', path: '/products/pagination-item-1' },
+  // Row currency (eur) differs from the store's (usd).
+  { name: 'product-detail-legacy-currency', path: '/products/pagination-item-3' },
   { name: 'content-page', path: '/pages/about' },
   { name: 'not-found', path: '/no-such-page' },
   // Transactional and authentication surfaces — same shell, different stakes.
