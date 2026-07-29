@@ -14,6 +14,7 @@
     "test:watch": "vitest",
     "test:integration": "node --experimental-strip-types test/integration/reservations.mjs && node --experimental-strip-types test/integration/refunds.mjs && node --experimental-strip-types test/integration/media.mjs && node --experimental-strip-types test/integration/menus.mjs && node --experimental-strip-types test/integration/guest-access.mjs && node --experimental-strip-types test/integration/shipping.mjs && bash test/integration/d1-integration.sh",
     "test:d1": "astro build && npm run test:integration",
+    "test:storefront-equivalence": "astro build && bash test/integration/storefront-baselines.sh",
     "verify": "vitest run && astro check && astro build && npm run test:integration && node --experimental-strip-types scripts/check-stripe-countries.mjs && npm run mcp:check && npm run scaffold:check",
     "db:migrate": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",

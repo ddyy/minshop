@@ -1,0 +1,85 @@
+# /search?q=zzzznomatch
+status: 200
+content-type: text/html
+cache-control: public, max-age=0, s-maxage=600
+cache-tag: catalog,shell
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<title>Search: zzzznomatch — My Shop</title>
+<meta name="description" content="Shop My Shop.">
+<link rel="canonical" href="https://canonical.example/search">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="My Shop">
+<meta property="og:title" content="Search: zzzznomatch — My Shop">
+<meta property="og:description" content="Shop My Shop.">
+<meta property="og:url" content="https://canonical.example/search">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Search: zzzznomatch — My Shop">
+<meta name="twitter:description" content="Shop My Shop.">
+<script>
+      document.documentElement.classList.add('image-fade-enabled');
+      const finishImageFade = (event) => {
+        const image = event.target;
+        if (image instanceof HTMLImageElement && image.hasAttribute('data-image-fade')) {
+          image.setAttribute('data-image-loaded', '');
+        }
+      };
+      document.addEventListener('load', finishImageFade, true);
+      document.addEventListener('error', finishImageFade, true);
+    </script>
+<link rel="stylesheet" href="/_astro/global.<hash>.css">
+</head>
+<body class="flex min-h-screen flex-col bg-paper text-gray-900 antialiased">
+<header class="sticky top-0 z-20 border-b border-line bg-paper/85 backdrop-blur">
+<div class="mx-auto flex max-w-6xl items-center gap-6 px-6 py-5">
+<a href="/" aria-label="My Shop" class="font-serif text-2xl tracking-tight">
+<span>My Shop</span>
+</a>
+<form method="GET" action="/search" class="ml-auto hidden flex-1 justify-end sm:flex" role="search">
+<input type="search" name="q" value="zzzznomatch" placeholder="Search" aria-label="Search products" class="w-40 border-0 border-b border-line bg-transparent px-1 py-1 text-sm transition-all focus:w-56 focus:border-brand focus:outline-none">
+</form>
+<nav aria-label="Primary" class="ml-auto flex min-w-0 items-center gap-4 text-xs uppercase tracking-widest text-gray-500 sm:gap-6">
+<a href="/search" class="hover:text-brand sm:hidden">Search</a>
+<a href="/cart" data-cart-open class="inline-flex items-center hover:text-brand">Cart<span data-cart-count-label class="inline-block min-w-[4ch] tabular-nums" aria-live="polite" aria-atomic="true">
+</span>
+</a>
+</nav>
+</div>
+</header>
+<main class="mx-auto w-full max-w-6xl flex-1 px-6 py-12">
+<div class="mb-8">
+<p class="text-xs uppercase tracking-[0.25em] text-gray-500">Search</p>
+<h1 class="mt-2 font-serif text-4xl tracking-tight sm:text-5xl">zzzznomatch</h1>
+</div>
+<form method="GET" action="/search" class="mb-10 max-w-md" role="search">
+<input type="search" name="q" value="zzzznomatch" placeholder="Search products…" aria-label="Search products" class="w-full border-0 border-b border-line bg-transparent px-1 py-2 text-base transition-colors focus:border-brand focus:outline-none">
+</form>
+<p class="text-gray-500">No products match “zzzznomatch”. Try a different word.</p>
+</main>
+<footer class="border-t border-line">
+<div class="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-6 py-10 text-xs uppercase tracking-widest text-gray-500">
+<span>&copy; My Shop</span>
+</div>
+</footer>
+<div data-cart-drawer class="invisible pointer-events-none fixed inset-0 z-40" role="dialog" aria-modal="true" aria-label="Cart">
+<div data-cart-backdrop class="absolute inset-0 bg-black/30 opacity-0 transition-opacity duration-300">
+</div>
+<aside data-cart-panel class="absolute right-0 top-0 flex h-full w-full max-w-md translate-x-full flex-col bg-paper shadow-xl transition-transform duration-300">
+<div class="flex items-center justify-between border-b border-line px-6 py-5">
+<h2 class="font-serif text-2xl tracking-tight">Your cart</h2>
+<button type="button" data-cart-close aria-label="Close cart" class="-mr-2 flex h-11 w-11 items-center justify-center rounded-md text-3xl leading-none text-gray-400 transition-colors hover:bg-gray-100 hover:text-brand">&times;</button>
+</div>
+<div data-cart-body class="flex-1 overflow-y-auto px-6 py-5">
+</div>
+</aside>
+</div>
+<script type="module">globalThis.process??={},globalThis.process.env??={};var e=document.querySelector(`[data-cart-drawer]`);if(e instanceof HTMLElement){let t=e.querySelector(`[data-cart-panel]`),n=e.querySelector(`[data-cart-backdrop]`),r=e.querySelector(`[data-cart-body]`),i=document.querySelector(`[data-cart-count-label]`),a=`minshop_cart_count`,o=e=>{let t=Math.max(0,Number(e)||0);return i&&(i.textContent=t>0?` (${t>99?`99+`:t})`:``),t},s=()=>{let e=document.cookie.match(/(?:^|;\s*)cart_n=(\d+)/);return e?Number(e[1]):0},c=e=>{let t=o(e);try{localStorage.setItem(a,String(t))}catch{}};i&&(o(s()),window.addEventListener(`storage`,e=>{e.key===a&&o(s())}),window.addEventListener(`pageshow`,()=>o(s())));let l=()=>{document.querySelector(`[data-nav-disclosure]`)?.removeAttribute(`open`),e.classList.remove(`invisible`,`pointer-events-none`),requestAnimationFrame(()=>requestAnimationFrame(()=>{t?.classList.remove(`translate-x-full`),n?.classList.remove(`opacity-0`)})),document.body.style.overflow=`hidden`},u=()=>{t?.classList.add(`translate-x-full`),n?.classList.add(`opacity-0`),document.body.style.overflow=``,setTimeout(()=>e.classList.add(`invisible`,`pointer-events-none`),300)},d=async()=>{let e=await fetch(`/partials/cart`,{headers:{"X-Partial":`1`}}).then(e=>e.text());r&&(r.innerHTML=e);let t=r?.querySelector(`[data-cart-count]`);c(t?Number(t.getAttribute(`data-cart-count`)):0)};for(let e of document.querySelectorAll(`[data-cart-open]`))e.addEventListener(`click`,async e=>{e.preventDefault(),await d(),l()});e.querySelector(`[data-cart-close]`)?.addEventListener(`click`,u),n?.addEventListener(`click`,u),document.addEventListener(`keydown`,t=>{t.key===`Escape`&&!e.classList.contains(`invisible`)&&u()}),document.addEventListener(`submit`,async e=>{let t=e.target;t instanceof HTMLFormElement&&(t.getAttribute(`action`)||``)===`/api/cart`&&(t.hasAttribute(`data-fullpage`)||e.submitter instanceof HTMLElement&&e.submitter.hasAttribute(`data-fullpage`)||location.pathname!==`/cart`&&(e.preventDefault(),await fetch(`/api/cart`,{method:`POST`,headers:{"X-Partial":`1`},body:new URLSearchParams(new FormData(t))}),await d(),l()))})}</script>
+</body>
+</html>

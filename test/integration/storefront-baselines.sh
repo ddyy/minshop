@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Storefront extraction-equivalence gate. Boots the BUILT Worker against an
+# isolated, deterministically seeded D1 so rendered HTML can be compared before
+# and after a component extraction.
+#
+# This is not part of `npm run verify`: a store that has customized its
+# templates is SUPPOSED to differ from the default baselines. Run it while
+# extracting a default component, or when deliberately updating the default
+# design. The checks that must pass for every design live in
+# `npm run test:storefront-contract`.
+#
+# Pass --update to re-capture. Review that diff like source.
+
+state_dir="$(mktemp -d "${TMPDIR:-/tmp}/minshop-storefront-baselines.XXXXXX")"
+worker_log="$state_dir/worker.log"
+worker_pid=""
+test_port="${STOREFRONT_TEST_PORT:-8792}"
+
+cleanup() {
+  if [[ -n "$worker_pid" ]] && kill -0 "$worker_pid" 2>/dev/null; then
+    kill "$worker_pid" 2>/dev/null || true
+    wait "$worker_pid" 2>/dev/null || true
+  fi
+  rm -rf "$state_dir"
+}
+trap cleanup EXIT INT TERM
+
+if [[ ! -f dist/server/wrangler.json ]]; then
+  echo "storefront baselines: run 'npm run build' first" >&2
+  exit 1
+fi
+
+npx wrangler d1 migrations apply DB --local --persist-to "$state_dir" >/dev/null
+npx wrangler d1 execute DB --local --persist-to "$state_dir" --file ./seed.sql >/dev/null
+npx wrangler d1 execute DB --local --persist-to "$state_dir" \
+  --command "INSERT INTO settings (key, value) VALUES ('setup_complete', '1');" >/dev/null
+# A second page of catalog results, so pagination and sort links are exercised.
+npx wrangler d1 execute DB --local --persist-to "$state_dir" \
+  --command "WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 30) INSERT INTO products (name, slug, description, price_cents, stock) SELECT 'Pagination Item ' || n, 'pagination-item-' || n, 'pagination fixture', 1000 + n, 10 FROM seq;" >/dev/null
+# One sold-out product: the card's out-of-stock branch is part of the contract.
+npx wrangler d1 execute DB --local --persist-to "$state_dir" \
+  --command "UPDATE products SET stock = 0 WHERE slug = 'pagination-item-1';" >/dev/null
+npx wrangler d1 execute DB --local --persist-to "$state_dir" \
+  --command "INSERT INTO categories (name, slug) VALUES ('Apparel', 'apparel'); INSERT INTO product_categories (product_id, category_id) SELECT p.id, c.id FROM products p, categories c WHERE p.slug = 'sample-tee' AND c.slug = 'apparel';" >/dev/null
+# Public serializers refuse rows without a public ID; the values are random per
+# run and normalized out of the baselines.
+npx wrangler d1 execute DB --local --persist-to "$state_dir" \
+  --command "UPDATE products SET public_id = 'prod_' || lower(substr(hex(randomblob(10)),1,10)) WHERE public_id IS NULL; UPDATE categories SET public_id = 'cat_' || lower(substr(hex(randomblob(10)),1,10)) WHERE public_id IS NULL;" >/dev/null
+
+npx wrangler dev \
+  --config dist/server/wrangler.json \
+  --persist-to "$state_dir" \
+  --var CANONICAL_ORIGIN:https://canonical.example \
+  --var AUTH_SECRET:integration-auth-secret \
+  --ip 127.0.0.1 \
+  --port "$test_port" >"$worker_log" 2>&1 &
+worker_pid="$!"
+
+ready=""
+for _ in {1..40}; do
+  if curl --fail --silent --show-error "http://127.0.0.1:$test_port/api/products?limit=1" >/dev/null 2>&1; then
+    ready="yes"
+    break
+  fi
+  if ! kill -0 "$worker_pid" 2>/dev/null; then
+    sed -n '1,160p' "$worker_log" >&2
+    exit 1
+  fi
+  sleep 0.25
+done
+
+if [[ -z "$ready" ]]; then
+  sed -n '1,160p' "$worker_log" >&2
+  echo "storefront baselines: Worker did not become ready" >&2
+  exit 1
+fi
+
+node test/helpers/baselines.mjs "$test_port" "$@"
