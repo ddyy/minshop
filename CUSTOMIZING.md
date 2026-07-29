@@ -157,8 +157,11 @@ Tailwind v4 detects utility usage in `src/storefront/` with no configuration, so
 classes you add there are generated without touching any config file.
 
 Upstream controls keep the functional styling they need — state, accessibility,
-and layout classes stay inside them. They accept a root `class` you can merge.
-Restyling every internal part of a control is not supported in this release.
+and layout classes stay inside them. Each accepts a root `class` you can merge.
+`StoreNav` takes two, `class` and `disclosureClass`, because it renders an
+inline row and a mobile disclosure at different breakpoints and one prop could
+only reach one of them. Restyling every internal part of a control is not
+supported in this release.
 
 ## After you change something
 
@@ -166,10 +169,19 @@ Restyling every internal part of a control is not supported in this release.
 npm run storefront:check && npm run test:storefront-contract
 ```
 
-The first enforces the import and request-context boundary. The second is the
-one that matters: it asserts your storefront still honors the application
-contract — public IDs, image priority, availability, cache headers — while
-ignoring classes, wrappers, and layout. A redesign should pass it unchanged.
+The first enforces the import and request-context boundary, following each file
+through its local dependencies — a control that imports a helper that imports a
+binding is caught, not just a direct import.
+
+The second renders your components from their models and asserts what has to
+hold for any design: public IDs rather than row IDs, no stock counts, resolved
+image URLs, LCP priority on the first card only, form and landmark semantics,
+and the behavior hooks the cart drawer depends on. It ignores classes, wrappers,
+copy, and layout, so a redesign should pass it unchanged.
+
+It does not start a Worker, so it says nothing about response headers. Cache
+control and cache tags are checked by the integration suite in `npm run verify`,
+against a real built Worker.
 
 Then look at the result:
 

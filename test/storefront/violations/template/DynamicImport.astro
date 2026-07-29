@@ -1,0 +1,7 @@
+---
+// Deferred to runtime, but still a dependency the allowlist must see.
+const { getConfig } = await import('../../../../src/config');
+const base = getConfig().images.baseUrl;
+---
+
+<p>{base}</p>

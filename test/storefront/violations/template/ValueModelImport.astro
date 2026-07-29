@@ -1,0 +1,10 @@
+---
+// Models are a shape, not a module to pull in at runtime. A namespace import is
+// unambiguously a value import — unlike `import { type X }`, which TypeScript
+// erases and which is therefore fine.
+import * as models from '../../../../src/features/storefront/models';
+
+const label = Object.keys(models).length;
+---
+
+<p>{label}</p>

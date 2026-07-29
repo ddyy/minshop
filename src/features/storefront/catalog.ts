@@ -111,6 +111,8 @@ export interface CatalogPageOptions {
   responseHeaders: Headers;
   imageBaseUrl: string;
   delivery: ImageDelivery | undefined;
+  /** The store's configured currency, for price display. */
+  currency: string;
   eyebrow: string;
   heading: string;
 }
@@ -150,6 +152,7 @@ export async function loadCatalogPage(
       buildProductCard(product, {
         baseUrl: options.imageBaseUrl,
         delivery: options.delivery,
+        currency: options.currency,
         sizes: CARD_SIZES,
         // Only the first card is the page's likely LCP image.
         priority: index === 0,

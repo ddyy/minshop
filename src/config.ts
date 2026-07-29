@@ -277,24 +277,18 @@ export function getConfig(): SiteConfig {
 // code can use it without the Cloudflare runtime). Re-exported here as the app's
 // single money entry point.
 export { currencyDecimals, minorUnitsPerMajor, toMinorUnits, toMajorUnits } from './money';
-import { toMajorUnits } from './money';
+import { formatMoney } from './money';
 
 /**
  * Format integer minor units as a localized price string. Defaults to the store
  * currency; pass an explicit currency for historical records (e.g. an order
  * charged in a different currency). Single source of truth for money display.
  */
-// `new Intl.NumberFormat` is expensive to construct, so cache one formatter per
-// currency and reuse it (a product listing calls this once per item).
-const priceFormatters = new Map<string, Intl.NumberFormat>();
+// Formatting itself lives in money.ts, which has no imports and so can be used
+// from pure code. This wrapper adds only the store-currency default, which is
+// the part that reads deployment vars.
 export function formatPrice(cents: number, currency: string = getConfig().currency): string {
-  const cur = currency.toUpperCase();
-  let fmt = priceFormatters.get(cur);
-  if (!fmt) {
-    fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: cur });
-    priceFormatters.set(cur, fmt);
-  }
-  return fmt.format(toMajorUnits(cents, currency));
+  return formatMoney(cents, currency);
 }
 
 /**

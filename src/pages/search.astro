@@ -53,6 +53,7 @@ addCacheTags(
 // template receives resolved models. Only the first result is the LCP image.
 const cardOptions = {
   baseUrl: getConfig().images.baseUrl,
+  currency: getConfig().currency,
   delivery: Astro.locals.settings?.imageDelivery,
   sizes: '(min-width: 1024px) 352px, calc(50vw - 36px)',
 };

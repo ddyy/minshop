@@ -3,6 +3,7 @@ import { experimental_AstroContainer as AstroContainer } from 'astro/container';
 import Header from '../../src/storefront/Header.astro';
 import Footer from '../../src/storefront/Footer.astro';
 import AltHeader from './fixtures/shell/AltHeader.astro';
+import StoreNav from '../../src/features/storefront/controls/StoreNav.astro';
 import { buildShellModel, type ShellInput } from '../../src/features/storefront/shell';
 import type { MenuItem } from '../../src/features/navigation/db';
 
@@ -96,6 +97,23 @@ describe('the store-owned header', () => {
     expect(html).not.toContain('data-cart-count-label');
   });
 
+  it('lets a template style both navigation roots', async () => {
+    // StoreNav renders an inline row and a disclosure at different breakpoints,
+    // so a single class prop could only ever reach one of them.
+    const container = await AstroContainer.create();
+    const html = await container.renderToString(StoreNav as never, {
+      props: {
+        links: [{ text: 'About', href: '/pages/about' }],
+        class: 'custom-inline',
+        disclosureClass: 'custom-disclosure',
+      },
+    });
+
+    expect(html).toContain('custom-inline');
+    expect(html).toContain('custom-disclosure');
+    expect(html).toContain('data-nav-disclosure');
+  });
+
   it('shows the mobile disclosure only when there is navigation to disclose', async () => {
     const without = await render(Header, buildShellModel(input()));
     const withLinks = await render(
@@ -144,6 +162,42 @@ describe('the store-owned header', () => {
 
     expect(plain).toContain('Sale');
     expect(linked).toContain('href="/products"');
+  });
+
+  it('renders the account destination when accounts are on', async () => {
+    // Every other header test runs with accounts off, so without this a store
+    // could delete the account link entirely and the suite would stay green.
+    const off = await render(Header, buildShellModel(input({ accountsEnabled: false })));
+    const on = await render(Header, buildShellModel(input({ accountsEnabled: true })));
+
+    expect(off).not.toContain('href="/account"');
+    expect(on).toContain('href="/account"');
+  });
+
+  it('renders the blog destination when the feature is built in', async () => {
+    const off = await render(Header, buildShellModel(input({ blogEnabled: false })));
+    const on = await render(Header, buildShellModel(input({ blogEnabled: true })));
+
+    expect(off).not.toContain('href="/blog"');
+    expect(on).toContain('href="/blog"');
+  });
+
+  it('keeps every destination reachable with all of them enabled at once', async () => {
+    const html = await render(
+      Header,
+      buildShellModel(
+        input({
+          accountsEnabled: true,
+          blogEnabled: true,
+          cartEnabled: true,
+          headerItems: [menuItem('About', '/pages/about')],
+        }),
+      ),
+    );
+
+    for (const href of ['/account', '/blog', '/cart', '/search', '/pages/about']) {
+      expect(html).toContain(`href="${href}"`);
+    }
   });
 
   it('labels its landmarks', async () => {

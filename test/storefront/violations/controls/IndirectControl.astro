@@ -1,0 +1,9 @@
+---
+// One hop from a binding. The control's own import list looks clean, which is
+// exactly why the checker has to follow it.
+import { storeName } from './helpers/bindingAware';
+
+const name = storeName();
+---
+
+<p>{name}</p>

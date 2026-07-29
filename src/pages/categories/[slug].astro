@@ -57,6 +57,7 @@ addCacheTags(Astro.response.headers, productCacheTags(products.map((product) => 
 const cards = products.map((product, i) =>
   buildProductCard(product, {
     baseUrl: getConfig().images.baseUrl,
+    currency: getConfig().currency,
     delivery: Astro.locals.settings?.imageDelivery,
     sizes: '(min-width: 1024px) 352px, calc(50vw - 36px)',
     priority: i === 0,

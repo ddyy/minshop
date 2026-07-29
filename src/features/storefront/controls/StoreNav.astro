@@ -12,9 +12,20 @@ import type { StorefrontLink } from '../models';
  */
 interface Props {
   links: StorefrontLink[];
+  /**
+   * Two roots, so two class props: the component renders an inline row AND a
+   * disclosure, which sit at different breakpoints and different places in the
+   * header. One `class` could only ever style one of them.
+   */
+  class?: string;
+  disclosureClass?: string;
 }
 
-const { links } = Astro.props;
+const {
+  links,
+  class: inlineClass = 'hidden min-w-0 items-center gap-4 xl:flex xl:gap-6',
+  disclosureClass = 'relative order-last xl:hidden',
+} = Astro.props;
 ---
 
 {/* Merchant navigation, inline only at xl. Below that the row also holds
@@ -29,7 +40,7 @@ const { links } = Astro.props;
     min-width:auto, which would otherwise force overflow instead. */}
 {
   links.length > 0 && (
-    <div class="hidden min-w-0 items-center gap-4 xl:flex xl:gap-6">
+    <div class={inlineClass}>
       {links.map((link) => (
         <a href={link.href} title={link.text} class="min-w-0 truncate hover:text-brand">
           {link.text}
@@ -44,7 +55,7 @@ const { links } = Astro.props;
        source order it precedes Search/Cart/Account so the menu reads
        first for a screen reader and in the no-CSS fallback, but
        visually it belongs at the edge, past the store controls. */
-    <details data-nav-disclosure class="relative order-last xl:hidden">
+    <details data-nav-disclosure class={disclosureClass}>
       <summary
         aria-label="Menu"
         class="flex cursor-pointer list-none items-center hover:text-brand"

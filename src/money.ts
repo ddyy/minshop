@@ -36,3 +36,25 @@ export function toMinorUnits(major: number, currency: string): number {
 export function toMajorUnits(minor: number, currency: string): number {
   return minor / minorUnitsPerMajor(currency);
 }
+
+// `new Intl.NumberFormat` is expensive to construct, so cache one formatter per
+// currency and reuse it (a product listing calls this once per item).
+const priceFormatters = new Map<string, Intl.NumberFormat>();
+
+/**
+ * Format minor units for display, in an EXPLICIT currency.
+ *
+ * The currency is required on purpose. `config.formatPrice` defaults it to the
+ * store's configured currency, which reads deployment vars — harmless in a
+ * route, but it makes any caller binding-aware. Presentation builders take the
+ * currency from their caller instead, so they stay pure and unit-testable.
+ */
+export function formatMoney(cents: number, currency: string): string {
+  const code = currency.toUpperCase();
+  let formatter = priceFormatters.get(code);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: code });
+    priceFormatters.set(code, formatter);
+  }
+  return formatter.format(toMajorUnits(cents, currency));
+}

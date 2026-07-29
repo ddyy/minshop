@@ -114,6 +114,7 @@ const relatedCards = related.map((candidate) =>
   buildProductCard(candidate, {
     baseUrl: imgBase,
     delivery: imageDelivery,
+    currency: getConfig().currency,
     sizes: '(min-width: 1024px) 252px, calc(50vw - 36px)',
   }),
 );
