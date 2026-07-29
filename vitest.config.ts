@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { getViteConfig } from 'astro/config';
 
 // Astro-aware but config-file-free. `getViteConfig` is what compiles `.astro`

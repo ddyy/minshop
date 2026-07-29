@@ -99,7 +99,7 @@ cache-tag: catalog,product:prod_<id>,product:prod_<id>,product:prod_<id>,product
 <section class="mt-20 border-t border-line pt-12">
 <h2 class="mb-8 text-xs uppercase tracking-[0.25em] text-gray-400">You may also like</h2>
 <ul class="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-4">
-<li class="group">
+<li class="reveal group" style="animation-delay:0ms">
 <a href="/products/pagination-item-1" class="block">
 <div class="relative overflow-hidden rounded-md bg-gray-100">
 <img src="/placeholder.png" alt="Pagination Item 1" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04] opacity-60" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
@@ -109,7 +109,7 @@ cache-tag: catalog,product:prod_<id>,product:prod_<id>,product:prod_<id>,product
 <p class="mt-1 text-sm tabular-nums text-gray-500">$10.01</p>
 </a>
 </li>
-<li class="group">
+<li class="reveal group" style="animation-delay:60ms">
 <a href="/products/pagination-item-2" class="block">
 <div class="relative overflow-hidden rounded-md bg-gray-100">
 <img src="/placeholder.png" alt="Pagination Item 2" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
@@ -118,7 +118,7 @@ cache-tag: catalog,product:prod_<id>,product:prod_<id>,product:prod_<id>,product
 <p class="mt-1 text-sm tabular-nums text-gray-500">$10.02</p>
 </a>
 </li>
-<li class="group">
+<li class="reveal group" style="animation-delay:120ms">
 <a href="/products/pagination-item-3" class="block">
 <div class="relative overflow-hidden rounded-md bg-gray-100">
 <img src="/placeholder.png" alt="Pagination Item 3" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
@@ -127,7 +127,7 @@ cache-tag: catalog,product:prod_<id>,product:prod_<id>,product:prod_<id>,product
 <p class="mt-1 text-sm tabular-nums text-gray-500">$10.03</p>
 </a>
 </li>
-<li class="group">
+<li class="reveal group" style="animation-delay:180ms">
 <a href="/products/pagination-item-4" class="block">
 <div class="relative overflow-hidden rounded-md bg-gray-100">
 <img src="/placeholder.png" alt="Pagination Item 4" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>

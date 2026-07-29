@@ -1,0 +1,51 @@
+---
+import type { ProductCardModel } from '../features/storefront/models';
+import StoreImage from '../features/storefront/controls/StoreImage.astro';
+
+/**
+ * STORE-OWNED. Edit freely — this file belongs to your store, and upstream will
+ * not rewrite it. It renders every product card on the storefront: catalog,
+ * category, search, and recommendations.
+ *
+ * The contract, in full:
+ *   - `card` is a ProductCardModel. Its URLs, price string, and availability
+ *     are already resolved; do not recompute them.
+ *   - Render the image through <StoreImage>. It owns responsive attributes and
+ *     LCP behavior; copying its markup to change spacing loses both.
+ *   - `card.inStock` is a boolean on purpose. Exact stock counts are private.
+ *
+ * See CUSTOMIZING.md for the full store-owned surface.
+ */
+interface Props {
+  card: ProductCardModel;
+  /** Stagger index for the page-load reveal (capped at 8 steps). */
+  index?: number;
+  /** Heading level for the card title, so cards nested under a section heading
+   *  keep the document outline correct. */
+  headingLevel?: 'h2' | 'h3';
+}
+
+const { card, index = 0, headingLevel = 'h2' } = Astro.props;
+const Heading = headingLevel;
+---
+
+<li class="reveal group" style={`animation-delay:${Math.min(index, 8) * 60}ms`}>
+  <a href={card.href} class="block">
+    <div class="relative overflow-hidden rounded-md bg-gray-100">
+      <StoreImage
+        image={card.image}
+        fade
+        class={`aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]${card.inStock ? '' : ' opacity-60'}`}
+      />
+      {
+        !card.inStock && (
+          <span class="absolute left-3 top-3 rounded-full bg-white/90 px-2.5 py-0.5 text-xs uppercase tracking-widest text-gray-700 ring-1 ring-line">
+            Sold out
+          </span>
+        )
+      }
+    </div>
+    <Heading class="mt-4 text-sm font-medium tracking-tight">{card.name}</Heading>
+    <p class="mt-1 text-sm tabular-nums text-gray-500">{card.formattedPrice}</p>
+  </a>
+</li>

@@ -3,7 +3,9 @@ import { env } from 'cloudflare:workers';
 import Layout from '../layouts/Layout.astro';
 import { getSearchProvider } from '../features/search';
 import { productsInSharedCategories } from '../features/categories/db';
-import ProductCard from '../components/ProductCard.astro';
+import ProductCard from '../storefront/ProductCard.astro';
+import { buildProductCard } from '../features/storefront/productCard';
+import { getConfig } from '../config';
 import { MAX_PUBLIC_PAGE, paginate, queryHref, requestedPage } from '../pagination';
 import Pagination from '../components/Pagination.astro';
 import { normalizeSearchQuery } from '../features/search/query';
@@ -47,6 +49,17 @@ addCacheTags(
   Astro.response.headers,
   productCacheTags([...products, ...fillers].map((product) => product.public_id)),
 );
+// Cards are built here, where the store's image settings are known; the
+// template receives resolved models. Only the first result is the LCP image.
+const cardOptions = {
+  baseUrl: getConfig().images.baseUrl,
+  delivery: Astro.locals.settings?.imageDelivery,
+  sizes: '(min-width: 1024px) 352px, calc(50vw - 36px)',
+};
+const cards = products.map((product, i) =>
+  buildProductCard(product, { ...cardOptions, priority: i === 0 }),
+);
+const fillerCards = fillers.map((product) => buildProductCard(product, cardOptions));
 ---
 
 <Layout title={q ? `Search: ${q}` : 'Search'}>
@@ -86,8 +99,8 @@ addCacheTags(
   {
     products.length > 0 && (
       <ul class="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-3">
-        {products.map((p, i) => (
-          <ProductCard product={p} index={i} priority={i === 0} />
+        {cards.map((card, i) => (
+          <ProductCard card={card} index={i} />
         ))}
       </ul>
     )
@@ -100,8 +113,8 @@ addCacheTags(
           More from these categories
         </p>
         <ul class="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-3">
-          {fillers.map((p, i) => (
-            <ProductCard product={p} index={i} />
+          {fillerCards.map((card, i) => (
+            <ProductCard card={card} index={i} />
           ))}
         </ul>
       </>

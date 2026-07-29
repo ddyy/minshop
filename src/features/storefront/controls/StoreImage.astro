@@ -1,0 +1,44 @@
+---
+import type { StorefrontImage } from '../models';
+
+/**
+ * Renders an already-resolved storefront image.
+ *
+ * Props-only by design: it imports no config, accepts no image key, and reads
+ * no `Astro.locals`. Delivery mode, width ladder, and LCP priority were decided
+ * in the builder, where the store's settings are known — so a container test
+ * exercises the same URLs production emits, rather than an undefined-settings
+ * fallback.
+ */
+interface Props {
+  image: StorefrontImage;
+  class?: string;
+  /** Fade the bitmap over its frame once loaded. Ignored for priority images. */
+  fade?: boolean;
+}
+
+const { image, class: className = '', fade = false } = Astro.props;
+---
+
+{/* width/height are a square (1:1) aspect hint to reserve space (no CLS) — the
+    actual display size comes from `class`. All product images + the placeholder
+    are square; object-cover crops anything that isn't.
+
+    A priority image never fades: `priority` marks the likely LCP element and asks
+    the browser to fetch it first, but an opacity:0 element isn't a valid LCP
+    candidate, so fading would hold the paint back until the load event, an
+    attribute flip and a 180ms transition — undoing the head start. Enforced here
+    rather than at the call sites so the two can't be combined by mistake. */}
+<img
+  src={image.src}
+  srcset={image.srcset}
+  alt={image.alt}
+  class={className}
+  width="600"
+  height="600"
+  loading={image.priority ? 'eager' : 'lazy'}
+  fetchpriority={image.priority ? 'high' : 'auto'}
+  decoding="async"
+  sizes={image.sizes}
+  data-image-fade={fade && !image.priority ? '' : undefined}
+/>

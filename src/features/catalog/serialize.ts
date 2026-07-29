@@ -112,7 +112,7 @@ export function toCatalogProduct(
  * bug (backfill must run before cutover) — fail loudly rather than leak the
  * numeric row ID.
  */
-function requirePublicId(publicId: string | null, rowId: number, kind: string): string {
+export function requirePublicId(publicId: string | null, rowId: number, kind: string): string {
   if (!publicId) throw new Error(`${kind} row ${rowId} has no public_id — run the backfill`);
   return publicId;
 }

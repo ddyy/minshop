@@ -7,6 +7,8 @@ import { categoriesForProduct, relatedProducts } from '../../features/categories
 import { getRelatedStored, storeRelatedIds } from '../../features/search';
 import { enabledMethods } from '../../features/payments';
 import ProductImage from '../../features/products/ProductImage.astro';
+import ProductCard from '../../storefront/ProductCard.astro';
+import { buildProductCard } from '../../features/storefront/productCard';
 import { productImageSources, productImageUrl } from '../../features/products/image';
 import { stockState } from '../../features/products/stock';
 import { formatPrice, toMajorUnits, currencyDecimals, getConfig } from '../../config';
@@ -105,6 +107,16 @@ const error = Astro.url.searchParams.get('error');
 // base (R2 custom domain) when set, else the /images Worker route.
 const imgBase = getConfig().images.baseUrl;
 const imageDelivery = Astro.locals.settings?.imageDelivery;
+// Recommendations render through the shared store-owned card, so one card
+// customization applies to the catalog, categories, search, and this row alike.
+// No card here is the LCP image — the gallery hero above it is.
+const relatedCards = related.map((candidate) =>
+  buildProductCard(candidate, {
+    baseUrl: imgBase,
+    delivery: imageDelivery,
+    sizes: '(min-width: 1024px) 252px, calc(50vw - 36px)',
+  }),
+);
 const galleryImages = gallery.map((image) => ({
   ...image,
   // DOM anchor for carousel targets — the pimg_ public ID (image_key as a
@@ -445,27 +457,8 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
       <section class="mt-20 border-t border-line pt-12">
         <h2 class="mb-8 text-xs uppercase tracking-[0.25em] text-gray-400">You may also like</h2>
         <ul class="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-4">
-          {related.map((r) => (
-            <li class="group">
-              <a href={`/products/${r.slug}`} class="block">
-                <div class="relative overflow-hidden rounded-md bg-gray-100">
-                  <ProductImage
-                    imageKey={r.image_key}
-                    alt={r.name}
-                    fade
-                    sizes="(min-width: 1024px) 252px, calc(50vw - 36px)"
-                    class={`aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]${0 >= r.stock ? ' opacity-60' : ''}`}
-                  />
-                  {0 >= r.stock && (
-                    <span class="absolute left-3 top-3 rounded-full bg-white/90 px-2.5 py-0.5 text-xs uppercase tracking-widest text-gray-700 ring-1 ring-line">
-                      Sold out
-                    </span>
-                  )}
-                </div>
-                <h3 class="mt-4 text-sm font-medium tracking-tight">{r.name}</h3>
-                <p class="mt-1 text-sm tabular-nums text-gray-500">{formatPrice(r.price_cents)}</p>
-              </a>
-            </li>
+          {relatedCards.map((card, i) => (
+            <ProductCard card={card} index={i} headingLevel="h3" />
           ))}
         </ul>
       </section>
