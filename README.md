@@ -1,10 +1,36 @@
 # minshop
 
+[![Verify](https://github.com/ddyy/minshop/actions/workflows/verify.yml/badge.svg)](https://github.com/ddyy/minshop/actions/workflows/verify.yml)
+[![npm](https://img.shields.io/npm/v/create-minshop?label=create-minshop)](https://www.npmjs.com/package/create-minshop)
+[![npm downloads](https://img.shields.io/npm/dm/create-minshop)](https://www.npmjs.com/package/create-minshop)
+[![License: MIT](https://img.shields.io/github/license/ddyy/minshop)](LICENSE)
+
 An open-source store an agent can pay for itself. Agents read the catalog and pay a Lightning invoice with no human in the loop; people check out the normal way with Stripe. Merchants can run it over MCP too.
 
 It's a small, server-rendered store for Cloudflare Workers (D1 + R2) with a full admin, multiple payment rails, and an optional MCP server, within the free tier to start. No brand is baked in: store name and time zone are set during onboarding, so it clones cleanly as a template.
 
 **[Live demo](https://demo.minshop.dev/)** (agent API at /api/products, /api/checkout). Uses test payments; do not enter real personal information.
+
+![minshop storefront and checkout](docs/media/minshop.gif)
+
+<table>
+  <tr>
+    <td><a href="docs/media/storefront-desktop.png"><img src="docs/media/storefront-desktop.png" alt="Storefront catalog"></a></td>
+    <td><a href="docs/media/cart-payment-rails.png"><img src="docs/media/cart-payment-rails.png" alt="Cart with card, Lightning, and demo payment rails"></a></td>
+  </tr>
+  <tr>
+    <td align="center">Storefront</td>
+    <td align="center">Cart with three payment rails</td>
+  </tr>
+  <tr>
+    <td><a href="docs/media/lightning-invoice.png"><img src="docs/media/lightning-invoice.png" alt="Lightning invoice checkout"></a></td>
+    <td><a href="docs/media/admin-dashboard.png"><img src="docs/media/admin-dashboard.png" alt="Admin dashboard"></a></td>
+  </tr>
+  <tr>
+    <td align="center">Lightning checkout</td>
+    <td align="center">Admin</td>
+  </tr>
+</table>
 
 It's intentionally lightweight and cheap to start. The default deployment uses Cloudflare Workers, D1, and R2 and can fit within their free-plan allowances; payment providers and optional services have their own pricing.
 
@@ -39,6 +65,18 @@ MCP dependencies. Use `--no-install` to only scaffold the files, or
 - **Media library** — one place that owns every uploaded file; products, pages, and the logo record how each is used (see [Media library](#media-library))
 - **Images** — uploaded to R2, served through the app (no public bucket required)
 - **Swappable seams** — payments and storage sit behind interfaces (see [Architecture](#architecture))
+
+## Engineering highlights
+
+A few decisions in here are worth reading even if you never deploy a store:
+
+- **Payments sit behind a port.** Checkout and webhook routes depend on a `PaymentProvider` interface rather than any one vendor. Stripe, Lightning (phoenixd or LNbits), OpenNode, and the demo rail are adapters, so adding a rail is one adapter plus its webhook route. Storage works the same way (`StorageProvider`, with R2 as the adapter).
+- **HTML first, JS as enhancement.** Pages render on the server and ship near-zero client JavaScript. Cart, search, and checkout all work with JS disabled; the cart drawer and live search are progressive enhancements layered on plain forms.
+- **Search without a search service.** Full-text search runs on SQLite FTS5 inside D1, with bm25 ranking, prefix matching, and typo correction. Semantic search (Workers AI + Vectorize) is an optional flag, not a dependency.
+- **Cache invalidation follows what shoppers can see.** Cached pages carry `shell`, `catalog`, and per-product tags. Admin writes purge only the affected tags, and stock changes purge a product only when it crosses In stock / Low stock / Sold out, not on every checkout reservation. The page shell stays shared even for cookied shoppers because the one personal detail, the cart count, loads from a small private fragment.
+- **Provider keys are write-only.** Stripe, Lightning, and email credentials are entered in Admin, encrypted under a KEK before they reach D1, and never displayed again. The Worker itself needs exactly two secrets.
+- **Refactors are gated by equivalence tests.** The Vitest suite (70 test files) renders `.astro` components through AstroContainer and includes contract tests plus rendering baselines, so template extractions have to prove they didn't change the output a customer sees.
+- **The same store serves people and agents.** Catalog and checkout are exposed as HTML, as JSON (`/api/products`, `/api/checkout`), and over MCP, so an agent can browse the catalog and settle a Lightning invoice with no human in the loop.
 
 ## Stack
 
