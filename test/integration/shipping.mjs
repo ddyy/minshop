@@ -8,8 +8,8 @@ import {
   replaceInvalidShippingConfig,
   saveRuntimeShippingConfig,
   serializeRuntimeShippingConfig,
-} from '../src/features/shipping/settings.ts';
-import { countProductsMissingWeight } from '../src/features/shipping/sellability.ts';
+} from '../../src/features/shipping/settings.ts';
+import { countProductsMissingWeight } from '../../src/features/shipping/sellability.ts';
 
 // Merchant-managed shipping against a real D1. The properties here are the ones a
 // mocked database cannot show: that the revision guard actually serializes two
@@ -18,7 +18,7 @@ import { countProductsMissingWeight } from '../src/features/shipping/sellability
 // meanwhile, and that the missing-weight count reflects real variant inheritance.
 //
 // Schema is hand-rolled to the production shape, matching test-menus.mjs.
-// scripts/test-d1-integration.sh remains the sole full-migration gate.
+// test/integration/d1-integration.sh remains the sole full-migration gate.
 
 const mf = new Miniflare({
   modules: true,

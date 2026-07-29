@@ -6,14 +6,14 @@ import {
   releaseExpiredReservations,
   releaseInventoryReservation,
   reserveInventory,
-} from '../src/features/orders/reservations.ts';
-import { recordPaidOrder } from '../src/features/orders/db.ts';
-import { pendingToPaidOrder } from '../src/features/payments/lightning/pending.ts';
+} from '../../src/features/orders/reservations.ts';
+import { recordPaidOrder } from '../../src/features/orders/db.ts';
+import { pendingToPaidOrder } from '../../src/features/payments/lightning/pending.ts';
 import {
   claimNotification,
   markNotificationSent,
   MAX_ATTEMPTS,
-} from '../src/features/email/outboxStore.ts';
+} from '../../src/features/email/outboxStore.ts';
 
 const mf = new Miniflare({
   modules: true,

@@ -12,7 +12,7 @@ export default defineConfig({
       // Lets pure-function modules that merely read deployment vars at import
       // time (config.ts, and the email templates through it) be unit-tested.
       // Real bindings stay out of scope — see the stub's own note.
-      'cloudflare:workers': new URL('./test/cloudflare-workers-stub.ts', import.meta.url).pathname,
+      'cloudflare:workers': new URL('./test/helpers/cloudflare-workers-stub.ts', import.meta.url).pathname,
     },
   },
 });

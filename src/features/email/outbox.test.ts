@@ -3,7 +3,7 @@ import type { D1Database } from '@cloudflare/workers-types';
 
 // The outbox's collaborators are mocked; what is under test here is the state
 // machine — claim exclusivity, sent/skipped/dead transitions, retry counting.
-// The SQL itself runs for real in scripts/test-reservations.mjs (row birth in
+// The SQL itself runs for real in test/integration/reservations.mjs (row birth in
 // the order batch) and the wrangler integration gate.
 vi.mock('./index', () => ({ getEmailProvider: vi.fn() }));
 vi.mock('../orders/db', () => ({ getOrder: vi.fn(), listOrderItemsWithImages: vi.fn() }));

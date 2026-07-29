@@ -11,8 +11,8 @@ import {
   openReviewIfOverRefunded,
   dismissRefundEvent,
   listUnmatchedRefundEvents,
-} from '../src/features/refunds/db.ts';
-import { persistRefundEvent, applyRefundEvent } from '../src/features/refunds/sync.ts';
+} from '../../src/features/refunds/db.ts';
+import { persistRefundEvent, applyRefundEvent } from '../../src/features/refunds/sync.ts';
 
 // Refund accounting against a real D1. The properties under test are the ones
 // a mocked database cannot show: that the guarded batches actually serialize,

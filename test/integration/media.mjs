@@ -11,11 +11,11 @@ import {
   setLogoFromMedia,
   replaceProductImageFromMedia,
   pageMediaClaimStatements,
-} from '../src/features/media/db.ts';
-import { mediaUsage, mediaUsageForIds, isUnused } from '../src/features/media/usage.ts';
-import { uploadMedia } from '../src/features/media/upload.ts';
-import { savePageBody } from '../src/features/pages/save.ts';
-import { resolveHomePath, homeTargetIsValid } from '../src/features/settings/home.ts';
+} from '../../src/features/media/db.ts';
+import { mediaUsage, mediaUsageForIds, isUnused } from '../../src/features/media/usage.ts';
+import { uploadMedia } from '../../src/features/media/upload.ts';
+import { savePageBody } from '../../src/features/pages/save.ts';
+import { resolveHomePath, homeTargetIsValid } from '../../src/features/settings/home.ts';
 
 // Media lifecycle against a real D1. The properties under test are the ones a
 // mocked database cannot show: that the guarded DELETE and the guarded
@@ -23,7 +23,7 @@ import { resolveHomePath, homeTargetIsValid } from '../src/features/settings/hom
 // usage agrees with the delete guard about what "in use" means.
 //
 // Schema is hand-rolled to the production shape, matching test-refunds.mjs and
-// test-reservations.mjs. scripts/test-d1-integration.sh remains the sole
+// test-reservations.mjs. test/integration/d1-integration.sh remains the sole
 // full-migration gate, so schema drift is caught in exactly one place.
 
 const mf = new Miniflare({

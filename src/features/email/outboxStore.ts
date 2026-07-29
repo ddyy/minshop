@@ -4,7 +4,7 @@ import type { D1Database } from '@cloudflare/workers-types';
  * The order_notifications state machine — every statement that moves a row
  * between states, and nothing else. Split from outbox.ts (which owns message
  * building and sending) so this half has NO `cloudflare:workers` dependency:
- * scripts/test-reservations.mjs runs these exact statements against a real
+ * test/integration/reservations.mjs runs these exact statements against a real
  * miniflare D1, where a unit-test fake would let malformed SQL or bind
  * ordering pass unnoticed.
  */

@@ -12,13 +12,13 @@ import {
   getMenus,
   visibleItems,
   catalogIsOrphaned,
-} from '../src/features/navigation/db.ts';
+} from '../../src/features/navigation/db.ts';
 import {
   targetChoices,
   unavailableReason,
   menuReferencesFor,
   PICKER_LIMIT,
-} from '../src/features/navigation/admin.ts';
+} from '../../src/features/navigation/admin.ts';
 
 // Navigation menus against a real D1. The properties under test are the ones a
 // mocked database cannot show: that the add guard actually rejects unavailable
@@ -27,7 +27,7 @@ import {
 // that the migration's seed reproduces what a store already renders.
 //
 // Schema is hand-rolled to the production shape, matching test-media.mjs.
-// scripts/test-d1-integration.sh remains the sole full-migration gate.
+// test/integration/d1-integration.sh remains the sole full-migration gate.
 
 const mf = new Miniflare({
   modules: true,
@@ -66,7 +66,7 @@ const PRE_MENU_SCHEMA = `
 `;
 
 // The real migration text, so the seed under test is the one that ships.
-const MIGRATION = readFileSync(new URL('../migrations/0028_nav_menus.sql', import.meta.url), 'utf8');
+const MIGRATION = readFileSync(new URL('../../migrations/0028_nav_menus.sql', import.meta.url), 'utf8');
 
 /**
  * Strip whole-line comments FIRST, then split on ';'.

@@ -8,9 +8,9 @@ import {
   deleteGuestAccessIfUnsettled,
   sweepAbandonedGuestAccess,
   guestOrderUrl,
-} from '../src/features/orders/guestAccess.ts';
-import { parsePublicId } from '../src/features/ids/publicId.ts';
-import { isAccessToken } from '../src/features/ids/token.ts';
+} from '../../src/features/orders/guestAccess.ts';
+import { parsePublicId } from '../../src/features/ids/publicId.ts';
+import { isAccessToken } from '../../src/features/ids/token.ts';
 
 const mf = new Miniflare({
   modules: true,
