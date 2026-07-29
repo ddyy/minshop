@@ -83,3 +83,50 @@ export interface StorefrontShellModel {
    *  navigation row, so the template needs to know. */
   blog: { enabled: boolean; href: string };
 }
+
+/** One sort control. `current` marks the field the list is ordered by; clicking
+ *  it again flips direction, which is why `href` already carries the flip. */
+export interface StorefrontSortOption {
+  label: string;
+  href: string;
+  current: boolean;
+  /** Direction currently applied, on the current option only. */
+  direction: 'asc' | 'desc' | null;
+}
+
+export interface StorefrontSortModel {
+  options: StorefrontSortOption[];
+}
+
+/** A page link, or an elision gap when `page` is null. */
+export interface StorefrontPaginationItem {
+  page: number | null;
+  href: string | null;
+  current: boolean;
+}
+
+export interface StorefrontPaginationModel {
+  page: number;
+  totalPages: number;
+  prevHref: string | null;
+  nextHref: string | null;
+  /** Windowed page list, gaps included — e.g. 1 … 4 5 6 … 20. */
+  items: StorefrontPaginationItem[];
+}
+
+/**
+ * The catalog, rendered at both `/` and `/products`.
+ *
+ * Every URL here is already built and bounded. A template neither parses query
+ * parameters nor constructs them: page and sort links carry the exact query
+ * semantics the catalog depends on, including dropping defaults so the canonical
+ * URL stays clean and cacheable.
+ */
+export interface CatalogPageModel {
+  eyebrow: string;
+  heading: string;
+  categories: StorefrontLink[];
+  products: ProductCardModel[];
+  sort: StorefrontSortModel;
+  pagination: StorefrontPaginationModel;
+}

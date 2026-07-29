@@ -1,0 +1,50 @@
+---
+import type { CatalogPageModel } from '../../../../src/features/storefront/models';
+import CatalogSort from '../../../../src/features/storefront/controls/CatalogSort.astro';
+import CatalogPagination from '../../../../src/features/storefront/controls/CatalogPagination.astro';
+
+/**
+ * A structurally different catalog: a table instead of a grid, sort moved below
+ * the products, categories as a <select>-style list, and no ProductCard at all —
+ * it renders the card model's fields directly. That last part is the real test:
+ * the model has to be usable without the component it was extracted alongside.
+ */
+interface Props {
+  model: CatalogPageModel;
+}
+
+const { model } = Astro.props;
+---
+
+<section class="alt-catalog">
+  <h1>{model.heading}</h1>
+
+  <ul class="alt-catalog__categories">
+    {model.categories.map((category) => (
+      <li>
+        <a href={category.href}>{category.text}</a>
+      </li>
+    ))}
+  </ul>
+
+  {model.products.length === 0 ? (
+    <p class="alt-catalog__empty">Nothing to show.</p>
+  ) : (
+    <table class="alt-catalog__table">
+      <tbody>
+        {model.products.map((card) => (
+          <tr data-product={card.id}>
+            <td>
+              <a href={card.href}>{card.name}</a>
+            </td>
+            <td>{card.formattedPrice}</td>
+            <td>{card.inStock ? 'In stock' : 'Sold out'}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )}
+
+  <CatalogPagination model={model.pagination} class="alt-catalog__pages" />
+  <CatalogSort model={model.sort} class="alt-catalog__sort" />
+</section>

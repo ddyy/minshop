@@ -1,0 +1,46 @@
+---
+import type { StorefrontPaginationModel } from '../models';
+
+/**
+ * Page links. Owns the navigation landmark, `aria-current="page"`, and the
+ * rel=prev/next hints crawlers use to understand a paginated series — all of
+ * which are easy to drop when restyling, and invisible when they go missing.
+ */
+interface Props {
+  model: StorefrontPaginationModel;
+  class?: string;
+}
+
+const { model, class: className = 'mt-14 flex items-center justify-center gap-1' } = Astro.props;
+const linkCls = 'px-3 py-1.5 text-xs uppercase tracking-widest text-gray-500 hover:text-brand';
+---
+
+{
+  model.totalPages > 1 && (
+    <nav class={className} aria-label="Pagination">
+      {model.prevHref && (
+        <a href={model.prevHref} class={linkCls} rel="prev">
+          Prev
+        </a>
+      )}
+      {model.items.map((item) =>
+        item.page === null ? (
+          <span class="px-2 text-xs text-gray-400">…</span>
+        ) : (
+          <a
+            href={item.href}
+            aria-current={item.current ? 'page' : undefined}
+            class={`${linkCls} ${item.current ? 'font-medium text-brand' : ''}`}
+          >
+            {item.page}
+          </a>
+        ),
+      )}
+      {model.nextHref && (
+        <a href={model.nextHref} class={linkCls} rel="next">
+          Next
+        </a>
+      )}
+    </nav>
+  )
+}

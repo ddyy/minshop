@@ -14,9 +14,10 @@ theme engine and no code editor in Admin — you edit source, build, and deploy.
 | `src/storefront/Header.astro` | Logo, announcement bar, navigation, search, cart and account placement. |
 | `src/storefront/Footer.astro` | Footer navigation and store attribution. |
 | `src/storefront/ProductCard.astro` | Every product card — catalog, category, search, and the "You may also like" row. |
+| `src/storefront/Catalog.astro` | The catalog page at both `/` and `/products`: headings, category links, grid, empty state. |
 
-More surfaces (catalog, product page, content pages) land in later releases and
-will appear in this table as they do.
+More surfaces (product page, content pages) land in later releases and will
+appear in this table as they do.
 
 ### The header renders on every page
 
@@ -112,6 +113,28 @@ soft, so a header missing its hooks looks fine and simply stops opening.
 The cart drawer itself lives in `Layout.astro`, next to the script that drives
 it. Leave it there — nesting a fixed dialog inside the sticky, backdrop-filtered
 header changes its positioning context.
+
+## The catalog contract
+
+`Catalog.astro` receives a `CatalogPageModel`: eyebrow, heading, category links,
+product cards, and finished `sort` and `pagination` models. It runs no queries
+and reads no query parameters — the loader has already parsed, bounded, and
+validated everything, and tagged the response for cache invalidation.
+
+Two controls to keep:
+
+| Control | What it owns |
+| --- | --- |
+| `<CatalogSort>` | Sort links whose hrefs encode the direction flip and deliberately drop `page`. |
+| `<CatalogPagination>` | The pagination landmark, `aria-current="page"`, and `rel=prev`/`rel=next`. |
+
+Those URLs are not cosmetic: they decide which pages exist, which one is
+canonical, and how many cache entries the catalog occupies. Restyle the controls
+with `class`; don't rebuild their links.
+
+The same `Catalog.astro` renders `/` and `/products`, so one edit changes both —
+which is why sort and page links are built from the current path rather than a
+hardcoded one.
 
 ## Rules
 

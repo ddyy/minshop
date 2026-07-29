@@ -1,0 +1,36 @@
+---
+import type { StorefrontSortModel } from '../models';
+
+/**
+ * Sort controls. The hrefs arrive already built — including the direction flip
+ * on the active field and the deliberate omission of `page` — so a template can
+ * restyle these without changing which URLs the catalog exposes to crawlers or
+ * to the cache.
+ */
+interface Props {
+  model: StorefrontSortModel;
+  class?: string;
+}
+
+const {
+  model,
+  class: className =
+    'mb-8 flex flex-wrap items-baseline gap-x-5 gap-y-1 text-xs uppercase tracking-widest text-gray-500',
+} = Astro.props;
+---
+
+<div class={className}>
+  <span>Sort</span>
+  {
+    model.options.map((option) => (
+      <a
+        href={option.href}
+        aria-current={option.current ? 'true' : undefined}
+        class={`hover:text-brand ${option.current ? 'text-brand' : ''}`}
+      >
+        {option.label}
+        {option.direction === 'asc' ? ' ↑' : option.direction === 'desc' ? ' ↓' : ''}
+      </a>
+    ))
+  }
+</div>
