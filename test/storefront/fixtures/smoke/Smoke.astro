@@ -1,0 +1,12 @@
+---
+/** Minimal component proving AstroContainer compiles and renders `.astro`
+ *  files under Vitest. Kept trivial on purpose: when the container tier breaks,
+ *  this failing alone says the harness is at fault, not a storefront contract. */
+interface Props {
+  label: string;
+}
+
+const { label } = Astro.props;
+---
+
+<p data-smoke>{label}</p>

@@ -1,18 +1,23 @@
-import { defineConfig } from 'vitest/config';
+import { getViteConfig } from 'astro/config';
 
-// Standalone config (does NOT load astro.config.mjs / the Cloudflare plugin) so
-// pure-function unit tests run in plain Node without pulling in `cloudflare:workers`.
-// Functions that need bindings (D1/R2) aren't covered here — those are integration
-// concerns, verified against `wrangler dev`.
-export default defineConfig({
-  test: {
-    environment: 'node',
-    include: ['src/**/*.test.ts'],
-    alias: {
-      // Lets pure-function modules that merely read deployment vars at import
-      // time (config.ts, and the email templates through it) be unit-tested.
-      // Real bindings stay out of scope — see the stub's own note.
-      'cloudflare:workers': new URL('./test/helpers/cloudflare-workers-stub.ts', import.meta.url).pathname,
+// Astro-aware but config-file-free. `getViteConfig` is what compiles `.astro`
+// components, so storefront presentation contracts can be rendered through
+// AstroContainer instead of only through a built Worker. `configFile: false`
+// keeps astro.config.mjs — and with it the Cloudflare adapter and its bindings —
+// out of the unit suite, which is what the previous standalone `defineConfig`
+// was protecting. Pure-function tests still run in plain Node.
+export default getViteConfig(
+  {
+    test: {
+      environment: 'node',
+      include: ['src/**/*.test.ts', 'test/storefront/**/*.test.ts'],
+      alias: {
+        // Lets pure-function modules that merely read deployment vars at import
+        // time (config.ts, and the email templates through it) be unit-tested.
+        // Real bindings stay out of scope — see the stub's own note.
+        'cloudflare:workers': new URL('./test/helpers/cloudflare-workers-stub.ts', import.meta.url).pathname,
+      },
     },
   },
-});
+  { configFile: false },
+);
