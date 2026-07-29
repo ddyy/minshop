@@ -1,6 +1,7 @@
 ---
 import { env } from 'cloudflare:workers';
 import Layout from '../../layouts/Layout.astro';
+import ContentPage from '../../storefront/ContentPage.astro';
 import { getConfig } from '../../config';
 import { getPublishedPageBySlug } from '../../features/pages/db';
 import { pageImageDimensions } from '../../features/media/db';
@@ -34,8 +35,7 @@ const layout = normalizePageLayout(page.layout);
 ---
 
 <Layout title={page.title} description={description}>
-  <article class="markdown-content" data-page-layout={layout} style={pageLayoutStyle(layout)}>
-    <h1>{page.title}</h1>
-    <Fragment set:html={html} />
-  </article>
+  <ContentPage
+    model={{ title: page.title, html, layout, layoutStyle: pageLayoutStyle(layout) }}
+  />
 </Layout>

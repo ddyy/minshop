@@ -255,29 +255,32 @@
    A preset needing more than these two axes can target
    [data-page-layout="<key>"], which is always present on the article. */
 .markdown-content {
-  max-width: var(--page-measure, 48rem);
+  /* The page's layout preset still wins: --page-measure is set per page by
+     pageLayoutStyle, and a theme token must not override a merchant's
+     explicit choice of a wide or centred layout. */
+  max-width: var(--page-measure, var(--prose-measure, 48rem));
   /* Centre the measure inside <main>, which is max-w-6xl (72rem). Without this
      a 48rem column sits hard against the left edge with ~360px of dead space on
      the right, while the header and footer span the full width — it reads as a
      broken layout rather than a deliberate narrow column. */
   margin-inline: auto;
-  line-height: 1.75;
+  line-height: var(--prose-leading, 1.75);
 }
 .markdown-content h1 {
   text-align: var(--page-title-align, left);
   font-family: var(--font-serif, ui-serif, Georgia, serif);
-  font-size: 2.25rem;
-  letter-spacing: -0.02em;
+  font-size: var(--prose-h1-size, 2.25rem);
+  letter-spacing: var(--prose-h1-tracking, -0.02em);
   margin-bottom: 1.5rem;
 }
 .markdown-content h2 {
   font-family: var(--font-serif, ui-serif, Georgia, serif);
-  font-size: 1.5rem;
-  letter-spacing: -0.01em;
+  font-size: var(--prose-h2-size, 1.5rem);
+  letter-spacing: var(--prose-h2-tracking, -0.01em);
   margin: 2.5rem 0 0.75rem;
 }
 .markdown-content h3 {
-  font-size: 1.125rem;
+  font-size: var(--prose-h3-size, 1.125rem);
   font-weight: 600;
   margin: 2rem 0 0.5rem;
 }

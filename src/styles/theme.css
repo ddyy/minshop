@@ -29,3 +29,25 @@
   --radius-md: 0.375rem;
   --radius-lg: 0.5rem;
 }
+
+/*
+ * Content-page prose scale.
+ *
+ * Ordinary custom properties, intentionally OUTSIDE @theme: the core
+ * `.markdown-content` rules consume them directly, and they define no Tailwind
+ * utility namespace. Moving them into @theme would imply a utility-token role
+ * they do not have.
+ *
+ * Every rule that reads one also carries today's value as its final fallback,
+ * so deleting a line here — or replacing this whole file with a design system's
+ * tokens — degrades to the current design rather than to browser defaults.
+ */
+:root {
+  --prose-measure: 48rem;
+  --prose-leading: 1.75;
+  --prose-h1-size: 2.25rem;
+  --prose-h1-tracking: -0.02em;
+  --prose-h2-size: 1.5rem;
+  --prose-h2-tracking: -0.01em;
+  --prose-h3-size: 1.125rem;
+}

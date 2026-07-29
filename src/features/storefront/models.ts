@@ -224,3 +224,21 @@ export interface ProductDetailModel {
   /** Validated message from ?error=, or null. */
   error: string | null;
 }
+
+/**
+ * A merchant-authored content page.
+ *
+ * `html` is ALREADY rendered from Markdown and sanitized. A template embeds it
+ * and does not parse, re-sanitize, or transform it: the trusted-HTML boundary
+ * is upstream, and moving any part of it into an editable file would move the
+ * XSS surface with it.
+ */
+export interface ContentPageModel {
+  title: string;
+  /** Rendered, sanitized page body. */
+  html: string;
+  /** Layout preset key, exposed as a data attribute so presets can target it. */
+  layout: string;
+  /** Inline custom properties for the preset's measure and title alignment. */
+  layoutStyle: string;
+}

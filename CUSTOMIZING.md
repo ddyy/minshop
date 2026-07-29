@@ -16,8 +16,9 @@ theme engine and no code editor in Admin — you edit source, build, and deploy.
 | `src/storefront/ProductCard.astro` | Every product card — catalog, category, search, and the "You may also like" row. |
 | `src/storefront/Catalog.astro` | The catalog page at both `/` and `/products`: headings, category links, grid, empty state. |
 | `src/storefront/ProductDetail.astro` | The product page: gallery, details, purchase panel, and recommendations. |
+| `src/storefront/ContentPage.astro` | The frame around a merchant's Markdown page. |
 
-Content pages land in a later release and will appear in this table then.
+That is the whole store-owned surface.
 
 ### The header renders on every page
 
@@ -160,6 +161,45 @@ and nothing errors — Buy now just quietly stops working.
 
 Both controls take a `class`. `<ProductGallery>` also takes `soldOutLabel` if
 you want different wording.
+
+## The content page contract
+
+`ContentPage.astro` receives a title and `html` that is **already rendered from
+Markdown and sanitized**. Embed it; do not parse, escape, or transform it. The
+trusted-HTML boundary is upstream, and re-handling it here either double-escapes
+a merchant's page or moves the XSS surface into an editable file.
+
+Two things are contract rather than design:
+
+- **`class="markdown-content"`** is what the prose styles are scoped to. Remove
+  it and every heading, list, and link in every merchant page loses its
+  typography at once, with nothing in the markup to explain why.
+- **`style={model.layoutStyle}`** carries the width and title alignment the
+  merchant picked in Admin. Drop it and every page reverts to the default.
+
+The prose scale itself is yours, in `theme.css`:
+
+```css
+:root {
+  --prose-measure: 48rem;
+  --prose-leading: 1.75;
+  --prose-h1-size: 2.25rem;
+  --prose-h1-tracking: -0.02em;
+  --prose-h2-size: 1.5rem;
+  --prose-h2-tracking: -0.01em;
+  --prose-h3-size: 1.125rem;
+}
+```
+
+These are plain custom properties, deliberately outside the `@theme` block:
+core CSS reads them directly and they generate no utilities. Every rule that
+reads one keeps the current value as its fallback, so replacing this file with a
+design system's tokens and omitting one degrades to today's design rather than
+to an unstyled heading.
+
+A merchant's per-page layout preset still wins over `--prose-measure`. That is
+intentional: their explicit choice of a wide or centred page outranks a theme
+default.
 
 ## Rules
 

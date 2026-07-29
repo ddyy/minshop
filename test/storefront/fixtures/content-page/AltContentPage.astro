@@ -1,0 +1,27 @@
+---
+import type { ContentPageModel } from '../../../../src/features/storefront/models';
+
+/**
+ * A structurally different content wrapper: a <section> with the title in a
+ * header band and the body in a nested div, plus a back link the default does
+ * not have. It still keeps the two things that are contract rather than design
+ * — the .markdown-content hook the prose styles are scoped to, and the layout
+ * preset's custom properties.
+ */
+interface Props {
+  model: ContentPageModel;
+}
+
+const { model } = Astro.props;
+---
+
+<section class="alt-page" data-page-layout={model.layout} style={model.layoutStyle}>
+  <header class="alt-page__head">
+    <p class="alt-page__eyebrow">Information</p>
+    <h1>{model.title}</h1>
+  </header>
+  <div class="markdown-content alt-page__body">
+    <Fragment set:html={model.html} />
+  </div>
+  <a href="/" class="alt-page__back">Back to shop</a>
+</section>
