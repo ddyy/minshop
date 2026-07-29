@@ -279,15 +279,20 @@ describe('the store-owned product detail', () => {
     expect(html).toContain('href="/categories/apparel"');
   });
 
-  it('shows the low-stock nudge only when the model sets it', async () => {
+  it('marks low stock without pinning the wording', async () => {
     const without = await render(ProductDetail, { model: detail(), purchase: purchase() });
-    const with_ = await render(ProductDetail, {
+    const withNudge = await render(ProductDetail, {
       model: detail({ lowStock: true }),
       purchase: purchase(),
     });
+    const marker = withNudge.match(/<[^>]*data-low-stock[^>]*>([\s\S]*?)<\//);
 
-    expect(without).not.toContain('Low stock');
-    expect(with_).toContain('Low stock');
+    expect(without).not.toContain('data-low-stock');
+    expect(marker).not.toBeNull();
+    // Non-empty, but the copy itself is the design's to choose.
+    expect(marker?.[1].trim().length).toBeGreaterThan(0);
+    // Scarcity must never become a published count.
+    expect(withNudge).not.toMatch(/\b\d+ (left|remaining|in stock)\b/i);
   });
 
   it('carries the live-price hooks the script reads', async () => {

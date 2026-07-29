@@ -128,12 +128,16 @@ describe('the store-owned catalog', () => {
     expect(html).toContain('$10.01');
   });
 
-  it('renders no product links when there is nothing to show', async () => {
-    // The empty-state wording belongs to the design, so it is pinned by the
-    // extraction baselines rather than here.
+  it('announces an empty catalog instead of rendering a blank grid', async () => {
+    // The wording belongs to the design; that the state is ANNOUNCED does not.
+    // Asserting only "no product links" would pass if the empty state were
+    // deleted outright, leaving a shopper with a silent blank page.
     const html = await render(Catalog, model({ products: [] }));
+    const status = html.match(/<[^>]*role="status"[^>]*>([\s\S]*?)<\//);
 
     expect(html).not.toContain('href="/products/');
+    expect(status).not.toBeNull();
+    expect(status?.[1].trim().length).toBeGreaterThan(0);
   });
 
   it('keeps pagination a labelled landmark with rel hints', async () => {

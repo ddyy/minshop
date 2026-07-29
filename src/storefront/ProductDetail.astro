@@ -69,7 +69,16 @@ const { model, purchase } = Astro.props;
       {model.priceVaries && <span class="text-base text-gray-400">from </span>}
       {model.formattedPrice}
     </p>
-    {model.lowStock && <p class="mt-2 text-sm text-amber-700">Low stock</p>}
+    {
+      /* data-low-stock is the contract, not the wording. Reword or restyle it
+         freely; keep the marker so scarcity stays distinguishable from normal
+         availability without pinning copy. */
+      model.lowStock && (
+        <p data-low-stock class="mt-2 text-sm text-amber-700">
+          Low stock
+        </p>
+      )
+    }
     <p class="mt-6 max-w-prose leading-relaxed text-gray-600">{model.description}</p>
 
     <ProductPurchaseForm model={purchase} />

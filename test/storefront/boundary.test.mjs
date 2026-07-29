@@ -95,6 +95,19 @@ describe('storefront boundary check', () => {
     expect(result.output).toContain('→');
   });
 
+  it('rejects a subpath of a denied module', async () => {
+    // Exact-name matching banned `node:fs` while waving `node:fs/promises`
+    // through. Asserted on its own file and specifier: the other fixtures in
+    // this directory fail for unrelated reasons, so a shared "this directory
+    // fails" assertion would stay green if subpath matching regressed.
+    const result = await check('test/storefront/violations/controls');
+
+    expect(result.ok).toBe(false);
+    expect(result.output).toContain('subpathHelper.mjs');
+    expect(result.output).toContain('node:fs/promises');
+    expect(result.output).toContain('filesystem access');
+  });
+
   it('allows a control to use a pure helper', async () => {
     // The whole point of the second policy: controls encapsulate core behavior,
     // so queryHref is fine where a binding is not. If this ever starts failing,

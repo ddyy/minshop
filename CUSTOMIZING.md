@@ -201,6 +201,18 @@ A merchant's per-page layout preset still wins over `--prose-measure`. That is
 intentional: their explicit choice of a wide or centred page outranks a theme
 default.
 
+## Markers to keep
+
+A few attributes are contract rather than styling. Reword and restyle what is
+inside them; keep the marker. Each exists because the state it names would
+otherwise be indistinguishable to an automated check — or to a screen reader.
+
+| Marker | Where | Why |
+| --- | --- | --- |
+| `role="status"` | Catalog empty state | An empty catalog must announce itself, not render a blank grid. |
+| `data-low-stock` | Product page scarcity note | Keeps scarcity distinguishable from normal availability without publishing a count. |
+| `class="markdown-content"` | Content page | The hook every prose style is scoped to. |
+
 ## Rules
 
 1. **Public IDs only.** Never render a numeric row ID.

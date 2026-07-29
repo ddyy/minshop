@@ -66,6 +66,11 @@ npx wrangler d1 execute DB --local --persist-to "$state_dir" \
 npx wrangler d1 execute DB --local --persist-to "$state_dir" \
   --command "INSERT INTO product_images (product_id, image_key, position) SELECT id, 'media/tee-front.jpg', 0 FROM products WHERE slug = 'sample-tee' UNION ALL SELECT id, 'media/tee-back.jpg', 1 FROM products WHERE slug = 'sample-tee';" >/dev/null
 
+# A low-stock product (LOW_STOCK is 5), so the scarcity marker is exercised by a
+# real render rather than only by a container test.
+npx wrangler d1 execute DB --local --persist-to "$state_dir" \
+  --command "UPDATE products SET stock = 3 WHERE slug = 'pagination-item-5';" >/dev/null
+
 # A product row carrying a legacy currency different from the store's. The
 # storefront has always DISPLAYED the store currency, so this pins that the
 # live-price hook and the JSON-LD offer agree with what is on the page rather
