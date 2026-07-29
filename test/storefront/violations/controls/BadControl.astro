@@ -1,0 +1,6 @@
+---
+import { env } from 'cloudflare:workers';
+import { listProducts } from '../../../../src/features/products/db';
+const rows = await listProducts(env.DB, 1, 0, 'id');
+---
+<p>{rows.length}</p>

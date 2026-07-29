@@ -11,7 +11,7 @@ export default getViteConfig(
   {
     test: {
       environment: 'node',
-      include: ['src/**/*.test.ts', 'test/storefront/**/*.test.ts'],
+      include: ['src/**/*.test.ts', 'test/storefront/**/*.test.{ts,mjs}'],
       alias: {
         // Lets pure-function modules that merely read deployment vars at import
         // time (config.ts, and the email templates through it) be unit-tested.

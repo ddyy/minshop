@@ -1,0 +1,5 @@
+---
+import { queryHref } from '../../../../src/pagination';
+const href = queryHref('/products', { page: 2 });
+---
+<a href={href}>Next</a>

@@ -1,0 +1,31 @@
+---
+import type { ProductCardModel } from '../../../../src/features/storefront/models';
+import StoreImage from '../../../../src/features/storefront/controls/StoreImage.astro';
+
+/**
+ * A deliberately different product card, structurally — not a restyle of the
+ * default. It exists to prove the contract is implementable a second way: if
+ * ProductCardModel or StoreImage only fit the markup they were extracted from,
+ * this is where that shows up, before the shape is frozen.
+ *
+ * Differences on purpose: a <figure>/<figcaption> anatomy instead of
+ * link-wrapped headings, price before name, availability as text rather than a
+ * badge, no reveal animation, no stagger.
+ */
+interface Props {
+  card: ProductCardModel;
+}
+
+const { card } = Astro.props;
+---
+
+<li class="alt-card">
+  <figure>
+    <StoreImage image={card.image} class="alt-card__image" />
+    <figcaption>
+      <p class="alt-card__price">{card.formattedPrice}</p>
+      <a href={card.href}>{card.name}</a>
+      <p class="alt-card__availability">{card.inStock ? 'Available' : 'Sold out'}</p>
+    </figcaption>
+  </figure>
+</li>
