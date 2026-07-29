@@ -2,7 +2,7 @@
 status: 200
 content-type: text/html
 cache-control: public, max-age=0, s-maxage=600
-cache-tag: catalog,product:prod_<id>,product:prod_<id>,shell
+cache-tag: catalog,product:prod_<id>,product:prod_<id>,product:prod_<id>,product:prod_<id>,product:prod_<id>,product:prod_<id>,shell
 
 <!DOCTYPE html>
 <html lang="en">
@@ -79,6 +79,46 @@ cache-tag: catalog,product:prod_<id>,product:prod_<id>,shell
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Sample Mug</h2>
 <p class="mt-1 text-sm tabular-nums text-gray-500">$12.00</p>
+</a>
+</li>
+</ul>
+<p class="mb-8 mt-16 text-xs uppercase tracking-widest text-gray-500">More from these categories</p>
+<ul class="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-3">
+<li class="reveal group" style="animation-delay:0ms">
+<a href="/products/pagination-item-1" class="block">
+<div class="relative overflow-hidden rounded-md bg-gray-100">
+<img src="/placeholder.png" alt="Pagination Item 1" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04] opacity-60" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
+<span class="absolute left-3 top-3 rounded-full bg-white/90 px-2.5 py-0.5 text-xs uppercase tracking-widest text-gray-700 ring-1 ring-line">Sold out</span>
+</div>
+<h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 1</h2>
+<p class="mt-1 text-sm tabular-nums text-gray-500">$10.01</p>
+</a>
+</li>
+<li class="reveal group" style="animation-delay:60ms">
+<a href="/products/pagination-item-2" class="block">
+<div class="relative overflow-hidden rounded-md bg-gray-100">
+<img src="/placeholder.png" alt="Pagination Item 2" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
+</div>
+<h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 2</h2>
+<p class="mt-1 text-sm tabular-nums text-gray-500">$10.02</p>
+</a>
+</li>
+<li class="reveal group" style="animation-delay:120ms">
+<a href="/products/pagination-item-3" class="block">
+<div class="relative overflow-hidden rounded-md bg-gray-100">
+<img src="/placeholder.png" alt="Pagination Item 3" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
+</div>
+<h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 3</h2>
+<p class="mt-1 text-sm tabular-nums text-gray-500">$10.03</p>
+</a>
+</li>
+<li class="reveal group" style="animation-delay:180ms">
+<a href="/products/pagination-item-4" class="block">
+<div class="relative overflow-hidden rounded-md bg-gray-100">
+<img src="/placeholder.png" alt="Pagination Item 4" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
+</div>
+<h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 4</h2>
+<p class="mt-1 text-sm tabular-nums text-gray-500">$10.04</p>
 </a>
 </li>
 </ul>

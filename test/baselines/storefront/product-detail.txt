@@ -2,7 +2,7 @@
 status: 200
 content-type: text/html
 cache-control: public, max-age=0, s-maxage=600
-cache-tag: catalog,product:prod_<id>,shell
+cache-tag: catalog,product:prod_<id>,product:prod_<id>,product:prod_<id>,product:prod_<id>,product:prod_<id>,shell
 
 <!DOCTYPE html>
 <html lang="en">
@@ -96,6 +96,48 @@ cache-tag: catalog,product:prod_<id>,shell
 </button>
 </div>
 </div>
+<section class="mt-20 border-t border-line pt-12">
+<h2 class="mb-8 text-xs uppercase tracking-[0.25em] text-gray-400">You may also like</h2>
+<ul class="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-4">
+<li class="group">
+<a href="/products/pagination-item-1" class="block">
+<div class="relative overflow-hidden rounded-md bg-gray-100">
+<img src="/placeholder.png" alt="Pagination Item 1" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04] opacity-60" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
+<span class="absolute left-3 top-3 rounded-full bg-white/90 px-2.5 py-0.5 text-xs uppercase tracking-widest text-gray-700 ring-1 ring-line">Sold out</span>
+</div>
+<h3 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 1</h3>
+<p class="mt-1 text-sm tabular-nums text-gray-500">$10.01</p>
+</a>
+</li>
+<li class="group">
+<a href="/products/pagination-item-2" class="block">
+<div class="relative overflow-hidden rounded-md bg-gray-100">
+<img src="/placeholder.png" alt="Pagination Item 2" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
+</div>
+<h3 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 2</h3>
+<p class="mt-1 text-sm tabular-nums text-gray-500">$10.02</p>
+</a>
+</li>
+<li class="group">
+<a href="/products/pagination-item-3" class="block">
+<div class="relative overflow-hidden rounded-md bg-gray-100">
+<img src="/placeholder.png" alt="Pagination Item 3" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
+</div>
+<h3 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 3</h3>
+<p class="mt-1 text-sm tabular-nums text-gray-500">$10.03</p>
+</a>
+</li>
+<li class="group">
+<a href="/products/pagination-item-4" class="block">
+<div class="relative overflow-hidden rounded-md bg-gray-100">
+<img src="/placeholder.png" alt="Pagination Item 4" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
+</div>
+<h3 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 4</h3>
+<p class="mt-1 text-sm tabular-nums text-gray-500">$10.04</p>
+</a>
+</li>
+</ul>
+</section>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"Sample Tee","description":"A comfy cotton t-shirt.","image":"https://canonical.example/placeholder.png","offers":{"@type":"Offer","price":"25.00","priceCurrency":"USD","availability":"https://schema.org/InStock","url":"https://canonical.example/products/sample-tee"}}</script>
 <script type="module">globalThis.process??={},globalThis.process.env??={};var e=document.querySelector(`[data-options-form]`),t=document.querySelector(`[data-price-display]`),n=document.querySelector(`[data-hero-track]`);if(e instanceof HTMLFormElement&&t instanceof HTMLElement){let r=(t.dataset.currency||`usd`).toUpperCase(),i=Number(t.dataset.base||`0`),a=new Intl.NumberFormat(`en-US`,{style:`currency`,currency:r}),o=10**(a.resolvedOptions().maximumFractionDigits??2),s=e=>{if(!(n instanceof HTMLElement)||!e)return;let t=document.getElementById(`pi-${e}`);t instanceof HTMLElement&&n.contains(t)&&(n.scrollLeft=t.offsetLeft)},c=n=>{let r=e.querySelector(`input[name="variant_id"]:checked`),c=r?Number(r.getAttribute(`data-price`)):i;for(let t of e.querySelectorAll(`input[name="extra"]:checked`))c+=Number(t.getAttribute(`data-price`))||0;t.textContent=a.format(c/o),n&&r&&s(r.getAttribute(`data-image-id`)||``)};e.addEventListener(`change`,()=>c(!0)),c(!0)}</script>
 <script type="module">globalThis.process??={},globalThis.process.env??={};var e=document.querySelector(`[data-share]`);if(e instanceof HTMLElement){let t=typeof navigator.share==`function`,n=!!navigator.clipboard?.writeText;if(t||n){e.classList.remove(`hidden`),e.classList.add(`inline-flex`);let n=e.querySelector(`[data-share-label]`);e.addEventListener(`click`,async()=>{let r=location.href,i=e.dataset.shareTitle||document.title;if(t){try{await navigator.share({title:i,url:r})}catch{}return}if(await navigator.clipboard.writeText(r),n){let e=n.textContent;n.textContent=`Link copied`,setTimeout(()=>{n.textContent=e},1500)}})}}</script>
