@@ -14,6 +14,10 @@ import { normalizeHeaders, normalizeHtml } from './normalize-html.mjs';
 
 const BASELINE_DIR = 'test/baselines/storefront';
 
+/** Node's fetch waits forever by default. A wedged Worker should fail this
+ *  script in seconds, not hang whatever is running it. */
+const REQUEST_TIMEOUT_MS = 30_000;
+
 /**
  * Every surface that renders a product card, plus the Layout.astro consumers an
  * extraction could disturb. Names become file names, so they stay stable across
@@ -82,7 +86,9 @@ export const ROUTES = [
  * the contract) and reuse its cookie for those routes.
  */
 async function cartCookie(origin) {
-  const catalog = await fetch(new URL('/api/products?limit=50', origin));
+  const catalog = await fetch(new URL('/api/products?limit=50', origin), {
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
   const { products } = await catalog.json();
   // A product WITH variants requires one to be chosen, and `add` redirects back
   // to the product page instead of setting a cookie. Pick a plain, in-stock line.
@@ -94,6 +100,7 @@ async function cartCookie(origin) {
   const response = await fetch(new URL('/api/cart', origin), {
     method: 'POST',
     redirect: 'manual',
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     // The middleware rejects cross-site form posts by comparing Origin with the
     // request origin (astro.config disables Astro's own checkOrigin in favour of
     // it). Without this header the add is a 403, not a redirect.
@@ -115,6 +122,7 @@ async function cartCookie(origin) {
 async function capture(origin, route, cookie) {
   const response = await fetch(new URL(route.path, origin), {
     redirect: 'manual',
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     headers: route.withCart && cookie ? { cookie } : {},
   });
   const body = await response.text();

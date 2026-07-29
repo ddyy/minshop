@@ -92,9 +92,15 @@ npx wrangler dev \
   --port "$test_port" >"$worker_log" 2>&1 &
 worker_pid="$!"
 
+# Every curl is bounded with --max-time. The readiness loop below bounds RETRIES,
+# not individual requests: if wrangler accepts the connection and then never
+# responds — which a cold CI runner can produce — an unbounded curl blocks
+# forever, the liveness probe keeps passing because the process still exists,
+# and the job dies at its 15-minute limit having printed nothing. A bound turns
+# that into a fast, legible failure with the worker log attached.
 ready=""
 for _ in {1..40}; do
-  if curl --fail --silent --show-error "http://127.0.0.1:$test_port/api/products?limit=1" >/dev/null 2>&1; then
+  if curl --max-time 30 --fail --silent --show-error "http://127.0.0.1:$test_port/api/products?limit=1" >/dev/null 2>&1; then
     ready="yes"
     break
   fi
