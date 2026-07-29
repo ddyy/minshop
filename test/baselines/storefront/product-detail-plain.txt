@@ -1,4 +1,4 @@
-# /products/sample-tee
+# /products/pagination-item-2
 status: 200
 content-type: text/html
 cache-control: public, max-age=0, s-maxage=600
@@ -12,18 +12,18 @@ cache-tag: catalog,product:prod_<id>,product:prod_<id>,product:prod_<id>,product
 <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-<title>Sample Tee — My Shop</title>
-<meta name="description" content="A comfy cotton t-shirt.">
-<link rel="canonical" href="https://canonical.example/products/sample-tee">
+<title>Pagination Item 2 — My Shop</title>
+<meta name="description" content="pagination fixture">
+<link rel="canonical" href="https://canonical.example/products/pagination-item-2">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="My Shop">
-<meta property="og:title" content="Sample Tee — My Shop">
-<meta property="og:description" content="A comfy cotton t-shirt.">
-<meta property="og:url" content="https://canonical.example/products/sample-tee">
+<meta property="og:title" content="Pagination Item 2 — My Shop">
+<meta property="og:description" content="pagination fixture">
+<meta property="og:url" content="https://canonical.example/products/pagination-item-2">
 <meta property="og:image" content="https://canonical.example/placeholder.png">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Sample Tee — My Shop">
-<meta name="twitter:description" content="A comfy cotton t-shirt.">
+<meta name="twitter:title" content="Pagination Item 2 — My Shop">
+<meta name="twitter:description" content="pagination fixture">
 <meta name="twitter:image" content="https://canonical.example/placeholder.png">
 <script>
       document.documentElement.classList.add('image-fade-enabled');
@@ -59,75 +59,28 @@ cache-tag: catalog,product:prod_<id>,product:prod_<id>,product:prod_<id>,product
 <main class="mx-auto w-full max-w-6xl flex-1 px-6 py-12">
 <a href="/" class="text-xs uppercase tracking-widest text-gray-400 hover:text-brand">&larr; Back to shop</a>
 <div class="mt-6 grid gap-10 md:grid-cols-2 md:gap-16">
-<div class="reveal">
-<div data-hero-track class="no-scrollbar relative flex snap-x snap-mandatory overflow-x-auto scroll-smooth rounded-lg bg-gray-100">
-<img id="pi-pimg_<id>" src="/images/media/tee-front.jpg" alt="Sample Tee" width="800" height="800" loading="eager" fetchpriority="high" decoding="async" data-image-fade class="aspect-square w-full shrink-0 snap-center bg-gray-100 object-cover">
-<img id="pi-pimg_<id>" src="/images/media/tee-back.jpg" alt="Sample Tee" width="800" height="800" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade class="aspect-square w-full shrink-0 snap-center bg-gray-100 object-cover">
-</div>
-<div class="no-scrollbar mt-3 flex gap-2 overflow-x-auto">
-<a href="#pi-pimg_<id>" class="shrink-0 overflow-hidden rounded border border-line bg-gray-100 transition hover:border-brand">
-<img src="/images/media/tee-front.jpg" alt="" width="64" height="64" loading="lazy" decoding="async" data-image-fade class="h-16 w-16 bg-gray-100 object-cover">
-</a>
-<a href="#pi-pimg_<id>" class="shrink-0 overflow-hidden rounded border border-line bg-gray-100 transition hover:border-brand">
-<img src="/images/media/tee-back.jpg" alt="" width="64" height="64" loading="lazy" decoding="async" data-image-fade class="h-16 w-16 bg-gray-100 object-cover">
-</a>
-</div>
+<div class="reveal relative overflow-hidden rounded-lg bg-gray-100">
+<img src="/placeholder.png" alt="Pagination Item 2" class="aspect-square w-full bg-gray-100 object-cover" width="600" height="600" loading="eager" fetchpriority="high" decoding="async">
 </div>
 <div class="reveal flex flex-col" style="animation-delay:90ms">
 <div class="mb-4 flex flex-wrap gap-x-4 gap-y-1 text-xs uppercase tracking-widest text-gray-400">
 <a href="/categories/apparel" class="hover:text-brand">Apparel</a>
 </div>
-<h1 class="font-serif text-4xl tracking-tight">Sample Tee</h1>
-<p class="mt-4 text-2xl tabular-nums text-gray-700" data-price-display data-base="2500" data-currency="usd">
-<span class="text-base text-gray-400">from </span>$24.00</p>
-<p class="mt-6 max-w-prose leading-relaxed text-gray-600">A comfy cotton t-shirt.</p>
-<form method="POST" action="/api/cart" class="mt-8 max-w-sm" data-options-form>
+<h1 class="font-serif text-4xl tracking-tight">Pagination Item 2</h1>
+<p class="mt-4 text-2xl tabular-nums text-gray-700" data-price-display data-base="1002" data-currency="usd">$10.02</p>
+<p class="mt-6 max-w-prose leading-relaxed text-gray-600">pagination fixture</p>
+<div class="mt-10 flex gap-3">
+<form method="POST" action="/api/cart">
 <input type="hidden" name="_action" value="add">
 <input type="hidden" name="product_id" value="prod_<id>">
-<fieldset class="mb-6">
-<legend class="mb-2 text-xs uppercase tracking-widest text-gray-500">Size</legend>
-<div class="flex flex-col gap-2">
-<label class="flex items-center justify-between gap-3 rounded-md border px-4 py-2.5 text-sm transition cursor-pointer border-line hover:border-brand">
-<span class="flex items-center gap-3">
-<input type="radio" name="variant_id" value="var_<id>" required checked data-price="2400" data-image-id class="accent-brand">
-<span>Small</span>
-</span>
-<span class="tabular-nums text-gray-500">$24.00</span>
-</label>
-<label class="flex items-center justify-between gap-3 rounded-md border px-4 py-2.5 text-sm transition cursor-not-allowed border-line text-gray-400">
-<span class="flex items-center gap-3">
-<input type="radio" name="variant_id" value="var_<id>" required disabled data-price="2900" data-image-id class="accent-brand">
-<span>Large — sold out</span>
-</span>
-<span class="tabular-nums text-gray-500">$29.00</span>
-</label>
-</div>
-</fieldset>
-<fieldset class="mb-6">
-<legend class="mb-2 text-xs uppercase tracking-widest text-gray-500">Add-ons</legend>
-<div class="flex flex-col gap-2">
-<label class="flex cursor-pointer items-center justify-between gap-3 rounded-md border border-line px-4 py-2.5 text-sm transition hover:border-brand">
-<span class="flex items-center gap-3">
-<input type="checkbox" name="extra" value="xtra_<id>" data-price="500" class="accent-brand">
-<span>Gift wrap</span>
-</span>
-<span class="tabular-nums text-gray-500">+$5.00</span>
-</label>
-<label class="flex cursor-pointer items-center justify-between gap-3 rounded-md border border-line px-4 py-2.5 text-sm transition hover:border-brand">
-<span class="flex items-center gap-3">
-<input type="checkbox" name="extra" value="xtra_<id>" data-price="0" class="accent-brand">
-<span>Rush delivery</span>
-</span>
-<span class="tabular-nums text-gray-500">+$0.00</span>
-</label>
-</div>
-</fieldset>
-<div class="flex flex-wrap gap-3">
 <button type="submit" class="rounded-md border border-line px-8 py-3 text-sm font-medium uppercase tracking-wider text-gray-700 transition hover:border-brand hover:text-brand">Add to cart</button>
-<button type="submit" formaction="/express" formmethod="GET" data-fullpage class="rounded-md bg-brand px-8 py-3 text-sm font-medium uppercase tracking-wider text-white transition hover:bg-brand-hover">Buy now</button>
-</div>
 </form>
-<button type="button" data-share data-share-title="Sample Tee" class="mt-6 hidden w-fit items-center gap-2 text-xs uppercase tracking-widest text-gray-400 transition hover:text-brand">
+<form method="GET" action="/express">
+<input type="hidden" name="product_id" value="prod_<id>">
+<button type="submit" class="rounded-md bg-brand px-8 py-3 text-sm font-medium uppercase tracking-wider text-white transition hover:bg-brand-hover">Buy now</button>
+</form>
+</div>
+<button type="button" data-share data-share-title="Pagination Item 2" class="mt-6 hidden w-fit items-center gap-2 text-xs uppercase tracking-widest text-gray-400 transition hover:text-brand">
 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 <circle cx="18" cy="5" r="3">
 </circle>
@@ -158,15 +111,6 @@ cache-tag: catalog,product:prod_<id>,product:prod_<id>,product:prod_<id>,product
 </a>
 </li>
 <li class="reveal group" style="animation-delay:60ms">
-<a href="/products/pagination-item-2" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
-<img src="/placeholder.png" alt="Pagination Item 2" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
-</div>
-<h3 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 2</h3>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.02</p>
-</a>
-</li>
-<li class="reveal group" style="animation-delay:120ms">
 <a href="/products/pagination-item-3" class="block">
 <div class="relative overflow-hidden rounded-md bg-gray-100">
 <img src="/placeholder.png" alt="Pagination Item 3" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
@@ -175,7 +119,7 @@ cache-tag: catalog,product:prod_<id>,product:prod_<id>,product:prod_<id>,product
 <p class="mt-1 text-sm tabular-nums text-gray-500">$10.03</p>
 </a>
 </li>
-<li class="reveal group" style="animation-delay:180ms">
+<li class="reveal group" style="animation-delay:120ms">
 <a href="/products/pagination-item-4" class="block">
 <div class="relative overflow-hidden rounded-md bg-gray-100">
 <img src="/placeholder.png" alt="Pagination Item 4" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
@@ -184,9 +128,18 @@ cache-tag: catalog,product:prod_<id>,product:prod_<id>,product:prod_<id>,product
 <p class="mt-1 text-sm tabular-nums text-gray-500">$10.04</p>
 </a>
 </li>
+<li class="reveal group" style="animation-delay:180ms">
+<a href="/products/sample-tee" class="block">
+<div class="relative overflow-hidden rounded-md bg-gray-100">
+<img src="/placeholder.png" alt="Sample Tee" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
+</div>
+<h3 class="mt-4 text-sm font-medium tracking-tight">Sample Tee</h3>
+<p class="mt-1 text-sm tabular-nums text-gray-500">$25.00</p>
+</a>
+</li>
 </ul>
 </section>
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"Sample Tee","description":"A comfy cotton t-shirt.","image":"https://canonical.example/placeholder.png","offers":{"@type":"Offer","price":"24.00","priceCurrency":"USD","availability":"https://schema.org/InStock","url":"https://canonical.example/products/sample-tee"}}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"Pagination Item 2","description":"pagination fixture","image":"https://canonical.example/placeholder.png","offers":{"@type":"Offer","price":"10.02","priceCurrency":"USD","availability":"https://schema.org/InStock","url":"https://canonical.example/products/pagination-item-2"}}</script>
 <script type="module">globalThis.process??={},globalThis.process.env??={};var e=document.querySelector(`[data-options-form]`),t=document.querySelector(`[data-price-display]`),n=document.querySelector(`[data-hero-track]`);if(e instanceof HTMLFormElement&&t instanceof HTMLElement){let r=(t.dataset.currency||`usd`).toUpperCase(),i=Number(t.dataset.base||`0`),a=new Intl.NumberFormat(`en-US`,{style:`currency`,currency:r}),o=10**(a.resolvedOptions().maximumFractionDigits??2),s=e=>{if(!(n instanceof HTMLElement)||!e)return;let t=document.getElementById(`pi-${e}`);t instanceof HTMLElement&&n.contains(t)&&(n.scrollLeft=t.offsetLeft)},c=n=>{let r=e.querySelector(`input[name="variant_id"]:checked`),c=r?Number(r.getAttribute(`data-price`)):i;for(let t of e.querySelectorAll(`input[name="extra"]:checked`))c+=Number(t.getAttribute(`data-price`))||0;t.textContent=a.format(c/o),n&&r&&s(r.getAttribute(`data-image-id`)||``)};e.addEventListener(`change`,()=>c(!0)),c(!0)}</script>
 <script type="module">globalThis.process??={},globalThis.process.env??={};var e=document.querySelector(`[data-share]`);if(e instanceof HTMLElement){let t=typeof navigator.share==`function`,n=!!navigator.clipboard?.writeText;if(t||n){e.classList.remove(`hidden`),e.classList.add(`inline-flex`);let n=e.querySelector(`[data-share-label]`);e.addEventListener(`click`,async()=>{let r=location.href,i=e.dataset.shareTitle||document.title;if(t){try{await navigator.share({title:i,url:r})}catch{}return}if(await navigator.clipboard.writeText(r),n){let e=n.textContent;n.textContent=`Link copied`,setTimeout(()=>{n.textContent=e},1500)}})}}</script>
 </main>

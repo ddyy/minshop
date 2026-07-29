@@ -54,7 +54,11 @@ export const ROUTES = [
   { name: 'category', path: '/categories/apparel' },
   { name: 'search', path: '/search?q=sample' },
   { name: 'search-empty', path: '/search?q=zzzznomatch' },
+  // sample-tee carries variants, extras, and a multi-image gallery; the
+  // pagination items are the plain and sold-out shapes.
   { name: 'product-detail', path: '/products/sample-tee' },
+  { name: 'product-detail-plain', path: '/products/pagination-item-2' },
+  { name: 'product-detail-sold-out', path: '/products/pagination-item-1' },
   { name: 'content-page', path: '/pages/about' },
   { name: 'not-found', path: '/no-such-page' },
   // Transactional and authentication surfaces — same shell, different stakes.
