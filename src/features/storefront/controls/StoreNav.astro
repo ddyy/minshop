@@ -1,0 +1,75 @@
+---
+import type { StorefrontLink } from '../models';
+
+/**
+ * Merchant navigation: the inline row and its mobile disclosure.
+ *
+ * The disclosure is a native <details>, not a checkbox+label, because it
+ * carries the disclosure role and expanded state with NO JavaScript. Navigation
+ * is already in the HTML, so making it script-dependent would be a strictly
+ * worse trade — which is exactly the kind of decision that should not live in
+ * an editable file. `data-nav-disclosure` is part of that contract.
+ */
+interface Props {
+  links: StorefrontLink[];
+}
+
+const { links } = Astro.props;
+---
+
+{/* Merchant navigation, inline only at xl. Below that the row also holds
+    the logo, the search field, and up to four store controls, so six
+    merchant links cannot fit — 1024px is the tightest case, which is
+    why the disclosure runs to xl rather than lg.
+
+    Labels size to their content and ellipsize ONLY when the row runs
+    out. A fixed max-width (this was 12ch) truncates unconditionally:
+    "Privacy Policy" lost its tail while 96px of header sat empty.
+    `min-w-0` is what makes the shrink possible — flex items default to
+    min-width:auto, which would otherwise force overflow instead. */}
+{
+  links.length > 0 && (
+    <div class="hidden min-w-0 items-center gap-4 xl:flex xl:gap-6">
+      {links.map((link) => (
+        <a href={link.href} title={link.text} class="min-w-0 truncate hover:text-brand">
+          {link.text}
+        </a>
+      ))}
+    </div>
+  )
+}
+{
+  links.length > 0 && (
+    /* order-last puts the hamburger at the far right of the row. In
+       source order it precedes Search/Cart/Account so the menu reads
+       first for a screen reader and in the no-CSS fallback, but
+       visually it belongs at the edge, past the store controls. */
+    <details data-nav-disclosure class="relative order-last xl:hidden">
+      <summary
+        aria-label="Menu"
+        class="flex cursor-pointer list-none items-center hover:text-brand"
+      >
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 18 18"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          aria-hidden="true"
+        >
+          <path d="M2 4.5h14M2 9h14M2 13.5h14" />
+        </svg>
+      </summary>
+      <div
+        class="absolute right-0 z-40 mt-3 flex min-w-44 flex-col gap-3 border border-line bg-white p-4 shadow-lg"
+      >
+        {links.map((link) => (
+          <a href={link.href} class="hover:text-brand">
+            {link.text}
+          </a>
+        ))}
+      </div>
+    </details>
+  )
+}

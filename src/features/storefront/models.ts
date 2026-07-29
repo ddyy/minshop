@@ -52,3 +52,34 @@ export interface ProductCardModel {
    *  stay private, and bucket-level changes avoid cache invalidation. */
   inStock: boolean;
 }
+
+/** A resolved navigation link. Targets are validated upstream, so a template
+ *  never renders a dead link or has to ask whether one is publishable. */
+export interface StorefrontLink {
+  text: string;
+  href: string;
+}
+
+/**
+ * Everything the header and footer need, for every route that renders them.
+ *
+ * The shell is not browse-only: it wraps cart, checkout, payment, account, and
+ * Admin login too. So this model is deliberately inert — links, labels, and
+ * flags. Nothing here can start a request or change state.
+ */
+export interface StorefrontShellModel {
+  storeName: string;
+  /** Resolved header logo, or null to fall back to the store name as text. */
+  logo: StorefrontImage | null;
+  /** Escaped message plus an already-validated link, or null when unset. */
+  announcement: { text: string; href: string | null } | null;
+  headerLinks: StorefrontLink[];
+  footerLinks: StorefrontLink[];
+  /** Form action plus the current query, so the field repopulates on /search. */
+  search: { action: string; query: string };
+  cart: { enabled: boolean; href: string };
+  account: { enabled: boolean; href: string };
+  /** Build-time feature, not a merchant setting — but it renders in the same
+   *  navigation row, so the template needs to know. */
+  blog: { enabled: boolean; href: string };
+}

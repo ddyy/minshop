@@ -11,10 +11,18 @@ theme engine and no code editor in Admin — you edit source, build, and deploy.
 | File | What it controls |
 | --- | --- |
 | `src/styles/theme.css` | Brand tokens: colors, fonts, radii. |
+| `src/storefront/Header.astro` | Logo, announcement bar, navigation, search, cart and account placement. |
+| `src/storefront/Footer.astro` | Footer navigation and store attribution. |
 | `src/storefront/ProductCard.astro` | Every product card — catalog, category, search, and the "You may also like" row. |
 
-More surfaces (header, footer, catalog, product page) land in later releases and
+More surfaces (catalog, product page, content pages) land in later releases and
 will appear in this table as they do.
+
+### The header renders on every page
+
+That includes cart, checkout, payment, account, and Admin login — not just
+browse pages. A header that breaks is a checkout that breaks, so keep the core
+controls listed below and change where they sit rather than what they emit.
 
 ## What you don't own
 
@@ -80,6 +88,30 @@ Render images through `<StoreImage>`. It owns the responsive attributes, the
 aspect hint that prevents layout shift, and the LCP behavior for the first card
 on a page. Copying its markup to adjust spacing loses all three — wrap it or
 pass `class` instead.
+
+## The shell contract
+
+`Header.astro` and `Footer.astro` receive a `StorefrontShellModel`: store name,
+resolved logo, announcement, header and footer links, and `enabled`/`href` pairs
+for search, cart, account, and blog. Merchant links are pre-filtered to targets
+that are actually publishable, so you cannot render a dead link.
+
+Four controls carry behavior your template must not reimplement:
+
+| Control | What it owns |
+| --- | --- |
+| `<StoreNav>` | Inline links plus the mobile `<details>` disclosure, which works with no JavaScript. |
+| `<StoreSearch>` | GET method, the `q` field, the search landmark, the accessible label. |
+| `<StoreCartControl>` | The `data-cart-open` and `data-cart-count-label` hooks the drawer script depends on. |
+| `<StoreAccountControl>` | The account destination, which middleware guards. |
+
+Each takes a `class` for placement and styling. Reimplementing one is the one
+change most likely to break something silently: the cart drawer script fails
+soft, so a header missing its hooks looks fine and simply stops opening.
+
+The cart drawer itself lives in `Layout.astro`, next to the script that drives
+it. Leave it there — nesting a fixed dialog inside the sticky, backdrop-filtered
+header changes its positioning context.
 
 ## Rules
 

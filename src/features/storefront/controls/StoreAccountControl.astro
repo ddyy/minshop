@@ -1,0 +1,15 @@
+---
+/**
+ * The account link. Thin, but it keeps the destination upstream: account URLs
+ * are guarded by middleware, and a template inventing its own path would send
+ * shoppers somewhere that redirects.
+ */
+interface Props {
+  href: string;
+  class?: string;
+}
+
+const { href, class: className = 'hover:text-brand' } = Astro.props;
+---
+
+<a href={href} class={className}>Account</a>

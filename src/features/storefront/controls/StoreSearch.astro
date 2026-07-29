@@ -1,0 +1,26 @@
+---
+/**
+ * The storefront search form. Owns the GET method, the `q` field name, the
+ * search landmark role, and the accessible label — the parts that make search
+ * work and stay reachable. Where it sits and how wide it is belong to the
+ * header, so the root takes a `class`.
+ */
+interface Props {
+  action: string;
+  query: string;
+  class?: string;
+}
+
+const { action, query, class: className = '' } = Astro.props;
+---
+
+<form method="GET" action={action} class={className} role="search">
+  <input
+    type="search"
+    name="q"
+    value={query}
+    placeholder="Search"
+    aria-label="Search products"
+    class="w-40 border-0 border-b border-line bg-transparent px-1 py-1 text-sm transition-all focus:w-56 focus:border-brand focus:outline-none"
+  />
+</form>

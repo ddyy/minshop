@@ -1,0 +1,29 @@
+---
+/**
+ * The header cart link and its live count badge.
+ *
+ * Owns two hooks the document shell's enhancement script depends on:
+ * `data-cart-open` (intercepted to open the drawer instead of navigating) and
+ * `data-cart-count-label` (where the badge text is written). The script fails
+ * soft when they are missing, so losing them breaks the drawer silently —
+ * which is why they live here and not in an editable file.
+ *
+ * The drawer markup itself stays in the document shell, beside that script.
+ */
+interface Props {
+  href: string;
+  class?: string;
+}
+
+const { href, class: className = 'inline-flex items-center hover:text-brand' } = Astro.props;
+---
+
+<a href={href} data-cart-open class={className}>
+  Cart
+  <span
+    data-cart-count-label
+    class="inline-block min-w-[4ch] tabular-nums"
+    aria-live="polite"
+    aria-atomic="true"
+  />
+</a>

@@ -1,0 +1,50 @@
+---
+import type { StorefrontShellModel } from '../../../../src/features/storefront/models';
+import StoreNav from '../../../../src/features/storefront/controls/StoreNav.astro';
+import StoreSearch from '../../../../src/features/storefront/controls/StoreSearch.astro';
+import StoreCartControl from '../../../../src/features/storefront/controls/StoreCartControl.astro';
+import StoreAccountControl from '../../../../src/features/storefront/controls/StoreAccountControl.astro';
+
+/**
+ * A structurally different header: two stacked rows instead of one, the
+ * announcement below the brand rather than above it, search on its own line.
+ * It exists to prove the shell model and its controls are implementable a
+ * second way — if either only fits the markup they were extracted from, this
+ * is where that shows.
+ */
+interface Props {
+  model: StorefrontShellModel;
+}
+
+const { model } = Astro.props;
+---
+
+<header class="alt-shell">
+  <div class="alt-shell__brand">
+    <a href="/" aria-label={model.storeName}>
+      {model.logo ? <img src={model.logo.src} alt={model.logo.alt} /> : model.storeName}
+    </a>
+    {model.cart.enabled && <StoreCartControl href={model.cart.href} class="alt-shell__cart" />}
+    {model.account.enabled && <StoreAccountControl href={model.account.href} class="alt-shell__account" />}
+  </div>
+
+  {
+    model.announcement && (
+      <p class="alt-shell__announcement">
+        {model.announcement.href ? (
+          <a href={model.announcement.href}>{model.announcement.text}</a>
+        ) : (
+          model.announcement.text
+        )}
+      </p>
+    )
+  }
+
+  <div class="alt-shell__row">
+    <nav aria-label="Primary" class="alt-shell__nav">
+      <StoreNav links={model.headerLinks} />
+      {model.blog.enabled && <a href={model.blog.href}>Journal</a>}
+    </nav>
+    <StoreSearch action={model.search.action} query={model.search.query} class="alt-shell__search" />
+  </div>
+</header>
