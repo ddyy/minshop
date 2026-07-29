@@ -134,7 +134,10 @@ export function orderNotificationEmail(
   imageDelivery: ImageDelivery = 'original',
 ): EmailMessage {
   const publicId = order.public_id ?? '—';
-  const subjectPublicId = order.public_id ? ` — ${order.public_id}` : '';
+  // ASCII hyphen on purpose: a non-ASCII char anywhere in a header forces RFC
+  // 2047 encoded-words, which read as "=?utf-8?b?...?=" in raw logs. The em
+  // dashes in the BODY are fine — bodies declare their charset.
+  const subjectPublicId = order.public_id ? ` - ${order.public_id}` : '';
   const money = (cents: number) => formatPrice(cents, order.currency);
   const shipText = formatShipAddress(order);
   const adminUrl = `${baseUrl}/admin/orders/${order.public_id ?? order.id}`;

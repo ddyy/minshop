@@ -43,7 +43,8 @@ describe('orderNotificationEmail', () => {
       'Minshop',
     );
 
-    expect(message.subject).toBe('New Minshop order #105 — ord_zdpyy315je');
+    // ASCII hyphen: keeps the header out of RFC 2047 encoded-words in raw logs.
+    expect(message.subject).toBe('New Minshop order #105 - ord_zdpyy315je');
     for (const body of [message.text, message.html]) {
       expect(body.toLowerCase()).toContain('order #105');
       expect(body).toContain('ord_zdpyy315je');
