@@ -27,7 +27,7 @@ describe('the content-page prose scale', () => {
     expect(global).toContain(`${property}: var(${token},`);
   });
 
-  it.each(PROSE_RULES)('keeps today\'s value as the fallback for %s (%s)', (property, token, literal) => {
+  it.each(PROSE_RULES)('keeps today\'s value as the fallback for %s (%s)', (_property, token, literal) => {
     // A store may replace theme.css wholesale with a design system's tokens and
     // omit one of these. That must degrade to the current design, not to an
     // unstyled heading.

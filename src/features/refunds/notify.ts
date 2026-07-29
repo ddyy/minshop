@@ -38,7 +38,7 @@ export async function sendRefundNotice(
   try {
     const storeName = (await getSetting(env.DB, 'store_name')) || getConfig().storeName;
     await emailer.send(
-      orderRefundedEmail(order, deltaCents, order.refunded_cents, origin, storeName,
+      orderRefundedEmail(order, deltaCents, order.refunded_cents, storeName,
         await guestOrderUrl(env.DB, order.public_id, origin)),
     );
   } catch (err) {

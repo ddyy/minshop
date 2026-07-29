@@ -196,7 +196,6 @@ export function orderNotificationEmail(
 /** Build the "your order has shipped" email. `order.email` must be set. */
 export function orderShippedEmail(
   order: Order,
-  baseUrl: string,
   storeName: string,
   /** Tokenized guest link (allowlisted email position); null = omit the link. */
   guestOrderUrl?: string | null,
@@ -265,7 +264,6 @@ export function orderRefundedEmail(
   order: Order,
   refundCents: number,
   refundedCents: number,
-  baseUrl: string,
   storeName: string,
   /** Tokenized guest link (allowlisted email position); null = omit the link. */
   guestOrderUrl?: string | null,

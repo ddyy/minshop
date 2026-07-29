@@ -37,7 +37,7 @@ const order = (over: Partial<Order> = {}): Order =>
 
 describe('orderRefundedEmail', () => {
   it('prices every amount in the order currency, not the store default', () => {
-    const msg = orderRefundedEmail(order({ refunded_cents: 2500 }), 2500, 2500, 'https://s', 'S');
+    const msg = orderRefundedEmail(order({ refunded_cents: 2500 }), 2500, 2500, 'S');
     for (const body of [msg.text, msg.html]) {
       expect(body).toContain('€');
       expect(body).not.toContain('$');
@@ -45,7 +45,7 @@ describe('orderRefundedEmail', () => {
   });
 
   it('shows the remaining paid amount for a partial refund', () => {
-    const msg = orderRefundedEmail(order({ refunded_cents: 2500 }), 2500, 2500, 'https://s', 'S');
+    const msg = orderRefundedEmail(order({ refunded_cents: 2500 }), 2500, 2500, 'S');
     expect(msg.text).toContain('Still paid');
     expect(msg.subject).not.toContain('has been refunded');
   });
@@ -55,7 +55,6 @@ describe('orderRefundedEmail', () => {
       order({ refunded_cents: 10000 }),
       10000,
       10000,
-      'https://s',
       'S',
     );
     expect(msg.text).not.toContain('Still paid');
@@ -64,9 +63,9 @@ describe('orderRefundedEmail', () => {
 
   it('reports a running total only when an earlier refund exists', () => {
     // Second partial: this refund is 2000, but 4500 has now gone back overall.
-    const second = orderRefundedEmail(order({ refunded_cents: 4500 }), 2000, 4500, 'https://s', 'S');
+    const second = orderRefundedEmail(order({ refunded_cents: 4500 }), 2000, 4500, 'S');
     expect(second.text).toContain('Total refunded so far');
-    const first = orderRefundedEmail(order({ refunded_cents: 2500 }), 2500, 2500, 'https://s', 'S');
+    const first = orderRefundedEmail(order({ refunded_cents: 2500 }), 2500, 2500, 'S');
     expect(first.text).not.toContain('Total refunded so far');
   });
 });
