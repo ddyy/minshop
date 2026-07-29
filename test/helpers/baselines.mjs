@@ -15,10 +15,39 @@ import { normalizeHeaders, normalizeHtml } from './normalize-html.mjs';
 const BASELINE_DIR = 'test/baselines/storefront';
 
 /**
- * Every surface that renders a product card, plus the shell routes an extraction
- * could disturb. Names become file names, so they stay stable across releases.
+ * Every surface that renders a product card, plus the Layout.astro consumers an
+ * extraction could disturb. Names become file names, so they stay stable across
+ * releases.
+ *
+ * The shell is NOT browse-only: moving the header and footer into store-owned
+ * files puts them on cart, checkout, payment, and authentication pages too, so
+ * those routes are baselined alongside the catalog.
+ *
+ * Coverage limits, stated rather than implied:
+ *
+ *   /order/<token>, /pay/<publicId>   absent — both need a real order or invoice.
+ *   /account, /account/login          baseline their 303. Accounts require a
+ *                                     configured email provider in the encrypted
+ *                                     vault, which the fixture cannot mint.
+ *   /admin/login                      baselines its 303 to /admin/setup, which
+ *                                     is where it goes until a credential hash
+ *                                     exists.
+ *
+ * Those four still render the shared shell in production, so they stay on the
+ * manual visual-review list. The redirect itself is worth pinning: a changed
+ * status or Location is a routing regression regardless of markup.
+ *
+ *   /checkout                       baselines its 303 to /cart. With no real
+ *                                     payment rail configured the only usable
+ *                                     rail is demo, and asking for it makes the
+ *                                     route MINT an invoice and redirect to
+ *                                     /pay/otk_… — an order created as a side
+ *                                     effect of taking a baseline, with a random
+ *                                     token that could never compare equal.
+ *                                     Its shell needs a configured rail.
  */
 export const ROUTES = [
+  // Browse surfaces (product cards).
   { name: 'home', path: '/' },
   { name: 'catalog', path: '/products' },
   { name: 'catalog-sorted-page2', path: '/products?sort=price&dir=asc&page=2' },
@@ -26,11 +55,61 @@ export const ROUTES = [
   { name: 'search', path: '/search?q=sample' },
   { name: 'search-empty', path: '/search?q=zzzznomatch' },
   { name: 'product-detail', path: '/products/sample-tee' },
+  { name: 'content-page', path: '/pages/about' },
   { name: 'not-found', path: '/no-such-page' },
+  // Transactional and authentication surfaces — same shell, different stakes.
+  { name: 'cart', path: '/cart', withCart: true },
+  { name: 'checkout', path: '/checkout', withCart: true },
+  { name: 'express', path: '/express', withCart: true },
+  { name: 'payment-setup', path: '/payment-setup' },
+  { name: 'account', path: '/account' },
+  { name: 'account-login', path: '/account/login' },
+  { name: 'admin-login', path: '/admin/login' },
 ];
 
-async function capture(origin, route) {
-  const response = await fetch(new URL(route.path, origin), { redirect: 'manual' });
+/**
+ * Checkout and express redirect away from an empty cart, so without a cart they
+ * baseline a 303 and never exercise the shell they render — which is the whole
+ * point of covering them. Establish one real cart line through the public API
+ * (the cookie is application-owned; forging it would test a shape rather than
+ * the contract) and reuse its cookie for those routes.
+ */
+async function cartCookie(origin) {
+  const catalog = await fetch(new URL('/api/products?limit=50', origin));
+  const { products } = await catalog.json();
+  // A product WITH variants requires one to be chosen, and `add` redirects back
+  // to the product page instead of setting a cookie. Pick a plain, in-stock line.
+  const productId = products?.find((p) => p.variant_label === null && p.in_stock)?.id;
+  if (!productId) {
+    throw new Error('baseline fixture has no variant-free, in-stock product to add to the cart');
+  }
+
+  const response = await fetch(new URL('/api/cart', origin), {
+    method: 'POST',
+    redirect: 'manual',
+    // The middleware rejects cross-site form posts by comparing Origin with the
+    // request origin (astro.config disables Astro's own checkOrigin in favour of
+    // it). Without this header the add is a 403, not a redirect.
+    headers: { origin },
+    body: new URLSearchParams({ _action: 'add', product_id: productId, qty: '1' }),
+  });
+  const cookies = response.headers
+    .getSetCookie()
+    .map((cookie) => cookie.split(';')[0])
+    .join('; ');
+  if (!cookies.includes('cart')) {
+    throw new Error(
+      `add-to-cart did not establish a cart cookie (status ${response.status})`,
+    );
+  }
+  return cookies;
+}
+
+async function capture(origin, route, cookie) {
+  const response = await fetch(new URL(route.path, origin), {
+    redirect: 'manual',
+    headers: route.withCart && cookie ? { cookie } : {},
+  });
   const body = await response.text();
   return [
     `# ${route.path}`,
@@ -64,9 +143,11 @@ const update = flags.includes('--update');
 
 await mkdir(BASELINE_DIR, { recursive: true });
 
+const cookie = await cartCookie(origin);
+
 const failures = [];
 for (const route of ROUTES) {
-  const current = await capture(origin, route);
+  const current = await capture(origin, route, cookie);
   const file = join(BASELINE_DIR, `${route.name}.txt`);
 
   if (update) {

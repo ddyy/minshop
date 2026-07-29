@@ -43,7 +43,15 @@ export function normalizeHtml(html) {
 
 /** Response headers worth pinning. Cache-control and cache tags are part of the
  *  contract an extraction must not move or drop. */
-const PINNED_HEADERS = ['content-type', 'cache-control', 'cache-tag', 'vary'];
+const PINNED_HEADERS = [
+  'content-type',
+  'cache-control',
+  'cache-tag',
+  'vary',
+  // A redirect's target is route behavior an extraction must preserve, and
+  // several shell consumers legitimately baseline as a redirect.
+  'location',
+];
 
 export function normalizeHeaders(headers) {
   return PINNED_HEADERS.flatMap((name) => {

@@ -1,8 +1,8 @@
-# /categories/apparel
+# /pages/about
 status: 200
 content-type: text/html
 cache-control: public, max-age=0, s-maxage=600
-cache-tag: catalog,product:prod_<id>,product:prod_<id>,product:prod_<id>,product:prod_<id>,product:prod_<id>,shell
+cache-tag: catalog,shell
 
 <!DOCTYPE html>
 <html lang="en">
@@ -12,17 +12,17 @@ cache-tag: catalog,product:prod_<id>,product:prod_<id>,product:prod_<id>,product
 <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-<title>Apparel — My Shop</title>
-<meta name="description" content="Shop My Shop.">
-<link rel="canonical" href="https://canonical.example/categories/apparel">
+<title>About — My Shop</title>
+<meta name="description" content="About us A fixture page with a link and a list: one two">
+<link rel="canonical" href="https://canonical.example/pages/about">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="My Shop">
-<meta property="og:title" content="Apparel — My Shop">
-<meta property="og:description" content="Shop My Shop.">
-<meta property="og:url" content="https://canonical.example/categories/apparel">
+<meta property="og:title" content="About — My Shop">
+<meta property="og:description" content="About us A fixture page with a link and a list: one two">
+<meta property="og:url" content="https://canonical.example/pages/about">
 <meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="Apparel — My Shop">
-<meta name="twitter:description" content="Shop My Shop.">
+<meta name="twitter:title" content="About — My Shop">
+<meta name="twitter:description" content="About us A fixture page with a link and a list: one two">
 <script>
       document.documentElement.classList.add('image-fade-enabled');
       const finishImageFade = (event) => {
@@ -55,68 +55,15 @@ cache-tag: catalog,product:prod_<id>,product:prod_<id>,product:prod_<id>,product
 </div>
 </header>
 <main class="mx-auto w-full max-w-6xl flex-1 px-6 py-12">
-<nav class="mb-4 flex flex-wrap gap-x-2 text-xs uppercase tracking-widest text-gray-400">
-<a href="/" class="hover:text-brand">Shop</a>
-<span class="flex gap-x-2">
-<span aria-hidden="true">/</span>
-<a href="/categories/apparel" class="hover:text-brand">Apparel</a>
-</span>
-</nav>
-<h1 class="mb-8 font-serif text-4xl tracking-tight sm:text-5xl">Apparel</h1>
-<div class="mb-8 flex flex-wrap items-baseline gap-x-5 gap-y-1 text-xs uppercase tracking-widest text-gray-500">
-<span>Sort</span>
-<a href="/categories/apparel?sort=newest&amp;dir=asc" aria-current="true" class="hover:text-brand text-brand">Newest ↓</a>
-<a href="/categories/apparel?sort=price&amp;dir=asc" class="hover:text-brand ">Price</a>
-<a href="/categories/apparel?sort=name&amp;dir=asc" class="hover:text-brand ">Name</a>
-</div>
-<ul class="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-3">
-<li class="reveal group" style="animation-delay:0ms">
-<a href="/products/pagination-item-4" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
-<img src="/placeholder.png" alt="Pagination Item 4" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="eager" fetchpriority="high" decoding="async">
-</div>
-<h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 4</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.04</p>
-</a>
-</li>
-<li class="reveal group" style="animation-delay:60ms">
-<a href="/products/pagination-item-3" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
-<img src="/placeholder.png" alt="Pagination Item 3" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
-</div>
-<h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 3</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.03</p>
-</a>
-</li>
-<li class="reveal group" style="animation-delay:120ms">
-<a href="/products/pagination-item-2" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
-<img src="/placeholder.png" alt="Pagination Item 2" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
-</div>
-<h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 2</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.02</p>
-</a>
-</li>
-<li class="reveal group" style="animation-delay:180ms">
-<a href="/products/pagination-item-1" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
-<img src="/placeholder.png" alt="Pagination Item 1" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04] opacity-60" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
-<span class="absolute left-3 top-3 rounded-full bg-white/90 px-2.5 py-0.5 text-xs uppercase tracking-widest text-gray-700 ring-1 ring-line">Sold out</span>
-</div>
-<h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 1</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.01</p>
-</a>
-</li>
-<li class="reveal group" style="animation-delay:240ms">
-<a href="/products/sample-tee" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
-<img src="/placeholder.png" alt="Sample Tee" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
-</div>
-<h2 class="mt-4 text-sm font-medium tracking-tight">Sample Tee</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$25.00</p>
-</a>
-</li>
+<article class="markdown-content" data-page-layout="standard" style="--page-measure:48rem;--page-title-align:left">
+<h1>About</h1>
+<h1>About us</h1>
+<p>A fixture page with a <a href="/products">link</a> and a list:</p>
+<ul>
+<li>one</li>
+<li>two</li>
 </ul>
+</article>
 </main>
 <footer class="border-t border-line">
 <div class="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-6 py-10 text-xs uppercase tracking-widest text-gray-500">

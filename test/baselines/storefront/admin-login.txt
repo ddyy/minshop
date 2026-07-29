@@ -1,0 +1,6 @@
+# /admin/login
+status: 303
+cache-control: private, no-store
+location: /admin/setup
+
+

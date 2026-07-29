@@ -50,6 +50,7 @@ cache-tag: catalog,shell
 <a href="/cart" data-cart-open class="inline-flex items-center hover:text-brand">Cart<span data-cart-count-label class="inline-block min-w-[4ch] tabular-nums" aria-live="polite" aria-atomic="true">
 </span>
 </a>
+<a href="/account" class="hover:text-brand">Account</a>
 </nav>
 </div>
 </header>

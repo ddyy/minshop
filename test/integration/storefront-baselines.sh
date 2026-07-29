@@ -35,7 +35,7 @@ fi
 npx wrangler d1 migrations apply DB --local --persist-to "$state_dir" >/dev/null
 npx wrangler d1 execute DB --local --persist-to "$state_dir" --file ./seed.sql >/dev/null
 npx wrangler d1 execute DB --local --persist-to "$state_dir" \
-  --command "INSERT INTO settings (key, value) VALUES ('setup_complete', '1');" >/dev/null
+  --command "INSERT INTO settings (key, value) VALUES ('setup_complete', '1'), ('accounts_enabled', '1');" >/dev/null
 # A second page of catalog results, so pagination and sort links are exercised.
 npx wrangler d1 execute DB --local --persist-to "$state_dir" \
   --command "WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 30) INSERT INTO products (name, slug, description, price_cents, stock) SELECT 'Pagination Item ' || n, 'pagination-item-' || n, 'pagination fixture', 1000 + n, 10 FROM seq;" >/dev/null
@@ -50,10 +50,15 @@ npx wrangler d1 execute DB --local --persist-to "$state_dir" \
 # appear in any baseline.
 npx wrangler d1 execute DB --local --persist-to "$state_dir" \
   --command "INSERT INTO product_categories (product_id, category_id) SELECT p.id, c.id FROM products p, categories c WHERE p.slug IN ('pagination-item-1','pagination-item-2','pagination-item-3','pagination-item-4') AND c.slug = 'apparel';" >/dev/null
+# A published content page, so the Markdown wrapper and the footer's page links
+# are both exercised by the shell baselines.
+npx wrangler d1 execute DB --local --persist-to "$state_dir" \
+  --command "INSERT INTO pages (title, slug, body_markdown, published) VALUES ('About', 'about', '# About us' || char(10) || char(10) || 'A fixture page with a [link](/products) and a list:' || char(10) || char(10) || '- one' || char(10) || '- two', 1);" >/dev/null
+
 # Public serializers refuse rows without a public ID; the values are random per
 # run and normalized out of the baselines.
 npx wrangler d1 execute DB --local --persist-to "$state_dir" \
-  --command "UPDATE products SET public_id = 'prod_' || lower(substr(hex(randomblob(10)),1,10)) WHERE public_id IS NULL; UPDATE categories SET public_id = 'cat_' || lower(substr(hex(randomblob(10)),1,10)) WHERE public_id IS NULL;" >/dev/null
+  --command "UPDATE products SET public_id = 'prod_' || lower(substr(hex(randomblob(10)),1,10)) WHERE public_id IS NULL; UPDATE categories SET public_id = 'cat_' || lower(substr(hex(randomblob(10)),1,10)) WHERE public_id IS NULL; UPDATE pages SET public_id = 'page_' || lower(substr(hex(randomblob(10)),1,10)) WHERE public_id IS NULL;" >/dev/null
 
 npx wrangler dev \
   --config dist/server/wrangler.json \

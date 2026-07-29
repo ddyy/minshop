@@ -1,8 +1,7 @@
-# /categories/apparel
+# /cart
 status: 200
 content-type: text/html
-cache-control: public, max-age=0, s-maxage=600
-cache-tag: catalog,product:prod_<id>,product:prod_<id>,product:prod_<id>,product:prod_<id>,product:prod_<id>,shell
+cache-control: private, no-store
 
 <!DOCTYPE html>
 <html lang="en">
@@ -12,16 +11,16 @@ cache-tag: catalog,product:prod_<id>,product:prod_<id>,product:prod_<id>,product
 <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-<title>Apparel — My Shop</title>
+<title>Cart — My Shop</title>
 <meta name="description" content="Shop My Shop.">
-<link rel="canonical" href="https://canonical.example/categories/apparel">
+<link rel="canonical" href="https://canonical.example/cart">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="My Shop">
-<meta property="og:title" content="Apparel — My Shop">
+<meta property="og:title" content="Cart — My Shop">
 <meta property="og:description" content="Shop My Shop.">
-<meta property="og:url" content="https://canonical.example/categories/apparel">
+<meta property="og:url" content="https://canonical.example/cart">
 <meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="Apparel — My Shop">
+<meta name="twitter:title" content="Cart — My Shop">
 <meta name="twitter:description" content="Shop My Shop.">
 <script>
       document.documentElement.classList.add('image-fade-enabled');
@@ -55,68 +54,50 @@ cache-tag: catalog,product:prod_<id>,product:prod_<id>,product:prod_<id>,product
 </div>
 </header>
 <main class="mx-auto w-full max-w-6xl flex-1 px-6 py-12">
-<nav class="mb-4 flex flex-wrap gap-x-2 text-xs uppercase tracking-widest text-gray-400">
-<a href="/" class="hover:text-brand">Shop</a>
-<span class="flex gap-x-2">
-<span aria-hidden="true">/</span>
-<a href="/categories/apparel" class="hover:text-brand">Apparel</a>
+<h1 class="mb-10 font-serif text-4xl tracking-tight">Your cart</h1>
+<ul class="border-t border-line">
+<li class="flex flex-wrap items-center gap-x-4 gap-y-3 border-b border-line py-4">
+<a href="/products/pagination-item-2" class="flex min-w-0 flex-1 basis-64 items-center gap-4 hover:text-brand">
+<img src="/placeholder.png" alt class="h-16 w-16 shrink-0 rounded object-cover" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
+<span class="min-w-0">
+<span class="block truncate">Pagination Item 2</span>
+<span class="block text-xs tabular-nums text-gray-500">$10.02 each</span>
 </span>
-</nav>
-<h1 class="mb-8 font-serif text-4xl tracking-tight sm:text-5xl">Apparel</h1>
-<div class="mb-8 flex flex-wrap items-baseline gap-x-5 gap-y-1 text-xs uppercase tracking-widest text-gray-500">
-<span>Sort</span>
-<a href="/categories/apparel?sort=newest&amp;dir=asc" aria-current="true" class="hover:text-brand text-brand">Newest ↓</a>
-<a href="/categories/apparel?sort=price&amp;dir=asc" class="hover:text-brand ">Price</a>
-<a href="/categories/apparel?sort=name&amp;dir=asc" class="hover:text-brand ">Name</a>
-</div>
-<ul class="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-3">
-<li class="reveal group" style="animation-delay:0ms">
-<a href="/products/pagination-item-4" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
-<img src="/placeholder.png" alt="Pagination Item 4" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="eager" fetchpriority="high" decoding="async">
-</div>
-<h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 4</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.04</p>
 </a>
-</li>
-<li class="reveal group" style="animation-delay:60ms">
-<a href="/products/pagination-item-3" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
-<img src="/placeholder.png" alt="Pagination Item 3" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
+<div class="ml-auto flex items-center gap-4">
+<form method="POST" action="/api/cart" class="flex items-center gap-2">
+<input type="hidden" name="_action" value="update">
+<input type="hidden" name="key" value="prod_<id>">
+<input type="number" name="qty" min="0" max="99" value="1" aria-label="Quantity" class="w-14 border-b border-line bg-transparent py-1 text-center tabular-nums focus:border-brand focus:outline-none">
+<button type="submit" class="text-xs uppercase tracking-widest text-gray-400 hover:text-brand">Update</button>
+</form>
+<span class="w-20 text-right tabular-nums">$10.02</span>
+<form method="POST" action="/api/cart" class="flex items-center">
+<input type="hidden" name="_action" value="remove">
+<input type="hidden" name="key" value="prod_<id>">
+<button type="submit" aria-label="Remove" class="text-xs uppercase tracking-widest text-gray-400 hover:text-red-600">Remove</button>
+</form>
 </div>
-<h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 3</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.03</p>
-</a>
-</li>
-<li class="reveal group" style="animation-delay:120ms">
-<a href="/products/pagination-item-2" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
-<img src="/placeholder.png" alt="Pagination Item 2" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
-</div>
-<h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 2</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.02</p>
-</a>
-</li>
-<li class="reveal group" style="animation-delay:180ms">
-<a href="/products/pagination-item-1" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
-<img src="/placeholder.png" alt="Pagination Item 1" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04] opacity-60" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
-<span class="absolute left-3 top-3 rounded-full bg-white/90 px-2.5 py-0.5 text-xs uppercase tracking-widest text-gray-700 ring-1 ring-line">Sold out</span>
-</div>
-<h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 1</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.01</p>
-</a>
-</li>
-<li class="reveal group" style="animation-delay:240ms">
-<a href="/products/sample-tee" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
-<img src="/placeholder.png" alt="Sample Tee" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
-</div>
-<h2 class="mt-4 text-sm font-medium tracking-tight">Sample Tee</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$25.00</p>
-</a>
 </li>
 </ul>
+<div class="mt-10 flex justify-end">
+<div class="w-full sm:max-w-sm">
+<div class="flex items-center justify-between">
+<span class="text-xs uppercase tracking-widest text-gray-500">Subtotal</span>
+<span class="text-lg tabular-nums">$10.02</span>
+</div>
+<form method="POST" action="/api/checkout" class="mt-4 space-y-2">
+<input type="hidden" name="source" value="cart">
+<button type="submit" name="method" value="demo" class="flex w-full items-center justify-between gap-3 rounded-lg px-5 py-3 text-left transition bg-brand text-white hover:bg-brand-hover">
+<span>
+<span class="block text-sm font-medium">Demo checkout</span>
+<span class="block text-xs text-white/70">Simulated — places a real test order, no charge</span>
+</span>
+<span aria-hidden="true" class="text-white/80">&rarr;</span>
+</button>
+</form>
+</div>
+</div>
 </main>
 <footer class="border-t border-line">
 <div class="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-6 py-10 text-xs uppercase tracking-widest text-gray-500">
