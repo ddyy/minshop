@@ -126,7 +126,8 @@ npx wrangler d1 create minshop-db
 npx wrangler r2 bucket create minshop-images
 npm run db:migrate:remote          # applies migrations/ to the production DB
 
-# The ONLY two Worker secrets. Everything else (Stripe, OpenNode, Lightning,
+# The only two REQUIRED Worker secrets. The optional cache-purge secret is
+# covered under Caching below. Everything else (Stripe, OpenNode, Lightning,
 # Resend, Turnstile keys + their config) is entered in Admin → Settings and
 # stored encrypted in D1 under SECRETS_KEK.
 openssl rand -base64 32 | npx wrangler secret put AUTH_SECRET   # signs sessions
@@ -157,6 +158,8 @@ Local dev (`astro dev`) bypasses the gate so you're never locked out. Don't make
 
 The Worker also applies native edge rate limits to anonymous login POSTs (10/minute per store, route, and connecting client), checkout/invoice POSTs (20/minute), and cache-missing public searches (60/minute). Search input is normalized and capped at 200 characters before FTS or Workers AI sees it; instances that enable Workers Caching keep public catalog/search responses for up to 10 minutes. Webhooks and authenticated admin APIs are deliberately excluded; provider signatures and the admin gate protect those paths without disrupting legitimate retries or bulk administration. The limits are declared as `AUTH_RATE_LIMITER`, `CHECKOUT_RATE_LIMITER`, and `SEARCH_RATE_LIMITER` bindings in the provisioning template; existing manually maintained Wrangler configs need the same `ratelimits` block.
 
+## Caching
+
 Workers Caching uses its native entrypoint + path/query key, so tracking parameters
 create separate entries; keep internal links canonical and measure fragmentation
 before adding a gateway solely for key normalization. The shell remains shared
@@ -164,14 +167,30 @@ even when a shopper has cookies. Its only customer-specific header value, the
 cart count, loads from a tiny private fragment; the complete cart stays on
 private, `no-store` routes and is fetched only when opened.
 
-Workers Caching is deployment-controlled and disabled in the generic config. If
-an instance moves to a custom domain, set `CANONICAL_ORIGIN` to the full HTTPS
-origin (for example, `https://shop.example.com`) and set `workers_dev: false` in
-the same rendered `wrangler.jsonc`. Only then may that instance set
-`cache.enabled: true`. `CANONICAL_ORIGIN` stabilizes absolute URLs in shared
-HTML, catalog JSON, sitemap, robots, and `llms.txt`; internal storefront links
-remain root-relative. This is not an Admin setting because cache lookup occurs
-before the Worker runs.
+Caching is deployment-controlled and disabled in the generic config. It is not
+an Admin setting because cache lookup occurs before the Worker runs. Enable it
+only for an instance with one public hostname: move the instance to a custom
+domain, set `CANONICAL_ORIGIN` to its exact HTTPS origin, disable the
+`workers.dev` ingress, and enable Workers Caching in the same rendered
+`wrangler.jsonc`:
+
+```jsonc
+{
+  "workers_dev": false,
+  "vars": {
+    "CANONICAL_ORIGIN": "https://shop.example.com"
+  },
+  "cache": {
+    "enabled": true
+  }
+}
+```
+
+`CANONICAL_ORIGIN` stabilizes absolute URLs in shared HTML, catalog JSON,
+sitemap, robots, and `llms.txt`; internal storefront links remain
+root-relative.
+
+### Invalidation
 
 Cacheable responses carry `shell`, `catalog`, and public
 `product:prod_…` tags. Low-frequency Admin changes purge the affected tags after
@@ -183,6 +202,8 @@ checkout pages. Stock purges target the affected `product:prod_…` tags, are
 best-effort, and never fall back to purging the whole cache; the bounded
 10-minute shared TTL remains the safety net for rate limits or transient purge
 failures.
+
+### Cross-version cache
 
 By default, a deployment starts with a cold, version-keyed cache. An instance
 that deploys frequently may add `"cross_version_cache": true` beside
@@ -196,6 +217,49 @@ the shared cache. It retries transient purge failures. If all attempts fail,
 the new Worker is already live: retry the deploy, then temporarily set
 `cross_version_cache` to `false` and deploy again to recover with a cold
 version-keyed cache.
+
+Generate one random value, enter it at Wrangler's secure prompt, and put the
+same value in the deploy machine's uncommitted `.dev.vars`:
+
+```bash
+openssl rand -base64 32
+npx wrangler secret put CACHE_PURGE_SECRET
+```
+
+```dotenv
+# .dev.vars — do not commit
+CACHE_PURGE_SECRET=<the same random value>
+```
+
+Then enable the shared cache:
+
+```jsonc
+"cache": {
+  "enabled": true,
+  "cross_version_cache": true
+}
+```
+
+### Smart Placement (optional)
+
+[Smart Placement](https://developers.cloudflare.com/workers/configuration/placement/)
+can reduce cache-miss and private-route latency by running the Worker closer to
+D1 and other backends when Cloudflare determines that the extra network hop is
+worthwhile. Cache hits and directly served static assets remain edge-local.
+Enable it per instance and compare Workers request-duration analytics before
+making it a default:
+
+```jsonc
+"placement": {
+  "mode": "smart"
+}
+```
+
+Cloudflare may take up to 15 minutes and traffic from multiple locations to
+analyze the Worker. A `cf-placement` value such as `local-LAX` means execution
+stayed near the incoming request; `remote-LHR` means Cloudflare forwarded
+execution to another data center. Treat the header as diagnostic only because
+it is currently a beta interface.
 
 ## Payments
 
