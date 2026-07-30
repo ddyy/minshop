@@ -38,11 +38,11 @@ const MODELS_MODULE = 'src/features/storefront/models.ts';
  * Every theme is its own root, whether it is the selected one or not.
  *
  * This deliberately does NOT call resolveTheme(): if the checker
- * followed the active selection, an invalid set could sit in the tree unexamined
+ * followed the active selection, an invalid theme could sit in the tree unexamined
  * until some later CI run happened to select it. It reuses the id and path
  * validation, never the answer.
  *
- * Per-set roots also matter for the allowlist. With the parent as one root, a
+ * Per-theme roots also matter for the allowlist. With the parent as one root, a
  * store's `acme/Header.astro` could import `../default/ProductCard.astro` and
  * pass — coupling a store's design to an upstream one that is free to change.
  */
@@ -284,7 +284,7 @@ for (const rawRoot of paths.length > 0 ? paths : defaultPaths()) {
   const root = rawRoot.replace(/\/+$/, '');
   // A root named `controls` takes the core-control policy. Matching the
   // directory name rather than one hardcoded path lets the same checker be
-  // pointed at a candidate template set or a future preset.
+  // pointed at a candidate theme or a future preset.
   const policy = /(^|\/)controls$/.test(root) ? 'control' : 'template';
   for await (const file of walk(root)) {
     await checkEntry(file, root, policy);

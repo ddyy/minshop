@@ -42,7 +42,7 @@ yarn-error.log*
 # OS / editor cruft
 .DS_Store
 Thumbs.db
-# Generated storefront-set artifacts (scripts/theme-css.mjs)
+# Generated theme artifacts (scripts/theme-css.mjs)
 src/styles/themes/
 tsconfig.theme.json
 tsconfig.theme.*.json

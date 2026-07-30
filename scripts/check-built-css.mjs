@@ -65,7 +65,7 @@ function classesUnder(dir) {
   return out;
 }
 
-/** Every byte under dir (skipping other-set dirs when asked), for raw
+/** Every byte under dir (skipping other-theme dirs when asked), for raw
  *  substring tests. Tailwind's scanner reads WHOLE files, not just class
  *  attributes — a token counts as "unique to a theme" only if it appears
  *  nowhere else in src in any form, or the compiled output will legitimately
@@ -95,7 +95,7 @@ function cssEscaped(name) {
 }
 
 // ---------------------------------------------------------------------------
-// Derive per-set sentinel candidates.
+// Derive per-theme sentinel candidates.
 
 const ids = discoverThemeIds(root);
 const active = resolveTheme(root);

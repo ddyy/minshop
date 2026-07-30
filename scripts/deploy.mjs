@@ -144,7 +144,7 @@ async function purgeAfterDeploy(origin, secret) {
 // runs here. Defining an extra wrangler call in this file, outside `ops`,
 // is the regression that split exists to prevent.
 const ops = {
-  expectedSet: theme.id,
+  expectedTheme: theme.id,
   readStamp: () => (existsSync(stampPath) ? readFileSync(stampPath, 'utf8') : null),
   build: () => run('npx', ['astro', 'build']),
   loadCacheConfig: () => deploymentCacheConfig(),

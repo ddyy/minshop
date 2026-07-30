@@ -2,8 +2,8 @@
  * Generates the artifacts that tie Tailwind and TypeScript to themes.
  *
  * Two things have to agree with the `#theme` import alias, and both are
- * invisible when they do not: which set's tokens are loaded, and which
- * directory Tailwind scans for utilities. Point either at the wrong set and
+ * invisible when they do not: which theme's tokens are loaded, and which
+ * directory Tailwind scans for utilities. Point either at the wrong theme and
  * the build still succeeds — it just ships the wrong palette, or no utilities
  * at all.
  *
@@ -67,8 +67,8 @@ export function themeCss(id, root = process.cwd()) {
    the active theme is left to normal detection. */
 ${exclusions}
 
-/* The active theme's design tokens. src/styles/tokens.css is imported after this
-   by global.css, so a merchant's overrides still win. */
+/* The active theme's design tokens. src/styles/overrides.css is imported after
+   this by global.css, so a merchant's overrides still win. */
 @import "${toThemes}/${id}/tokens.css";
 `;
 }
@@ -155,7 +155,7 @@ ${adminExclusions || '/* no themes */'}
 
   // The one shared file. It exists for the editor and for a bare `astro
   // check`, and it deliberately ignores THEME — see the design rule
-  // above. Env-selected processes pass their per-set tsconfig explicitly.
+  // above. Env-selected processes pass their per-theme tsconfig explicitly.
   const configured = resolveConfiguredTheme(root);
   writeIfChanged(resolve(root, SHARED_TSCONFIG), sharedTsconfig(configured.id));
 

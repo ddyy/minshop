@@ -1,23 +1,24 @@
 /* source(none): Tailwind v4 otherwise auto-scans the whole project for class
    names, and that reach is a real defect here — test/baselines/*.txt hold
-   rendered HTML of the DEFAULT set, so every build re-acquired default's
-   utilities through its own test fixtures no matter which set was selected
+   rendered HTML of the DEFAULT theme, so every build re-acquired default's
+   utilities through its own test fixtures no matter which theme was selected
    (found when a sentinel utility survived into a Studio build's CSS). Docs
    mentioning utilities in prose leaked the same way. Application markup lives
-   in src/ alone; scan exactly that, minus the per-set exclusions below. */
+   in src/ alone; scan exactly that, minus the per-theme exclusions below. */
 @import "tailwindcss" source(none);
 @source "../../src";
 
-/* The active set's Tailwind scope and design tokens. The alias resolves to a
-   per-set generated stylesheet (src/styles/themes/<set>.css), so which set
-   this process compiles is decided by the alias in astro.config.mjs — not by
+/* The active theme's Tailwind scope and design tokens. The alias resolves to
+   a per-theme generated stylesheet (src/styles/themes/<theme>.css), so which
+   theme this process compiles is decided by the alias in astro.config.mjs — not by
    rewriting a shared file that another process might be reading. See
    scripts/theme-css.mjs. */
 @import "#theme-css";
 
-/* Merchant overrides, applied AFTER the active set's tokens so a store's own
-   without touching this one. Edit theme.css to rebrand; everything below is
-   structural CSS owned by the template. */
+/* Merchant overrides, applied AFTER the active theme's tokens so a store's
+   own values win. Rebrand in your theme's tokens.css; use overrides.css for
+   values that should survive switching themes. Everything below is structural
+   CSS owned by the template. */
 @import "./overrides.css";
 
 @import "./base.css";

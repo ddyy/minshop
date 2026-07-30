@@ -6,11 +6,11 @@
  * src/themes/<theme>/tokens.css, so selecting a theme brings its palette,
  * fonts, radii, and prose scale with it.
  *
- * This file is applied AFTER the active set, so anything declared here wins.
+ * This file is applied AFTER the active theme, so anything declared here wins.
  * Put a store's own brand values in it. Leaving it empty is normal — it means
- * the store uses its set's tokens unchanged.
+ * the store uses its theme's tokens unchanged.
  *
- * Declare ordinary custom properties, not an @theme block: the active set
+ * Declare ordinary custom properties, not an @theme block: the active theme
  * already defines the Tailwind theme, and a second @theme would redeclare the
  * same namespaces rather than override their values.
  */

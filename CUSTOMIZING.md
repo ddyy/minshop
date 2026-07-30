@@ -283,7 +283,7 @@ matters:
   the tree.
 
 Only your active theme's directory is scanned for utilities (inactive themes are
-excluded per build, and generated files under `src/styles/storefront/` wire
+excluded per build, and generated files under `src/styles/themes/` wire
 that up — never edit or commit them). Classes you add in your theme are
 generated without touching any config file.
 

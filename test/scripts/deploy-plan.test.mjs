@@ -47,34 +47,34 @@ describe('deployPlan ordering', () => {
 });
 
 describe('validateStamp', () => {
-  const expectedSet = 'acme';
+  const expectedTheme = 'acme';
 
   it('rejects a missing stamp, with skip-build-specific guidance', () => {
-    expect(() => validateStamp({ raw: null, expectedSet, skipBuild: true })).toThrow(
+    expect(() => validateStamp({ raw: null, expectedTheme, skipBuild: true })).toThrow(
       /omit --skip-build/,
     );
     // Without --skip-build a build JUST ran, so a missing stamp means the
     // stamping integration itself is broken — a different failure needing a
     // different message.
-    expect(() => validateStamp({ raw: null, expectedSet, skipBuild: false })).toThrow(
+    expect(() => validateStamp({ raw: null, expectedTheme, skipBuild: false })).toThrow(
       /integration is missing/,
     );
   });
 
   it('rejects a malformed stamp', () => {
-    expect(() => validateStamp({ raw: 'not json{', expectedSet })).toThrow(/not valid JSON/);
-    expect(() => validateStamp({ raw: '{}', expectedSet })).toThrow(/no "theme" string/);
-    expect(() => validateStamp({ raw: '{"theme":""}', expectedSet })).toThrow(/no "theme" string/);
+    expect(() => validateStamp({ raw: 'not json{', expectedTheme })).toThrow(/not valid JSON/);
+    expect(() => validateStamp({ raw: '{}', expectedTheme })).toThrow(/no "theme" string/);
+    expect(() => validateStamp({ raw: '{"theme":""}', expectedTheme })).toThrow(/no "theme" string/);
   });
 
   it('rejects a mismatched stamp, naming both sets', () => {
-    expect(() => validateStamp({ raw: '{"theme":"studio"}', expectedSet })).toThrow(
+    expect(() => validateStamp({ raw: '{"theme":"studio"}', expectedTheme })).toThrow(
       /built for theme "studio".*selection is "acme"/,
     );
   });
 
   it('accepts a matching stamp', () => {
-    expect(validateStamp({ raw: '{"theme":"acme"}', expectedSet })).toBe('acme');
+    expect(validateStamp({ raw: '{"theme":"acme"}', expectedTheme })).toBe('acme');
   });
 });
 
@@ -85,7 +85,7 @@ describe('validateStamp', () => {
 // assert on what was actually invoked.
 describe('executeDeployPlan side effects', () => {
   const spies = (overrides = {}) => ({
-    expectedSet: 'acme',
+    expectedTheme: 'acme',
     readStamp: vi.fn(() => '{"theme":"acme"}'),
     build: vi.fn(),
     loadCacheConfig: vi.fn(() => ({ crossVersion: false })),

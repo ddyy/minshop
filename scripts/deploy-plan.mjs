@@ -25,7 +25,7 @@ export function deployPlan({ skipBuild = false, preflightOnly = false } = {}) {
  * The artifact gate. `raw` is the stamp file's content, or null when the file
  * does not exist. Throws with an actionable message; returns the stamped id.
  */
-export function validateStamp({ raw, expectedSet, skipBuild = false }) {
+export function validateStamp({ raw, expectedTheme, skipBuild = false }) {
   if (raw == null) {
     throw new Error(
       skipBuild
@@ -46,9 +46,9 @@ export function validateStamp({ raw, expectedSet, skipBuild = false }) {
       'dist/theme.json has no "theme" string. Rebuild (omit --skip-build) to regenerate the stamp.',
     );
   }
-  if (stamped !== expectedSet) {
+  if (stamped !== expectedTheme) {
     throw new Error(
-      `dist/ was built for theme "${stamped}", but the current selection is "${expectedSet}". ` +
+      `dist/ was built for theme "${stamped}", but the current selection is "${expectedTheme}". ` +
         'Rebuild (omit --skip-build), or change the selection back before deploying.',
     );
   }
@@ -64,7 +64,7 @@ export function validateStamp({ raw, expectedSet, skipBuild = false }) {
  * inside the validate handler and every string would still be in order.
  *
  * ops: {
- *   expectedSet          the resolved set id
+ *   expectedTheme          the resolved theme id
  *   readStamp()          stamp file content, or null when absent
  *   build()              compile the artifact
  *   loadCacheConfig()    parse dist config → { crossVersion, origin?, secret? }
@@ -81,7 +81,7 @@ export async function executeDeployPlan({ skipBuild = false, preflightOnly = fal
   const handlers = {
     build: () => ops.build(),
     'validate-stamp': () =>
-      validateStamp({ raw: ops.readStamp(), expectedSet: ops.expectedSet, skipBuild }),
+      validateStamp({ raw: ops.readStamp(), expectedTheme: ops.expectedTheme, skipBuild }),
     'cache-config': () => {
       cacheConfig = ops.loadCacheConfig();
     },

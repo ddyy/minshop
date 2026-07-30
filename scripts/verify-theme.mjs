@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 /**
  * Per-theme verification: sync, contract suite, type check, build — for the theme
- * this process resolves (usually `THEME=<id> npm run verify:set`).
+ * this process resolves (usually `THEME=<id> npm run verify:theme`).
  *
  * A script rather than an npm `&&` chain for one reason: `astro check` must be
  * told which theme to type-check. Its default tsconfig follows
  * theme.config.json — deliberately, so an env-selected process never
  * rewrites the shared file (see scripts/theme-css.mjs) — which means the
- * env-selected check has to pass its per-set tsconfig explicitly, and npm
+ * env-selected check has to pass its per-theme tsconfig explicitly, and npm
  * scripts cannot interpolate the resolved id portably.
  *
  * Deliberately narrower than `npm run verify`: what it omits (integration,
- * MCP, scaffold, Stripe country data) is set-independent, and re-running it
+ * MCP, scaffold, Stripe country data) is theme-independent, and re-running it
  * per theme would triple the bill to re-prove the same thing.
  */
 import { spawnSync } from 'node:child_process';
