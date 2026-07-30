@@ -1,6 +1,10 @@
 @import "tailwindcss";
 
-/* Brand design tokens (@theme) live in their own file so a clone can restyle
+/* Generated from the resolved storefront set: its Tailwind scope and its design
+   tokens. See scripts/storefront-css.mjs. */
+@import "./storefront-active.css";
+
+/* Merchant overrides, applied AFTER the active set's tokens so a store's own
    without touching this one. Edit theme.css to rebrand; everything below is
    structural CSS owned by the template. */
 @import "./theme.css";

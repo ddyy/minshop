@@ -108,6 +108,18 @@ describe('storefront boundary check', () => {
     expect(result.output).toContain('filesystem access');
   });
 
+  it('scans every set, not only the selected one', async () => {
+    // If the checker followed the active selection, an invalid set could sit in
+    // the tree unexamined until some later run happened to select it.
+    const withDefault = await check();
+    process.env.STOREFRONT = 'default';
+    const withExplicit = await check();
+    delete process.env.STOREFRONT;
+
+    expect(withDefault.output).toBe(withExplicit.output);
+    expect(withDefault.ok).toBe(true);
+  });
+
   it('allows a control to use a pure helper', async () => {
     // The whole point of the second policy: controls encapsulate core behavior,
     // so queryHref is fine where a binding is not. If this ever starts failing,

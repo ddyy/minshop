@@ -29,11 +29,30 @@
  */
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { dirname, join, normalize, relative } from 'node:path';
+import { SETS_DIR, discoverSetIds } from './storefront-set.mjs';
 
 const CONTROLS_DIR = 'src/features/storefront/controls';
 const MODELS_MODULE = 'src/features/storefront/models.ts';
 
-const DEFAULT_PATHS = ['src/storefront', 'test/storefront/fixtures', CONTROLS_DIR];
+/**
+ * Every storefront set is its own root, whether it is the selected one or not.
+ *
+ * This deliberately does NOT call resolveStorefrontSet(): if the checker
+ * followed the active selection, an invalid set could sit in the tree unexamined
+ * until some later CI run happened to select it. It reuses the id and path
+ * validation, never the answer.
+ *
+ * Per-set roots also matter for the allowlist. With the parent as one root, a
+ * store's `acme/Header.astro` could import `../default/ProductCard.astro` and
+ * pass — coupling a store's design to an upstream one that is free to change.
+ */
+function defaultPaths() {
+  return [
+    ...discoverSetIds().map((id) => `${SETS_DIR}/${id}`),
+    'test/storefront/fixtures',
+    CONTROLS_DIR,
+  ];
+}
 
 /** Request-context members neither policy allows. `Astro.props`/`Astro.slots`
  *  are the intended component contract, so the match is member-by-member rather
@@ -261,7 +280,7 @@ async function checkEntry(entry, rootDir, policy) {
 }
 
 const paths = process.argv.slice(2);
-for (const rawRoot of paths.length > 0 ? paths : DEFAULT_PATHS) {
+for (const rawRoot of paths.length > 0 ? paths : defaultPaths()) {
   const root = rawRoot.replace(/\/+$/, '');
   // A root named `controls` takes the core-control policy. Matching the
   // directory name rather than one hardcoded path lets the same checker be

@@ -3,7 +3,7 @@ import { env } from 'cloudflare:workers';
 import Layout from '../layouts/Layout.astro';
 import { getSearchProvider } from '../features/search';
 import { productsInSharedCategories } from '../features/categories/db';
-import ProductCard from '../storefront/ProductCard.astro';
+import ProductCard from '#storefront/ProductCard.astro';
 import { buildProductCard } from '../features/storefront/productCard';
 import { getConfig } from '../config';
 import { MAX_PUBLIC_PAGE, paginate, queryHref, requestedPage } from '../pagination';

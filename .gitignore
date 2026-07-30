@@ -42,3 +42,5 @@ yarn-error.log*
 # OS / editor cruft
 .DS_Store
 Thumbs.db
+src/styles/storefront-active.css
+tsconfig.storefront.json

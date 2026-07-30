@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { experimental_AstroContainer as AstroContainer } from 'astro/container';
-import ProductCard from '../../src/storefront/ProductCard.astro';
+import ProductCard from '#storefront/ProductCard.astro';
 import AltProductCard from './fixtures/product-card/AltProductCard.astro';
 import {
   buildProductCard,

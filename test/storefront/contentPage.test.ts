@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { experimental_AstroContainer as AstroContainer } from 'astro/container';
-import ContentPage from '../../src/storefront/ContentPage.astro';
+import ContentPage from '#storefront/ContentPage.astro';
 import AltContentPage from './fixtures/content-page/AltContentPage.astro';
 import type { ContentPageModel } from '../../src/features/storefront/models';
 

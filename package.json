@@ -9,15 +9,15 @@
     "preview": "wrangler dev -c dist/server/wrangler.json --persist-to .wrangler/state",
     "deploy": "node --experimental-strip-types scripts/deploy.mjs",
     "deploy:ci": "node --experimental-strip-types scripts/deploy.mjs --skip-build",
-    "check": "astro check",
-    "test": "vitest run",
+    "check": "npm run storefront:sync && astro check",
+    "test": "npm run storefront:sync && vitest run",
     "test:watch": "vitest",
     "test:integration": "node --experimental-strip-types test/integration/reservations.mjs && node --experimental-strip-types test/integration/refunds.mjs && node --experimental-strip-types test/integration/media.mjs && node --experimental-strip-types test/integration/menus.mjs && node --experimental-strip-types test/integration/guest-access.mjs && node --experimental-strip-types test/integration/shipping.mjs && bash test/integration/d1-integration.sh",
     "test:d1": "astro build && npm run test:integration",
     "test:storefront-equivalence": "astro build && bash test/integration/storefront-baselines.sh",
     "test:storefront-contract": "vitest run test/storefront",
     "storefront:check": "node scripts/check-storefront.mjs",
-    "verify": "vitest run && astro check && npm run storefront:check && astro build && npm run test:integration && node --experimental-strip-types scripts/check-stripe-countries.mjs && npm run mcp:check && npm run scaffold:check",
+    "verify": "npm run storefront:sync && vitest run && astro check && npm run storefront:check && astro build && npm run test:integration && node --experimental-strip-types scripts/check-stripe-countries.mjs && npm run mcp:check && npm run scaffold:check",
     "db:migrate": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "db:seed": "wrangler d1 execute DB --local --file=./seed.sql",
@@ -32,7 +32,8 @@
     "mcp:dev": "wrangler dev --config mcp/wrangler.jsonc --persist-to .wrangler/state",
     "mcp:deploy": "wrangler deploy --config mcp/wrangler.jsonc",
     "mcp:check": "bash scripts/check-mcp.sh",
-    "scaffold:check": "npm test --prefix create-minshop && npm pack ./create-minshop --dry-run"
+    "scaffold:check": "npm test --prefix create-minshop && npm pack ./create-minshop --dry-run",
+    "storefront:sync": "node scripts/storefront-sync.mjs"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.1.4",

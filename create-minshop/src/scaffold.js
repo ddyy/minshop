@@ -1,4 +1,4 @@
-import { existsSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
@@ -12,9 +12,61 @@ Usage:
 Options:
   --no-install   Scaffold without installing dependencies
   --ref <ref>    Clone a specific Git branch or tag (default: main)
+  --set <id>     Name this store's storefront set (default: from the directory)
   -h, --help     Show this help
   -v, --version  Show the installed create-minshop version
 `;
+
+/** Ids upstream owns. A store may not claim one, or a later upstream release
+ *  would have nowhere to put the set the name was held for. Kept in step with
+ *  scripts/storefront-set.mjs. */
+export const RESERVED_SET_IDS = ['default', 'studio', 'market'];
+
+const SET_ID = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+
+/** Turn a directory or store name into a usable set id. */
+export function normalizeSetId(name) {
+  const slug = String(name ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/, '');
+  return SET_ID.test(slug) ? slug : null;
+}
+
+/**
+ * The id for this store's own storefront set.
+ *
+ * Every store gets one. `src/storefront/default/` is upstream's and is never
+ * edited by a store — that separation is what lets upstream change the default
+ * without colliding with a merchant's work, and it only holds if the scaffolder
+ * creates the store's set from the start.
+ */
+export function resolveSetId(requested, directory) {
+  if (requested != null) {
+    const id = String(requested).trim();
+    if (!SET_ID.test(id)) {
+      throw new Error(
+        `Invalid storefront set id: "${id}". Use lowercase letters, digits, and single hyphens.`,
+      );
+    }
+    if (RESERVED_SET_IDS.includes(id)) {
+      throw new Error(`"${id}" is reserved for an upstream storefront. Choose another --set id.`);
+    }
+    return id;
+  }
+
+  const derived = normalizeSetId(basename(resolve(directory)));
+  if (!derived) {
+    throw new Error(
+      `Cannot derive a storefront set id from "${directory}". Pass --set <id> explicitly.`,
+    );
+  }
+  // A directory literally named `minshop` is the common default, and `default`
+  // is reserved, so suffix rather than fail on a name the user did not choose.
+  return RESERVED_SET_IDS.includes(derived) ? `${derived}-store` : derived;
+}
 
 export function assertSupportedNodeVersion(version = process.versions.node) {
   const [major, minor] = version.split('.').map(Number);
@@ -29,6 +81,7 @@ export function parseArguments(args) {
     directory: 'minshop',
     install: true,
     ref: 'main',
+    set: null,
     help: false,
     version: false,
   };
@@ -42,6 +95,11 @@ export function parseArguments(args) {
       const ref = args[index + 1];
       if (!ref || ref.startsWith('-')) throw new Error('--ref requires a Git branch or tag.');
       options.ref = ref;
+      index += 1;
+    } else if (argument === '--set') {
+      const id = args[index + 1];
+      if (!id || id.startsWith('-')) throw new Error('--set requires a storefront set id.');
+      options.set = id;
       index += 1;
     } else if (argument === '-h' || argument === '--help') {
       options.help = true;
@@ -85,6 +143,7 @@ export function scaffoldMinshop({
   directory = 'minshop',
   install = true,
   ref = 'main',
+  set = null,
   cwd = process.cwd(),
   repository = TEMPLATE_REPOSITORY,
   stdio = 'inherit',
@@ -112,6 +171,21 @@ export function scaffoldMinshop({
   rmSync(resolve(target, '.github/workflows/publish-create-minshop.yml'), {
     force: true,
   });
+  // This store's own storefront set. Copied from the upstream default and
+  // selected immediately, so the store never has to edit an upstream file to
+  // change its design — the boundary that keeps future upstream changes from
+  // colliding with a merchant's work.
+  const setId = resolveSetId(set, target);
+  const setsDir = resolve(target, 'src/storefront');
+  if (existsSync(resolve(setsDir, setId))) {
+    throw new Error(`Storefront set "${setId}" already exists in the template. Pass --set <id>.`);
+  }
+  cpSync(resolve(setsDir, 'default'), resolve(setsDir, setId), { recursive: true });
+  writeFileSync(
+    resolve(target, 'storefront.config.json'),
+    `${JSON.stringify({ set: setId }, null, 2)}\n`,
+  );
+
   run('git', ['init'], target, stdio);
 
   if (install) {

@@ -9,8 +9,17 @@ import { readFileSync } from 'node:fs';
 // equivalence gate passes whether the rules read a token, read the wrong token,
 // or lost their fallback.
 
-const theme = readFileSync('src/styles/theme.css', 'utf8');
+import { discoverSetIds, SETS_DIR } from '../../scripts/storefront-set.mjs';
+
 const global = readFileSync('src/styles/global.css', 'utf8');
+const override = readFileSync('src/styles/theme.css', 'utf8');
+
+// Every SHIPPED set must declare the tokens the core prose rules read. The
+// override file is checked for the opposite property: that it is allowed to
+// declare nothing. Tokens moved into the sets so selecting one brings its
+// design with it; requiring them here too would forbid an empty override.
+const sets = discoverSetIds();
+const setThemes = sets.map((id) => [id, readFileSync(`${SETS_DIR}/${id}/theme.css`, 'utf8')]);
 
 /** property → [token, today's literal] */
 const PROSE_RULES = [
@@ -34,8 +43,30 @@ describe('the content-page prose scale', () => {
     expect(global).toContain(`var(${token}, ${literal})`);
   });
 
-  it.each(PROSE_RULES)('declares %s → %s in the store-owned theme', (_property, token) => {
-    expect(theme).toContain(`${token}:`);
+  it('ships at least one set to validate', () => {
+    expect(sets.length).toBeGreaterThan(0);
+  });
+
+  it.each(PROSE_RULES)('every shipped set declares %s → %s', (_property, token) => {
+    for (const [id, css] of setThemes) {
+      expect(css, `set "${id}" is missing ${token}`).toContain(`${token}:`);
+    }
+  });
+
+  it('lets the merchant override file declare nothing at all', () => {
+    // An empty override is the normal state: it means the store uses its set's
+    // tokens unchanged. Requiring tokens here would make that state fail.
+    const declarations = override.match(/--[a-z-]+\s*:/g) ?? [];
+
+    expect(declarations).toEqual([]);
+  });
+
+  it('applies the merchant override after the active set', () => {
+    // Order is the whole contract: the set supplies the design, the store's own
+    // values win over it.
+    expect(global.indexOf('storefront-active.css')).toBeLessThan(
+      global.indexOf('./theme.css'),
+    );
   });
 
   it('lets a page layout preset still win over the theme measure', () => {
@@ -45,13 +76,14 @@ describe('the content-page prose scale', () => {
     expect(global).toContain('max-width: var(--page-measure, var(--prose-measure, 48rem));');
   });
 
-  it('keeps the prose tokens outside @theme', () => {
+  it.each(sets)('keeps %s prose tokens outside @theme', (id) => {
     // They are consumed directly by core CSS and define no Tailwind utility
     // namespace; inside @theme they would imply a utility-token role.
-    const themeBlock = theme.slice(theme.indexOf('@theme'), theme.indexOf('}', theme.indexOf('@theme')));
+    const css = readFileSync(`${SETS_DIR}/${id}/theme.css`, 'utf8');
+    const block = css.slice(css.indexOf('@theme'), css.indexOf('}', css.indexOf('@theme')));
 
-    expect(themeBlock).not.toContain('--prose-');
-    expect(theme).toContain(':root {');
+    expect(block).not.toContain('--prose-');
+    expect(css).toContain(':root {');
   });
 
   it('leaves the rest of global.css alone', () => {
