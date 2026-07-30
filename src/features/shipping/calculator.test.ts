@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   bandFor,
+  zonesRequireWeight,
   computeShipping,
   quoteShipping,
   shippingZoneFor,
@@ -193,6 +194,44 @@ describe('weight bands', () => {
     };
     const quote = quoteShipping(free, { subtotalCents: 0, country: 'US', itemWeightGrams: 0 });
     expect(quote.options).toEqual([{ label: 'Letter', amountCents: 0 }]);
+  });
+});
+
+describe('local pickup', () => {
+  const pickupZone: ShippingConfig = {
+    enabled: true,
+    zones: [
+      {
+        countries: ['US'],
+        rates: [
+          { label: 'By weight', pricing: { type: 'weight', bands: [{ upToGrams: 1000, amountCents: 500 }] } },
+          { label: 'Local pickup', pricing: { type: 'pickup', amountCents: 0 } },
+        ],
+        freeOverCents: null,
+      },
+    ],
+  };
+  it('survives an unknown weight — the shopper carries it', () => {
+    const quote = quoteShipping(pickupZone, { subtotalCents: 0, country: 'US', itemWeightGrams: null });
+    expect(quote.options).toEqual([{ label: 'Local pickup', amountCents: 0 }]);
+    expect(quote.omitted).toEqual([{ label: 'By weight', reason: 'missing_weight' }]);
+  });
+  it('survives an order heavier than every carrier band', () => {
+    const quote = quoteShipping(pickupZone, { subtotalCents: 0, country: 'US', itemWeightGrams: 99_999 });
+    expect(quote.options).toEqual([{ label: 'Local pickup', amountCents: 0 }]);
+  });
+  it('may charge a packing fee', () => {
+    const feeZone: ShippingConfig = {
+      enabled: true,
+      zones: [
+        { countries: ['US'], rates: [{ label: 'Pickup', pricing: { type: 'pickup', amountCents: 200 } }], freeOverCents: null },
+      ],
+    };
+    const quote = quoteShipping(feeZone, { subtotalCents: 0, country: 'US', itemWeightGrams: 100 });
+    expect(quote.options).toEqual([{ label: 'Pickup', amountCents: 200 }]);
+  });
+  it('counts as a non-weight fallback, so weights stay optional', () => {
+    expect(zonesRequireWeight(pickupZone)).toBe(false);
   });
 });
 

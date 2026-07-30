@@ -319,6 +319,26 @@ describe('validateShippingDocument', () => {
     });
     expect(messages(bands)).toContain('Only the last band can have no maximum.');
   });
+  it('accepts a pickup rate and validates its fee like a flat price', () => {
+    const pickup = doc({
+      zones: [
+        {
+          ...doc().zones[0]!,
+          rates: [{ label: 'Local pickup', pricing: { type: 'pickup', amountCents: 0 } }],
+        },
+      ],
+    });
+    expect(validateShippingDocument(pickup)).toEqual([]);
+    const bad = doc({
+      zones: [
+        {
+          ...doc().zones[0]!,
+          rates: [{ label: 'Local pickup', pricing: { type: 'pickup', amountCents: -1 } }],
+        },
+      ],
+    });
+    expect(messages(bad)).toContain('Enter a price.');
+  });
   it('requires at least one band on a weight rate', () => {
     const empty = doc({
       zones: [
@@ -459,6 +479,21 @@ describe('parseShippingForm', () => {
     const form = submitted().set('zone[z_ghost][name]', 'Nowhere');
     const { document } = parseShippingForm(form, { currency: 'usd', unit: 'g' });
     expect(document.zones.map((z) => z.name)).toEqual(['United States', 'Rest of world']);
+  });
+  it('parses a pickup rate from the editor', () => {
+    const form = new TestForm()
+      .set('enabled', '1')
+      .set('revision', '1')
+      .set('zone_order', 'z_a')
+      .set('zone[z_a][name]', 'US')
+      .set('zone[z_a][countries][]', 'US')
+      .set('zone[z_a][rate_order]', 'r_1')
+      .set('zone[z_a][rate][r_1][label]', 'Local pickup')
+      .set('zone[z_a][rate][r_1][mode]', 'pickup')
+      .set('zone[z_a][rate][r_1][amount]', '0');
+    const { document, errors } = parseShippingForm(form, { currency: 'usd', unit: 'g' });
+    expect(errors).toEqual([]);
+    expect(document.zones[0]!.rates[0]!.pricing).toEqual({ type: 'pickup', amountCents: 0 });
   });
   it('scales amounts by the currency, not by a hardcoded 100', () => {
     const { document } = parseShippingForm(submitted(), { currency: 'jpy', unit: 'g' });

@@ -954,6 +954,13 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
     order_public_id: publicId,
     currency: storeCurrency.toUpperCase(),
     subtotal_cents: subtotalCents,
+    // The rate this order was priced with, when the in-app step chose one —
+    // the Lightning branch has always echoed it; demo/OpenNode should too.
+    ...(chosen && {
+      shipping_cents: chosen.amountCents,
+      shipping_label: chosen.label,
+      total_cents: subtotalCents + chosen.amountCents,
+    }),
     items: lines.map((l) => ({
       slug: l.product.slug,
       name: l.name,

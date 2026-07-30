@@ -24,8 +24,10 @@ import { toMinorUnits } from '../../money.ts';
 
 export const SHIPPING_CONFIG_KEY = 'shipping_config';
 
-/** 1 = flat rates only. 2 adds pricing modes and the package-weight allowance. */
-export const SHIPPING_SCHEMA_VERSION = 2;
+/** 1 = flat rates only. 2 adds pricing modes and the package-weight allowance.
+ *  3 adds the pickup pricing mode. Bumped so a rollback fails CLOSED on a
+ *  document it cannot fully understand instead of silently dropping rates. */
+export const SHIPPING_SCHEMA_VERSION = 3;
 
 export const SHIPPING_LIMITS = {
   zones: 20,
@@ -298,7 +300,7 @@ export function validateShippingDocument(doc: RuntimeShippingConfig): ShippingVa
       }
 
       const pricing = rate?.pricing;
-      if (pricing?.type === 'flat') {
+      if (pricing?.type === 'flat' || pricing?.type === 'pickup') {
         if (!isAmount(pricing.amountCents)) {
           errors.push({ zoneIndex, rateIndex, field: 'amount', message: 'Enter a price.' });
         }
@@ -653,7 +655,7 @@ export interface ShippingFormBand {
 export interface ShippingFormRate {
   token: string;
   label: string;
-  mode: 'flat' | 'weight';
+  mode: 'flat' | 'weight' | 'pickup';
   amountValue: string;
   bands: ShippingFormBand[];
 }
@@ -713,7 +715,7 @@ export function documentToForm(
         label: rate.label,
         mode: rate.pricing.type,
         amountValue:
-          rate.pricing.type === 'flat' ? amountToValue(rate.pricing.amountCents, currency) : '',
+          rate.pricing.type !== 'weight' ? amountToValue(rate.pricing.amountCents, currency) : '',
         bands:
           rate.pricing.type === 'weight'
             ? rate.pricing.bands.map((band) => ({
@@ -756,7 +758,7 @@ export function migrationCandidate(
         mode: 'pricing' in rate ? rate.pricing.type : ('flat' as const),
         amountValue:
           'pricing' in rate
-            ? rate.pricing.type === 'flat'
+            ? rate.pricing.type !== 'weight'
               ? amountToValue(rate.pricing.amountCents, currency)
               : ''
             : amountToValue(rate.amountCents, currency),
@@ -858,7 +860,8 @@ export function parseShippingForm(
     rateTokens.forEach((rateToken, rateIndex) => {
       const ratePrefix = `${prefix}[rate][${rateToken}]`;
       const label = str(form, `${ratePrefix}[label]`);
-      const mode = str(form, `${ratePrefix}[mode]`) === 'weight' ? 'weight' : 'flat';
+      const rawMode = str(form, `${ratePrefix}[mode]`);
+      const mode = rawMode === 'weight' ? 'weight' : rawMode === 'pickup' ? 'pickup' : 'flat';
       const amountValue = str(form, `${ratePrefix}[amount]`);
 
       const bandTokens =
@@ -913,7 +916,7 @@ export function parseShippingForm(
         pricing:
           mode === 'weight'
             ? { type: 'weight', bands: documentBands }
-            : { type: 'flat', amountCents: flatCents },
+            : { type: mode, amountCents: flatCents },
       });
     });
 

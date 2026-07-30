@@ -41,7 +41,18 @@ export interface WeightRatePricing {
   bands: WeightBand[];
 }
 
-export type RatePricing = FlatRatePricing | WeightRatePricing;
+/**
+ * Collected in person, so weight can never disqualify it and no carrier is
+ * involved. Usually free; a flat fee covers stores that charge for packing.
+ * The address step still runs — it selects the zone and gives the merchant a
+ * contact — but nothing will be posted anywhere.
+ */
+export interface PickupRatePricing {
+  type: 'pickup';
+  amountCents: number;
+}
+
+export type RatePricing = FlatRatePricing | WeightRatePricing | PickupRatePricing;
 
 export interface ShippingRate {
   label: string;
@@ -153,8 +164,9 @@ export function quoteShipping(cfg: ShippingConfig, input: ShippingQuoteInput): S
   const omitted: OmittedRate[] = [];
 
   for (const rate of rates) {
-    if (rate.pricing.type === 'flat') {
-      // Flat rates do not care about weight, so an unknown weight must not hide them.
+    if (rate.pricing.type === 'flat' || rate.pricing.type === 'pickup') {
+      // Neither cares about weight, so an unknown weight must not hide them —
+      // pickup in particular must survive any weight: the shopper carries it.
       options.push({ label: rate.label, amountCents: rate.pricing.amountCents });
       continue;
     }

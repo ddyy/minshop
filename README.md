@@ -457,7 +457,7 @@ hardening for a high-traffic paid deployment.
 
 ### Shipping and order email
 
-- **Shipping** — managed at **Admin → Shipping** (zones, rates, free-over thresholds, packaging weight). Each zone has `countries` (ISO alpha-2, or "Rest of world", matched top-to-bottom), one or more rates, and an optional free-shipping threshold. A rate is priced either **flat** or **by order weight** (ordered bands: the shipment weight selects one band, they are not accumulated). `src/store.config.ts` supplies the defaults for a brand-new store and is ignored once shipping is saved in Admin.
+- **Shipping** — managed at **Admin → Shipping** (zones, rates, free-over thresholds, packaging weight). Each zone has `countries` (ISO alpha-2, or "Rest of world", matched top-to-bottom), one or more rates, and an optional free-shipping threshold. A rate is priced **flat**, **by order weight** (ordered bands: the shipment weight selects one band, they are not accumulated), or as **local pickup** (free or a flat fee; never disqualified by weight — the shopper carries it). `src/store.config.ts` supplies the defaults for a brand-new store and is ignored once shipping is saved in Admin.
 
   A zone offers at most **five** options including a synthesized "Free shipping" — Stripe Checkout's maximum, applied to every rail so all rails quote identically.
 

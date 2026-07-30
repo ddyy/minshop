@@ -384,11 +384,12 @@ const label = (path: string) => `text-xs uppercase tracking-widest text-gray-500
                   >
                     <option value="flat" selected={rate.mode === 'flat'}>Flat price</option>
                     <option value="weight" selected={rate.mode === 'weight'}>By order weight</option>
+                    <option value="pickup" selected={rate.mode === 'pickup'}>Local pickup</option>
                   </select>
                 </label>
-                {rate.mode === 'flat' && (
+                {rate.mode !== 'weight' && (
                   <label class="block">
-                    <span class={label('')}>Price</span>
+                    <span class={label('')}>{rate.mode === 'pickup' ? 'Fee (0 = free)' : 'Price'}</span>
                     <input
                       type="text"
                       name={`zone[${zone.token}][rate][${rate.token}][amount]`}
