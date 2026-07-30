@@ -14,6 +14,7 @@ import {
   type LabelRate,
   type ShipFrom,
 } from '../../../features/shipping/labels.ts';
+import { getLabelRecord } from '../../../features/shipping/labelStore';
 import { shouldSendCustomerOrderEmail } from '../../../features/email/orderPolicy';
 import RefundPanel from '../../../features/refunds/RefundPanel.astro';
 import { formatWeight } from '../../../features/shipping/weight';
@@ -46,18 +47,29 @@ const fulfilled = order.fulfillment_status === 'fulfilled';
 const weightUnit = Astro.locals.settings?.weightUnit ?? 'g';
 
 // ── Shipping label (Shippo) ──────────────────────────────────────────────────
-// The whole card is gated on the token: stores that never configure Shippo see
-// nothing. Rates render on a plain GET (?shipment=…) so the flow needs no JS.
+// Gated on the token (stores without Shippo see nothing) and on the order being
+// a paid, unfulfilled DELIVERY order — pickup orders have no parcel to send.
+// All label state lives in this order's shipping_labels row; the page never
+// reads a shipment id from the URL, so another order's quote cannot be spliced
+// in. Rates render on a plain GET, so the flow needs no JS.
 const shippoToken = await getSecret(env.DB, 'shippo_api_key');
-const canLabel = !!shippoToken && !!order.ship_address && !fulfilled && order.status === 'paid';
+const canLabel =
+  !!shippoToken &&
+  !!order.ship_address &&
+  !fulfilled &&
+  order.status === 'paid' &&
+  order.delivery_method !== 'pickup';
+const labelRecord = canLabel ? await getLabelRecord(env.DB, order.id) : null;
 let labelRates: LabelRate[] = [];
 let labelRatesError: string | null = null;
-const shipmentId = Astro.url.searchParams.get('shipment');
-if (canLabel && shipmentId && shippoToken) {
-  const rates = await getShipmentRates(shippoToken, shipmentId);
+if (canLabel && labelRecord?.status === 'quoted' && shippoToken) {
+  const rates = await getShipmentRates(shippoToken, labelRecord.shipment_id);
   if (rates.ok) labelRates = rates.value;
   else labelRatesError = rates.error;
 }
+// 'purchasing' with no live request behind it is a crash mid-flight — treat it
+// exactly like an ambiguous outcome: human checks the dashboard, then discards.
+const labelUncertain = labelRecord?.status === 'uncertain' || labelRecord?.status === 'purchasing';
 let shipFrom: Partial<ShipFrom> = {};
 let parcelDefault: Partial<{ length: number; width: number; height: number }> = {};
 if (canLabel) {
@@ -71,6 +83,7 @@ if (canLabel) {
 const dimUnit = distanceUnitFor(weightUnit);
 const parcelWeightValue =
   order.shipping_weight_grams != null ? formatWeightValue(order.shipping_weight_grams, weightUnit) : '';
+
 const trackUrl = trackingUrl(order.tracking_carrier, order.tracking_number);
 const error = Astro.url.searchParams.get('error');
 const noticeMsg = Astro.url.searchParams.get('notice');
@@ -99,6 +112,14 @@ const ship = order.ship_address
       country: string | null;
     })
   : null;
+// Domestic-only for now: international labels need a customs declaration this
+// flow doesn't collect. Warn on the page only when the saved origin makes the
+// mismatch knowable; the POST enforces it regardless.
+const labelInternational =
+  !!shipFrom.country && !!ship?.country && shipFrom.country.toUpperCase() !== ship.country.toUpperCase();
+// Whether fulfillment will actually email the customer — demo orders never do,
+// and there may be no address on file. The UI must not promise otherwise.
+const willEmailCustomer = !!order.email && order.payment_method !== 'demo';
 ---
 
 <AdminLayout title={`Order #${num}`} active="orders">
@@ -246,11 +267,46 @@ const ship = order.ship_address
           {canLabel && (
             <div class="rounded-md border border-line bg-white/60 p-4 text-sm">
               <p class="mb-3 text-xs uppercase tracking-widest text-gray-400">Buy shipping label</p>
+              {labelUncertain ? (
+                <div class="space-y-3">
+                  <p class="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900">
+                    A label purchase for this order did not complete cleanly
+                    {labelRecord?.error && <> ({labelRecord.error})</>} — it <strong>may</strong> have
+                    been charged. Check your Shippo dashboard for
+                    <code class="text-xs"> {order.public_id}</code> before doing anything else.
+                  </p>
+                  <form method="POST" action={`/api/admin/orders/${order.public_id}`}>
+                    <input type="hidden" name="_action" value="label_discard" />
+                    <button type="submit" class="rounded-md border border-amber-400 px-4 py-2 text-xs font-medium uppercase tracking-wider text-amber-900 hover:bg-amber-100">
+                      No label exists — discard the attempt
+                    </button>
+                  </form>
+                </div>
+              ) : labelRecord?.status === 'purchased' ? (
+                <p>
+                  Label purchased ({labelRecord.provider} {labelRecord.service}).{' '}
+                  {labelRecord.label_url && (
+                    <a href={labelRecord.label_url} target="_blank" rel="noopener" class="text-accent hover:underline">
+                      Label PDF
+                    </a>
+                  )}
+                </p>
+              ) : labelInternational && labelRates.length === 0 ? (
+                <p class="text-gray-600">
+                  This order ships to {ship?.country} but your saved ship-from address is in{' '}
+                  {shipFrom.country} — international labels aren’t supported yet (they need a
+                  customs declaration). Buy the label in your Shippo dashboard, then record the
+                  tracking number below.
+                </p>
+              ) : (
+                <Fragment>
+              {labelRecord?.status === 'failed' && labelRecord.error && (
+                <p class="mb-3 text-red-700">{labelRecord.error}</p>
+              )}
               {labelRatesError && <p class="mb-3 text-red-700">{labelRatesError}</p>}
               {labelRates.length > 0 ? (
                 <form method="POST" action={`/api/admin/orders/${order.public_id}`} class="space-y-2">
                   <input type="hidden" name="_action" value="buy_label" />
-                  <input type="hidden" name="shipment" value={shipmentId} />
                   {labelRates.map((r, i) => (
                     <label class="flex items-center gap-3">
                       <input type="radio" name="rate" value={r.rateId} checked={i === 0} class="size-4" />
@@ -270,17 +326,24 @@ const ship = order.ship_address
                     >
                       Buy label
                     </button>
-                    <a
-                      href={`/admin/orders/${order.public_id}`}
+                    <button
+                      type="submit"
+                      form="label-discard"
                       class="text-xs uppercase tracking-widest text-gray-400 hover:text-brand"
                     >
                       Start over
-                    </a>
+                    </button>
                   </div>
                   <p class="text-xs text-gray-500">
-                    Buying charges your Shippo account, records the tracking number, marks the
-                    order fulfilled, and emails the customer.
+                    Buying charges your Shippo account, records the tracking number, and marks the
+                    order fulfilled.{' '}
+                    {willEmailCustomer
+                      ? 'The customer is emailed the tracking details.'
+                      : 'No customer email will be sent (demo order or no email on file).'}
                   </p>
+                </form>
+                <form method="POST" action={`/api/admin/orders/${order.public_id}`} id="label-discard">
+                  <input type="hidden" name="_action" value="label_discard" />
                 </form>
               ) : (
                 <form method="POST" action={`/api/admin/orders/${order.public_id}`} class="space-y-3">
@@ -338,6 +401,8 @@ const ship = order.ship_address
                     from the order’s recorded shipment weight when there is one.
                   </p>
                 </form>
+              )}
+                </Fragment>
               )}
             </div>
           )}

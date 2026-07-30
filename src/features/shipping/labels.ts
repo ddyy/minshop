@@ -45,13 +45,22 @@ export interface LabelRate {
 }
 
 export interface PurchasedLabel {
+  transactionId: string;
   trackingNumber: string;
   trackingUrl: string | null;
   labelUrl: string;
   provider: string;
 }
 
-export type LabelResult<T> = { ok: true; value: T } | { ok: false; error: string };
+/**
+ * `uncertain` marks outcomes where the request MAY have succeeded (network
+ * failure, 5xx, unreadable body): for a purchase that moves money, the caller
+ * must park the attempt rather than retry. Definite refusals (4xx, an ERROR
+ * transaction) are safe to retry with corrections.
+ */
+export type LabelResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: string; uncertain?: boolean };
 
 /** Imperial weight units come with imperial rulers. */
 export function distanceUnitFor(weightUnit: WeightUnit): 'in' | 'cm' {
@@ -116,6 +125,7 @@ export function buildShipmentPayload(
   to: OrderShipTo,
   parcel: ParcelInput,
   weightUnit: WeightUnit,
+  orderPublicId?: string | null,
 ): Record<string, unknown> {
   const addressFrom: ShippoAddress = {
     name: from.name,
@@ -152,6 +162,9 @@ export function buildShipmentPayload(
     ],
     // Synchronous rating: the response carries the rates, no polling.
     async: false,
+    // Cross-reference in Shippo's own records, so an uncertain purchase can be
+    // resolved against the dashboard by order id.
+    ...(orderPublicId && { metadata: `order ${orderPublicId}` }),
   };
 }
 
@@ -217,18 +230,28 @@ async function shippo(
       ...(init?.body != null && { body: JSON.stringify(init.body) }),
     });
   } catch {
-    return { ok: false, error: 'Shippo is unreachable right now. Try again in a moment.' };
+    // The request may or may not have arrived — ambiguous by definition.
+    return { ok: false, error: 'Shippo is unreachable right now.', uncertain: true };
   }
   if (res.status === 401) return { ok: false, error: 'Shippo rejected the API token.' };
   let json: unknown;
   try {
     json = await res.json();
   } catch {
-    return { ok: false, error: `Shippo answered ${res.status} with an unreadable body.` };
+    return {
+      ok: false,
+      error: `Shippo answered ${res.status} with an unreadable body.`,
+      uncertain: res.ok || res.status >= 500,
+    };
   }
   if (!res.ok) {
     const detail = (json as { detail?: string }).detail;
-    return { ok: false, error: detail || `Shippo answered ${res.status}.` };
+    return {
+      ok: false,
+      error: detail || `Shippo answered ${res.status}.`,
+      // 4xx = judged and refused; 5xx = who knows what committed first.
+      uncertain: res.status >= 500,
+    };
   }
   return { ok: true, value: json };
 }
@@ -240,10 +263,11 @@ export async function fetchLabelRates(
   to: OrderShipTo,
   parcel: ParcelInput,
   weightUnit: WeightUnit,
+  orderPublicId?: string | null,
 ): Promise<LabelResult<{ shipmentId: string; rates: LabelRate[] }>> {
   const result = await shippo(token, '/shipments/', {
     method: 'POST',
-    body: buildShipmentPayload(from, to, parcel, weightUnit),
+    body: buildShipmentPayload(from, to, parcel, weightUnit, orderPublicId),
   });
   if (!result.ok) return result;
   const shipment = result.value as ShippoShipment;
@@ -268,6 +292,7 @@ export async function getShipmentRates(
 }
 
 interface ShippoTransaction {
+  object_id?: string;
   status?: string;
   tracking_number?: string;
   tracking_url_provider?: string;
@@ -280,20 +305,33 @@ export async function purchaseLabel(
   token: string,
   rateId: string,
   provider: string,
+  orderPublicId?: string | null,
 ): Promise<LabelResult<PurchasedLabel>> {
   const result = await shippo(token, '/transactions/', {
     method: 'POST',
-    body: { rate: rateId, label_file_type: 'PDF_4x6', async: false },
+    body: {
+      rate: rateId,
+      label_file_type: 'PDF_4x6',
+      async: false,
+      ...(orderPublicId && { metadata: `order ${orderPublicId}` }),
+    },
   });
   if (!result.ok) return result;
   const tx = result.value as ShippoTransaction;
-  if (tx.status !== 'SUCCESS' || !tx.tracking_number || !tx.label_url) {
+  if (tx.status !== 'SUCCESS' || !tx.object_id || !tx.tracking_number || !tx.label_url) {
     const why = (tx.messages ?? []).map((m) => m.text).filter(Boolean).join(' ');
-    return { ok: false, error: why || 'Shippo could not purchase that label.' };
+    // QUEUED/other non-terminal answers are ambiguous — the charge may settle.
+    const definite = tx.status === 'ERROR';
+    return {
+      ok: false,
+      error: why || 'Shippo could not purchase that label.',
+      uncertain: !definite,
+    };
   }
   return {
     ok: true,
     value: {
+      transactionId: tx.object_id,
       trackingNumber: tx.tracking_number,
       trackingUrl: tx.tracking_url_provider ?? null,
       labelUrl: tx.label_url,

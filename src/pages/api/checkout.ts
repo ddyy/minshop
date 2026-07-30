@@ -750,7 +750,7 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
   const IN_APP_JSON_RAILS = ['lightning', 'opennode', 'demo'];
   const needsShipTo = shippingOn && IN_APP_JSON_RAILS.includes(method);
   let shipTo: ReturnType<typeof parseShipTo> = null;
-  let chosen: { label: string; amountCents: number } | undefined;
+  let chosen: { label: string; amountCents: number; pickup?: boolean } | undefined;
   let inAppQuote: ReturnType<typeof quoteFor> | null = null;
 
   if (needsShipTo) {
@@ -807,6 +807,7 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
         shippingCents: chosen.amountCents,
         shippingLabel: chosen.label,
         shippingWeightGrams: inAppQuote.shipmentWeightGrams,
+        deliveryMethod: chosen.pickup ? 'pickup' : 'shipping',
         itemsJson: JSON.stringify(
           lines.map((l) => ({ id: l.product.id, v: l.variantId, q: l.qty, n: l.name, p: l.unitPriceCents })),
         ),
@@ -905,6 +906,7 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
             label: chosen.label,
             amountCents: chosen.amountCents,
             weightGrams: inAppQuote?.shipmentWeightGrams ?? null,
+            deliveryMethod: chosen.pickup ? 'pickup' : 'shipping',
             address: {
               name: shipTo.name,
               line1: shipTo.line1,

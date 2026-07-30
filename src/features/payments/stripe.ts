@@ -84,6 +84,10 @@ export function createStripeProvider(
                 amount: o.amountCents,
                 currency: params.lineItems[0]?.currency ?? 'usd',
               },
+              // The mode travels as rate metadata because the label is merchant
+              // prose: settlement reads this back to record delivery_method
+              // without parsing "Local pickup" out of display text.
+              metadata: { delivery: o.pickup ? 'pickup' : 'shipping' },
               ...(params.automaticTax && { tax_behavior: 'exclusive' as const }),
             },
           })),
@@ -170,15 +174,21 @@ export function createStripeProvider(
         // rate is chosen on Stripe's page. `display_name` is the label we sent as
         // `shipping_rate_data.display_name`, so no duplicate metadata is needed.
         let shippingLabel: string | null = null;
+        let deliveryMethod: 'pickup' | 'shipping' | null = null;
+        const readRate = (rate: { display_name?: string | null; metadata?: Record<string, string> | null }) => {
+          shippingLabel = rate.display_name ?? null;
+          const d = rate.metadata?.delivery;
+          deliveryMethod = d === 'pickup' ? 'pickup' : d === 'shipping' ? 'shipping' : null;
+        };
         const rateRef = session.shipping_cost?.shipping_rate;
         if (typeof rateRef === 'string') {
           try {
-            shippingLabel = (await stripe.shippingRates.retrieve(rateRef)).display_name ?? null;
+            readRate(await stripe.shippingRates.retrieve(rateRef));
           } catch {
             // A missing rate must not fail an otherwise valid paid order.
           }
         } else if (rateRef && typeof rateRef === 'object') {
-          shippingLabel = rateRef.display_name ?? null;
+          readRate(rateRef);
         }
         const weightRaw = session.metadata?.shipping_weight_grams;
         const shippingWeightGrams =
@@ -227,6 +237,7 @@ export function createStripeProvider(
             shippingCents,
             shippingLabel,
             shippingWeightGrams,
+            deliveryMethod,
             discountCents,
             taxCents,
             shippingAddress,

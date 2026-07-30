@@ -195,7 +195,7 @@ const addr = {
 };
 
 let stage: 'address' | 'shipping' = 'address';
-let options: { label: string; amountCents: number }[] = [];
+let options: { label: string; amountCents: number; pickup?: boolean }[] = [];
 const errors: string[] = [];
 
 // Demo submits itself: the sample address on the first GET, no typing.
@@ -313,6 +313,7 @@ if (submitted) {
                     label: chosen.label,
                     amountCents: chosen.amountCents,
                     weightGrams: quote.shipmentWeightGrams,
+                    deliveryMethod: chosen.pickup ? 'pickup' : 'shipping',
                     address: shippingAddress,
                     email: addr.email,
                   },
@@ -328,6 +329,7 @@ if (submitted) {
                 shippingCents: chosen.amountCents,
                 shippingLabel: chosen.label,
                 shippingWeightGrams: quote.shipmentWeightGrams,
+                deliveryMethod: chosen.pickup ? 'pickup' : 'shipping',
                 itemsJson,
                 email: addr.email,
                 shippingAddress,

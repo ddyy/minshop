@@ -23,6 +23,9 @@ export interface CheckoutLineItem {
 export interface ShippingOption {
   label: string;
   amountCents: number;
+  /** Local pickup — no carrier delivery. Adapters record the mode as data
+   *  (Stripe: rate metadata) rather than parsing the merchant's label text. */
+  pickup?: boolean;
 }
 
 export interface CreateCheckoutParams {
@@ -63,6 +66,9 @@ export interface CreateCheckoutParams {
     label: string;
     amountCents: number;
     weightGrams: number | null;
+    /** How the order reaches the customer. Data, not inferred from the label
+     *  text — a rate NAMED "Local pickup" could be priced as delivery. */
+    deliveryMethod: 'pickup' | 'shipping';
     address: ShippingAddress;
     email: string | null;
   };

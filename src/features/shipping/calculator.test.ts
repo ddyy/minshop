@@ -213,12 +213,12 @@ describe('local pickup', () => {
   };
   it('survives an unknown weight — the shopper carries it', () => {
     const quote = quoteShipping(pickupZone, { subtotalCents: 0, country: 'US', itemWeightGrams: null });
-    expect(quote.options).toEqual([{ label: 'Local pickup', amountCents: 0 }]);
+    expect(quote.options).toEqual([{ label: 'Local pickup', amountCents: 0, pickup: true }]);
     expect(quote.omitted).toEqual([{ label: 'By weight', reason: 'missing_weight' }]);
   });
   it('survives an order heavier than every carrier band', () => {
     const quote = quoteShipping(pickupZone, { subtotalCents: 0, country: 'US', itemWeightGrams: 99_999 });
-    expect(quote.options).toEqual([{ label: 'Local pickup', amountCents: 0 }]);
+    expect(quote.options).toEqual([{ label: 'Local pickup', amountCents: 0, pickup: true }]);
   });
   it('may charge a packing fee', () => {
     const feeZone: ShippingConfig = {
@@ -228,7 +228,49 @@ describe('local pickup', () => {
       ],
     };
     const quote = quoteShipping(feeZone, { subtotalCents: 0, country: 'US', itemWeightGrams: 100 });
-    expect(quote.options).toEqual([{ label: 'Pickup', amountCents: 200 }]);
+    expect(quote.options).toEqual([{ label: 'Pickup', amountCents: 200, pickup: true }]);
+  });
+  it('never lets a free-over threshold conjure a delivery in a pickup-only zone', () => {
+    // "Free shipping" is a delivery promise; a merchant who configured only
+    // pickup has no way to fulfil it.
+    const pickupOnly: ShippingConfig = {
+      enabled: true,
+      zones: [
+        {
+          countries: ['US'],
+          rates: [{ label: 'Local pickup', pricing: { type: 'pickup', amountCents: 0 } }],
+          freeOverCents: 1000,
+        },
+      ],
+    };
+    const quote = quoteShipping(pickupOnly, { subtotalCents: 5000, country: 'US', itemWeightGrams: 100 });
+    expect(quote.options).toEqual([{ label: 'Local pickup', amountCents: 0, pickup: true }]);
+  });
+  it('does not offer free delivery when the only delivery rate was omitted', () => {
+    const quote = quoteShipping(
+      { ...pickupZone, zones: [{ ...pickupZone.zones[0]!, freeOverCents: 1000 }] },
+      { subtotalCents: 5000, country: 'US', itemWeightGrams: null },
+    );
+    // Pickup survives; the weight rate is omitted; free DELIVERY must not appear.
+    expect(quote.options).toEqual([{ label: 'Local pickup', amountCents: 0, pickup: true }]);
+    expect(quote.omitted).toEqual([{ label: 'By weight', reason: 'missing_weight' }]);
+  });
+  it('still offers free shipping when a real delivery rate resolved beside pickup', () => {
+    const mixed: ShippingConfig = {
+      enabled: true,
+      zones: [
+        {
+          countries: ['US'],
+          rates: [
+            { label: 'Standard', pricing: { type: 'flat', amountCents: 500 } },
+            { label: 'Local pickup', pricing: { type: 'pickup', amountCents: 0 } },
+          ],
+          freeOverCents: 1000,
+        },
+      ],
+    };
+    const labels = quoteShipping(mixed, { subtotalCents: 5000, country: 'US', itemWeightGrams: null }).options.map((o) => o.label);
+    expect(labels).toEqual([FREE_SHIPPING_LABEL, 'Standard', 'Local pickup']);
   });
   it('counts as a non-weight fallback, so weights stay optional', () => {
     expect(zonesRequireWeight(pickupZone)).toBe(false);

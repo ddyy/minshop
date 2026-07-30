@@ -41,6 +41,7 @@ export function createDemoProvider(db: D1Database): PaymentProvider {
         shippingCents,
         shippingLabel: params.selectedShipping?.label ?? null,
         shippingWeightGrams: params.selectedShipping?.weightGrams ?? null,
+        deliveryMethod: params.selectedShipping?.deliveryMethod ?? null,
         shipAddressJson: params.selectedShipping
           ? JSON.stringify(params.selectedShipping.address)
           : null,

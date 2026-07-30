@@ -16,7 +16,7 @@ import { getConfig } from '../../config';
 import { getStoreSettings, type StoreSettings } from '../settings/db';
 import { getOrder, listOrderItemsWithImages } from '../orders/db';
 import { getEmailProvider } from './index';
-import { orderConfirmationEmail, orderNotificationEmail } from './orderConfirmation';
+import { orderConfirmationEmail, orderNotificationEmail, orderShippedEmail } from './orderConfirmation';
 import { guestLinkReissueEmail } from './guestLinkReissue';
 import { guestOrderUrl, getGuestAccess, sweepAbandonedGuestAccess } from '../orders/guestAccess.ts';
 import { shouldSendCustomerOrderEmail } from './orderPolicy';
@@ -115,6 +115,24 @@ export async function deliverOrderNotifications(
         // Customer email is an allowlisted token position (the ONLY delivery
         // path for a reissued credential — admin output never shows it).
         const msg = guestLinkReissueEmail(order, storeName, `${origin}/order/${access.access_token}`);
+        await emailer.send({ ...msg, idempotencyKey: `${kind}/${order.public_id ?? orderId}` });
+        await markSent(db, orderId, kind, attempts);
+        continue;
+      }
+
+      // Shipped notice: queued at fulfillment (label purchase or manual). An
+      // order that got UNfulfilled before delivery is skipped, not sent — the
+      // promise it makes ("on its way") would be false.
+      if (kind === 'order-shipped') {
+        const applicable =
+          Boolean(order.email) &&
+          shouldSendCustomerOrderEmail(order.payment_method) &&
+          order.fulfillment_status === 'fulfilled';
+        if (!applicable) {
+          await markSkipped(db, orderId, kind, attempts);
+          continue;
+        }
+        const msg = orderShippedEmail(order, storeName, await guestOrderUrl(db, order.public_id, origin));
         await emailer.send({ ...msg, idempotencyKey: `${kind}/${order.public_id ?? orderId}` });
         await markSent(db, orderId, kind, attempts);
         continue;

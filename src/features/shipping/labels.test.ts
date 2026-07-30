@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   buildShipmentPayload,
+  purchaseLabel,
   carrierCodeFor,
   distanceUnitFor,
   parseDimension,
@@ -112,5 +113,76 @@ describe('carrierCodeFor', () => {
     expect(carrierCodeFor('FedEx')).toBe('fedex');
     expect(carrierCodeFor('DHL Express')).toBe('dhl');
     expect(carrierCodeFor('Canada Post')).toBe('other');
+  });
+});
+
+describe('purchase outcome classification', () => {
+  // A purchase MOVES MONEY: only outcomes Shippo definitively judged may be
+  // retried; anything ambiguous must park as `uncertain`.
+  afterEach(() => vi.unstubAllGlobals());
+  const respond = (status: number, body: unknown) =>
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status })));
+
+  it('a 4xx refusal is definite', async () => {
+    respond(400, { detail: 'rate expired' });
+    const result = await purchaseLabel('tok', 'rate_1', 'USPS', 'ord_1');
+    expect(result).toEqual({ ok: false, error: 'rate expired', uncertain: false });
+  });
+  it('an ERROR transaction is definite', async () => {
+    respond(200, { status: 'ERROR', messages: [{ text: 'address invalid' }] });
+    const result = await purchaseLabel('tok', 'rate_1', 'USPS', 'ord_1');
+    expect(result).toMatchObject({ ok: false, error: 'address invalid', uncertain: false });
+  });
+  it('a 5xx is ambiguous — the charge may have landed', async () => {
+    respond(502, { detail: 'gateway' });
+    const result = await purchaseLabel('tok', 'rate_1', 'USPS', 'ord_1');
+    expect(result).toMatchObject({ ok: false, uncertain: true });
+  });
+  it('a network failure is ambiguous', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('fetch failed'); }));
+    const result = await purchaseLabel('tok', 'rate_1', 'USPS', 'ord_1');
+    expect(result).toMatchObject({ ok: false, uncertain: true });
+  });
+  it('a QUEUED answer without a label is ambiguous, not failed', async () => {
+    respond(200, { status: 'QUEUED' });
+    const result = await purchaseLabel('tok', 'rate_1', 'USPS', 'ord_1');
+    expect(result).toMatchObject({ ok: false, uncertain: true });
+  });
+  it('a clean success carries the transaction id for the audit trail', async () => {
+    respond(200, {
+      status: 'SUCCESS',
+      object_id: 'txn_9',
+      tracking_number: '9400x',
+      tracking_url_provider: 'https://t.example',
+      label_url: 'https://l.example/x.pdf',
+    });
+    const result = await purchaseLabel('tok', 'rate_1', 'USPS', 'ord_1');
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        transactionId: 'txn_9',
+        trackingNumber: '9400x',
+        trackingUrl: 'https://t.example',
+        labelUrl: 'https://l.example/x.pdf',
+        provider: 'USPS',
+      },
+    });
+  });
+  it('binds the order id into transaction metadata', async () => {
+    const spy = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Response(JSON.stringify({ status: 'ERROR', echoed: !!init }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', spy);
+    await purchaseLabel('tok', 'rate_1', 'USPS', 'ord_42');
+    const body = JSON.parse(String(spy.mock.calls[0]?.[1]?.body));
+    expect(body.metadata).toBe('order ord_42');
+  });
+});
+
+describe('shipment payload metadata', () => {
+  it('carries the order id so the dashboard can cross-reference', () => {
+    const payload = buildShipmentPayload(FROM, TO, { length: 1, width: 1, height: 1, weightGrams: 1 }, 'g', 'ord_7');
+    expect(payload.metadata).toBe('order ord_7');
   });
 });

@@ -18,6 +18,10 @@ export const FREE_SHIPPING_LABEL = 'Free shipping';
 export interface ShippingOption {
   label: string;
   amountCents: number;
+  /** Collected in person — no carrier, no delivery. Fulfillment needs this as
+   *  DATA (orders record it as delivery_method); the label text is merchant
+   *  prose and must never be parsed for meaning. */
+  pickup?: boolean;
 }
 
 export interface FlatRatePricing {
@@ -163,11 +167,19 @@ export function quoteShipping(cfg: ShippingConfig, input: ShippingQuoteInput): S
   const options: ShippingOption[] = [];
   const omitted: OmittedRate[] = [];
 
+  // Whether some DELIVERY service resolved — pickup never counts: it is not a
+  // way to send the parcel, so it must not unlock free *delivery*.
+  let deliveryResolved = false;
   for (const rate of rates) {
-    if (rate.pricing.type === 'flat' || rate.pricing.type === 'pickup') {
-      // Neither cares about weight, so an unknown weight must not hide them —
-      // pickup in particular must survive any weight: the shopper carries it.
+    if (rate.pricing.type === 'pickup') {
+      // Weight can never disqualify pickup: the shopper carries it.
+      options.push({ label: rate.label, amountCents: rate.pricing.amountCents, pickup: true });
+      continue;
+    }
+    if (rate.pricing.type === 'flat') {
+      // Flat rates do not care about weight, so an unknown weight must not hide them.
       options.push({ label: rate.label, amountCents: rate.pricing.amountCents });
+      deliveryResolved = true;
       continue;
     }
     if (shipmentWeightGrams == null) {
@@ -180,14 +192,16 @@ export function quoteShipping(cfg: ShippingConfig, input: ShippingQuoteInput): S
       continue;
     }
     options.push({ label: rate.label, amountCents: band.amountCents });
+    deliveryResolved = true;
   }
 
-  // Free shipping must not become an escape hatch around a carrier's maximum or an
-  // unknown weight — but a legacy flat-only zone (including a threshold-only zone
-  // with no configured rates) has always synthesized it, so that behavior stands.
+  // "Free shipping" is a DELIVERY promise, so it is synthesized only when a real
+  // delivery service resolved: a threshold must not bypass a carrier maximum or
+  // an unknown weight, and a pickup-only zone must not conjure a delivery the
+  // merchant never configured. The one legacy exception stands: a threshold-only
+  // zone with NO configured rates has always synthesized it.
   const qualifies = zone.freeOverCents != null && input.subtotalCents >= zone.freeOverCents;
-  const hasWeightRate = rates.some((r) => r.pricing.type === 'weight');
-  if (qualifies && (!hasWeightRate || options.length > 0)) {
+  if (qualifies && (rates.length === 0 || deliveryResolved)) {
     options.unshift({ label: FREE_SHIPPING_LABEL, amountCents: 0 });
   }
 

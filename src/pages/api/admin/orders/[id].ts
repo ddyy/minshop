@@ -5,7 +5,6 @@ import {
   getOrderByPublicId,
   fulfillOrder,
   unfulfillOrder,
-  setOrderLabelUrl,
   type ShippingAddress,
 } from '../../../../features/orders/db';
 import { getSecret } from '../../../../features/secrets/store';
@@ -19,6 +18,15 @@ import {
   type ShipFrom,
 } from '../../../../features/shipping/labels.ts';
 import {
+  claimPurchase,
+  discardLabelAttempt,
+  markLabelFailed,
+  markLabelUncertain,
+  recordPurchased,
+  recordQuote,
+} from '../../../../features/shipping/labelStore';
+import { queueNotification } from '../../../../features/email/outboxStore';
+import {
   recordExternalRefund,
   syncProviderRefund,
   voidRecordedRefund,
@@ -29,14 +37,12 @@ import {
 } from '../../../../features/refunds/db';
 import { sendRefundNotice } from '../../../../features/refunds/notify';
 import { getEmailProvider } from '../../../../features/email';
-import { orderShippedEmail } from '../../../../features/email/orderConfirmation';
-import { guestOrderUrl, reissueGuestAccess } from '../../../../features/orders/guestAccess.ts';
+import { reissueGuestAccess } from '../../../../features/orders/guestAccess.ts';
 import { deliverOrderNotifications } from '../../../../features/email/outbox';
 import { getStoreSettings } from '../../../../features/settings/db';
 import { shouldSendCustomerOrderEmail } from '../../../../features/email/orderPolicy';
 import { getPaymentProvider, type PaymentMethod } from '../../../../features/payments';
-import { formatPrice, getConfig } from '../../../../config';
-import { getSetting } from '../../../../features/settings/db';
+import { formatPrice } from '../../../../config';
 import { parseOrderOrLegacyPublicId } from '../../../../features/ids/publicId';
 
 export const prerender = false;
@@ -278,8 +284,20 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     return back;
   }
 
-  // Fetch carrier rates for a label (no money moves yet). Saves the ship-from
-  // and parcel defaults first, so an abandoned purchase still remembers them.
+  // ── Shipping labels ────────────────────────────────────────────────────────
+  // Buying moves money on the merchant's Shippo account, so every step runs
+  // through the shipping_labels state machine: one row per order, conditional
+  // claims, and an explicit human gate for ambiguous outcomes. The shipment id
+  // is NEVER taken from the request — only from this order's own row.
+
+  if (action === 'label_discard') {
+    // The merchant's explicit "I checked the Shippo dashboard" (or abandoning a
+    // quote). Cannot touch a purchased row.
+    return (await discardLabelAttempt(env.DB, id))
+      ? notice('Label attempt discarded. You can fetch rates again.')
+      : fail('There is no label attempt to discard.');
+  }
+
   if (action === 'label_rates' || action === 'buy_label') {
     const token = await getSecret(env.DB, 'shippo_api_key');
     if (!token) return fail('Add a Shippo API token in Settings first.');
@@ -290,10 +308,12 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     } catch {
       return fail('This order’s shipping address could not be read.');
     }
-    // The snapshot's fields are nullable (Stripe's collected shapes vary); a
-    // label needs the essentials filled in, so refuse with the gap named.
+    // The snapshot's fields are nullable (provider shapes vary); a label needs
+    // the essentials, so refuse with the gap named rather than 500 at Shippo.
     if (!raw.name || !raw.line1 || !raw.city || !raw.postal || !raw.country) {
-      return fail('This order’s shipping address is incomplete — a label needs name, street, city, postal code, and country.');
+      return fail(
+        'This order’s shipping address is incomplete — a label needs name, street, city, postal code, and country.',
+      );
     }
     const shipTo = {
       name: raw.name,
@@ -317,6 +337,14 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
       };
       if (!from.name || !from.street1 || !from.city || !from.zip || from.country.length !== 2) {
         return fail('Fill in the complete ship-from address (2-letter country).');
+      }
+      // Domestic only, for now: an international label needs a customs
+      // declaration (contents, values, phone numbers) this flow does not
+      // collect, so Shippo would refuse or the parcel would stall at export.
+      if (from.country !== shipTo.country.toUpperCase()) {
+        return fail(
+          `International labels aren’t supported yet (this order ships to ${shipTo.country.toUpperCase()}). Buy this label in your Shippo dashboard, then record the tracking number here.`,
+        );
       }
       const settings = await getStoreSettings(env.DB);
       const parsed = parseParcelForm(
@@ -342,49 +370,83 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
         }),
       );
 
-      const rates = await fetchLabelRates(token, from, shipTo, parsed.parcel, settings.weightUnit);
-      if (!rates.ok) return fail(rates.error);
-      return redirect(
-        `/admin/orders/${publicId}?shipment=${encodeURIComponent(rates.value.shipmentId)}`,
-        303,
+      const rates = await fetchLabelRates(
+        token,
+        from,
+        shipTo,
+        parsed.parcel,
+        settings.weightUnit,
+        existing.public_id,
       );
+      if (!rates.ok) return fail(rates.error);
+      // The quote binds to THIS order in D1. Refusal means a purchase is in
+      // progress, done, or the order is no longer labelable (unpaid, fulfilled,
+      // pickup) — nothing was charged either way.
+      if (!(await recordQuote(env.DB, id, rates.value.shipmentId))) {
+        return fail('This order can’t fetch rates right now — a label purchase already exists or the order is no longer eligible.');
+      }
+      return back;
     }
 
-    // buy_label — MOVES MONEY on the merchant's Shippo account. The rate is
-    // re-read from the shipment (never trusted from the form beyond its id),
-    // and success flows straight into the normal fulfillment path so tracking
-    // and the shipped email behave exactly as a manual fulfillment would.
-    const shipmentId = String(form.get('shipment') ?? '').trim();
+    // buy_label — the claim flips this order's quote to 'purchasing'; exactly
+    // one concurrent submit wins, and the shipment bought from is the row's.
     const rateId = String(form.get('rate') ?? '').trim();
-    if (!shipmentId || !rateId) return fail('Pick a rate first.');
-    const rates = await getShipmentRates(token, shipmentId);
-    if (!rates.ok) return fail(rates.error);
+    if (!rateId) return fail('Pick a rate first.');
+    const claim = await claimPurchase(env.DB, id, rateId);
+    if (!claim) {
+      return fail('No open quote to purchase — fetch rates first (or a purchase is already under way).');
+    }
+    const rates = await getShipmentRates(token, claim.shipmentId);
+    if (!rates.ok) {
+      await markLabelFailed(env.DB, id, rates.error);
+      return fail(rates.error);
+    }
     const rate = rates.value.find((r) => r.rateId === rateId);
-    if (!rate) return fail('That rate is no longer offered. Fetch rates again.');
+    if (!rate) {
+      await markLabelFailed(env.DB, id, 'Selected rate no longer offered.');
+      return fail('That rate is no longer offered. Fetch rates again.');
+    }
 
-    const bought = await purchaseLabel(token, rate.rateId, rate.provider);
-    if (!bought.ok) return fail(bought.error);
+    const bought = await purchaseLabel(token, rate.rateId, rate.provider, existing.public_id);
+    if (!bought.ok) {
+      if (bought.uncertain) {
+        // The charge MAY have landed. Park it — never auto-retry a purchase —
+        // and point the merchant at the dashboard record (tagged with the
+        // order id via metadata) before they explicitly discard.
+        await markLabelUncertain(env.DB, id, bought.error);
+        return fail(
+          `Shippo’s answer was lost mid-purchase (${bought.error}) — the label MAY have been bought. Check your Shippo dashboard for order ${existing.public_id}, then discard the attempt if no label exists.`,
+        );
+      }
+      await markLabelFailed(env.DB, id, bought.error);
+      return fail(bought.error);
+    }
 
-    await fulfillOrder(env.DB, id, carrierCodeFor(bought.value.provider), bought.value.trackingNumber);
-    await setOrderLabelUrl(env.DB, id, bought.value.labelUrl);
-
+    // One batch: label row, guarded fulfillment, label URL, and the durable
+    // shipped-notification row. A crash after the charge can no longer leave a
+    // paid label unrecorded, and the email survives via the outbox sweep.
+    await recordPurchased(env.DB, id, {
+      transactionId: bought.value.transactionId,
+      provider: rate.provider,
+      service: rate.service,
+      amountCents: rate.amountCents,
+      trackingNumber: bought.value.trackingNumber,
+      labelUrl: bought.value.labelUrl,
+      carrierCode: carrierCodeFor(bought.value.provider),
+    });
+    let delivery = 'No customer email will be sent.';
     const order = await getOrder(env.DB, id);
     if (order?.email && shouldSendCustomerOrderEmail(order.payment_method)) {
-      const emailer = await getEmailProvider();
-      if (emailer) {
-        try {
-          const storeName = (await getSetting(env.DB, 'store_name')) || getConfig().storeName;
-          const shipOrigin = new URL(request.url).origin;
-          await emailer.send(
-            orderShippedEmail(order, storeName, await guestOrderUrl(env.DB, order.public_id, shipOrigin)),
-          );
-        } catch (err) {
-          console.error('Shipping email failed:', err);
-        }
+      delivery = 'The customer is being emailed the tracking details.';
+      try {
+        await deliverOrderNotifications(env.DB, id, new URL(request.url).origin);
+      } catch (err) {
+        // Row stays queued; the piggyback sweep retries it.
+        console.error('Shipped-notification delivery failed:', err);
       }
     }
     return notice(
-      `Label purchased (${rate.provider} ${rate.service}). Tracking ${bought.value.trackingNumber} recorded and the customer notified.`,
+      `Label purchased (${rate.provider} ${rate.service}). Tracking ${bought.value.trackingNumber} recorded. ${delivery}`,
     );
   }
 
@@ -393,22 +455,14 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
   const trackingNumber = String(form.get('tracking_number') ?? '').trim() || null;
   await fulfillOrder(env.DB, id, carrier, trackingNumber);
 
-  // Demo orders never contact customers. Real orders retain the normal shipping
-  // notification, and email failure never blocks fulfillment.
-  const order = await getOrder(env.DB, id);
-  if (order?.email && shouldSendCustomerOrderEmail(order.payment_method)) {
-    const emailer = await getEmailProvider();
-    if (emailer) {
-      try {
-        const storeName = (await getSetting(env.DB, 'store_name')) || getConfig().storeName;
-        const shipOrigin = new URL(request.url).origin;
-        await emailer.send(
-          orderShippedEmail(order, storeName, await guestOrderUrl(env.DB, order.public_id, shipOrigin)),
-        );
-      } catch (err) {
-        console.error('Shipping email failed:', err);
-      }
-    }
+  // Durable shipped notice: queue + attempt now; a failed send is retried by
+  // the outbox sweep instead of vanishing into a log line. Demo orders and
+  // orders without an email are marked skipped by the deliverer itself.
+  await queueNotification(env.DB, id, 'order-shipped');
+  try {
+    await deliverOrderNotifications(env.DB, id, new URL(request.url).origin);
+  } catch (err) {
+    console.error('Shipped-notification delivery failed:', err);
   }
 
   return back;

@@ -9,7 +9,7 @@ import type { D1Database } from '@cloudflare/workers-types';
  * ordering pass unnoticed.
  */
 
-export const NOTIFICATION_KINDS = ['customer-receipt', 'owner-notification'] as const;
+export const NOTIFICATION_KINDS = ['customer-receipt', 'owner-notification', 'order-shipped'] as const;
 
 /**
  * Versioned-kind family for guest-link reissue (see the public-ID plan): each

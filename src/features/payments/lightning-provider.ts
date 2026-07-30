@@ -25,6 +25,7 @@ export interface MintLightningOrderInput {
   shippingCents?: number;
   shippingLabel?: string | null;
   shippingWeightGrams?: number | null;
+  deliveryMethod?: 'pickup' | 'shipping' | null;
   /** Pre-serialized JSON cart snapshot: [{ id, q, n, p }]. */
   itemsJson?: string | null;
   email?: string | null;
@@ -77,6 +78,7 @@ export async function mintLightningOrder(
     shippingCents,
     shippingLabel: input.shippingLabel ?? null,
     shippingWeightGrams: input.shippingWeightGrams ?? null,
+    deliveryMethod: input.deliveryMethod ?? null,
     shipAddressJson: input.shippingAddress ? JSON.stringify(input.shippingAddress) : null,
     reservationId: input.reservationId ?? null,
     expiresAt,

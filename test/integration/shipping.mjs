@@ -10,6 +10,14 @@ import {
   serializeRuntimeShippingConfig,
 } from '../../src/features/shipping/settings.ts';
 import { countProductsMissingWeight } from '../../src/features/shipping/sellability.ts';
+import {
+  claimPurchase,
+  discardLabelAttempt,
+  getLabelRecord,
+  markLabelUncertain,
+  recordPurchased,
+  recordQuote,
+} from '../../src/features/shipping/labelStore.ts';
 
 // Merchant-managed shipping against a real D1. The properties here are the ones a
 // mocked database cannot show: that the revision guard actually serializes two
@@ -49,6 +57,26 @@ const SCHEMA = `
                                  product_id INTEGER NOT NULL, label TEXT NOT NULL,
                                  active INTEGER NOT NULL DEFAULT 1,
                                  weight_grams INTEGER);
+
+  CREATE TABLE orders (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                       public_id TEXT UNIQUE, email TEXT,
+                       status TEXT NOT NULL DEFAULT 'paid',
+                       fulfillment_status TEXT NOT NULL DEFAULT 'unfulfilled',
+                       tracking_carrier TEXT, tracking_number TEXT,
+                       fulfilled_at TEXT, label_url TEXT, delivery_method TEXT);
+  CREATE TABLE shipping_labels (order_id INTEGER PRIMARY KEY,
+                                status TEXT NOT NULL, shipment_id TEXT NOT NULL,
+                                rate_id TEXT, transaction_id TEXT, provider TEXT,
+                                service TEXT, amount_cents INTEGER,
+                                tracking_number TEXT, label_url TEXT, error TEXT,
+                                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                                updated_at TEXT NOT NULL DEFAULT (datetime('now')));
+  CREATE TABLE order_notifications (order_id INTEGER NOT NULL, kind TEXT NOT NULL,
+                                    state TEXT NOT NULL DEFAULT 'pending',
+                                    attempts INTEGER NOT NULL DEFAULT 0,
+                                    lease_expires_at TEXT, last_error TEXT,
+                                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                                    sent_at TEXT, PRIMARY KEY (order_id, kind));
 `;
 
 const zone = (name = 'United States', amountCents = 600) => ({
@@ -65,6 +93,9 @@ async function freshDb() {
   await db.exec('DROP TABLE IF EXISTS settings');
   await db.exec('DROP TABLE IF EXISTS products');
   await db.exec('DROP TABLE IF EXISTS product_variants');
+  await db.exec('DROP TABLE IF EXISTS orders');
+  await db.exec('DROP TABLE IF EXISTS shipping_labels');
+  await db.exec('DROP TABLE IF EXISTS order_notifications');
   for (const stmt of SCHEMA.split(';').map((s) => s.trim()).filter(Boolean)) {
     await db.exec(stmt.replace(/\s+/g, ' '));
   }
@@ -191,6 +222,98 @@ await check('missing-weight count honours variant inheritance', async () => {
   await addVariant(8, 400, 0); // inactive variant, product weight null → missing
 
   assert.equal(await countProductsMissingWeight(db), 3, 'products 2, 7 and 8 need a weight');
+});
+
+// ── Label purchase state machine ────────────────────────────────────────────
+// The claims that keep a money-moving purchase single: only a real D1 can show
+// two concurrent submits racing the conditional UPDATE.
+
+console.log('\nshipping labels (D1)');
+
+const addOrder = async (db, id, over = {}) => {
+  await db
+    .prepare(
+      `INSERT INTO orders (id, public_id, status, fulfillment_status, delivery_method)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .bind(id, `ord_label_${id}`, over.status ?? 'paid', over.fulfillment ?? 'unfulfilled', over.delivery ?? null)
+    .run();
+};
+
+await check('quoting requires a paid, unfulfilled delivery order', async () => {
+  const db = await freshDb();
+  await addOrder(db, 1);
+  await addOrder(db, 2, { status: 'refunded' });
+  await addOrder(db, 3, { fulfillment: 'fulfilled' });
+  await addOrder(db, 4, { delivery: 'pickup' });
+  assert.equal(await recordQuote(db, 1, 'shp_a'), true);
+  assert.equal(await recordQuote(db, 2, 'shp_b'), false, 'refunded order must refuse');
+  assert.equal(await recordQuote(db, 3, 'shp_c'), false, 'fulfilled order must refuse');
+  assert.equal(await recordQuote(db, 4, 'shp_d'), false, 'pickup order must refuse');
+});
+
+await check('a foreign shipment id can never be bought from', async () => {
+  const db = await freshDb();
+  await addOrder(db, 1);
+  await addOrder(db, 2);
+  await recordQuote(db, 1, 'shp_mine');
+  await recordQuote(db, 2, 'shp_other');
+  // The claim returns the ORDER'S OWN shipment — whatever the form said.
+  const claim = await claimPurchase(db, 1, 'rate_x');
+  assert.equal(claim.shipmentId, 'shp_mine');
+});
+
+await check('exactly one concurrent purchase claim wins', async () => {
+  const db = await freshDb();
+  await addOrder(db, 1);
+  await recordQuote(db, 1, 'shp_a');
+  const [a, b] = await Promise.all([
+    claimPurchase(db, 1, 'rate_1'),
+    claimPurchase(db, 1, 'rate_2'),
+  ]);
+  assert.equal([a, b].filter(Boolean).length, 1, 'one claim exactly');
+});
+
+await check('an uncertain outcome blocks re-quoting until discarded', async () => {
+  const db = await freshDb();
+  await addOrder(db, 1);
+  await recordQuote(db, 1, 'shp_a');
+  await claimPurchase(db, 1, 'rate_1');
+  await markLabelUncertain(db, 1, 'network lost');
+  assert.equal(await recordQuote(db, 1, 'shp_b'), false, 'uncertain must refuse a new quote');
+  assert.equal(await claimPurchase(db, 1, 'rate_1'), null, 'no second purchase');
+  assert.equal(await discardLabelAttempt(db, 1), true);
+  assert.equal(await recordQuote(db, 1, 'shp_b'), true, 'discard reopens the order');
+});
+
+await check('recordPurchased lands label, fulfillment, and the shipped email in one batch', async () => {
+  const db = await freshDb();
+  await addOrder(db, 1);
+  await recordQuote(db, 1, 'shp_a');
+  await claimPurchase(db, 1, 'rate_1');
+  await recordPurchased(db, 1, {
+    transactionId: 'txn_1',
+    provider: 'USPS',
+    service: 'Priority Mail',
+    amountCents: 733,
+    trackingNumber: '9400tracking',
+    labelUrl: 'https://labels.example/1.pdf',
+    carrierCode: 'usps',
+  });
+  const record = await getLabelRecord(db, 1);
+  assert.equal(record.status, 'purchased');
+  assert.equal(record.transaction_id, 'txn_1');
+  const order = await db.prepare('SELECT * FROM orders WHERE id = 1').first();
+  assert.equal(order.fulfillment_status, 'fulfilled');
+  assert.equal(order.tracking_number, '9400tracking');
+  assert.equal(order.label_url, 'https://labels.example/1.pdf');
+  const note = await db
+    .prepare(`SELECT state FROM order_notifications WHERE order_id = 1 AND kind = 'order-shipped'`)
+    .first();
+  assert.ok(note, 'shipped notification queued in the same batch');
+  // A purchased row is untouchable: no discard, no requote.
+  assert.equal(await discardLabelAttempt(db, 1), false);
+  assert.equal(await recordQuote(db, 1, 'shp_new'), false);
 });
 
 await mf.dispose();

@@ -41,6 +41,8 @@ export interface Order {
   fulfilled_at: string | null;
   /** Purchased label PDF (Shippo), or null for manual fulfillment. */
   label_url: string | null;
+  /** 'pickup' | 'shipping' | NULL (pre-0035 or no shipping). Unknown = shipping. */
+  delivery_method: string | null;
   ship_address: string | null; // JSON snapshot (ShippingAddress) or null
   created_at: string;
 }
@@ -78,6 +80,7 @@ export interface PaidOrderInput {
    *  Snapshotted so later catalog or rate edits cannot rewrite history. */
   shippingLabel?: string | null;
   shippingWeightGrams?: number | null;
+  deliveryMethod?: 'pickup' | 'shipping' | null;
   discountCents?: number;
   taxCents?: number;
   shippingAddress?: ShippingAddress | null;
@@ -366,6 +369,7 @@ export async function recordPaidOrder(
     o.shippingCents ?? 0,
     o.shippingLabel ?? null,
     o.shippingWeightGrams ?? null,
+    o.deliveryMethod ?? null,
     o.discountCents ?? 0,
     o.taxCents ?? 0,
     o.currency,
@@ -378,8 +382,8 @@ export async function recordPaidOrder(
   const insertOrder = o.reservationId
     ? db
         .prepare(
-          `INSERT INTO orders (provider_session_id, public_id, email, amount_total_cents, shipping_cents, shipping_label, shipping_weight_grams, discount_cents, tax_cents, currency, ship_address, status, payment_method, settlement_token, provider_payment_id)
-           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, NULL, ?
+          `INSERT INTO orders (provider_session_id, public_id, email, amount_total_cents, shipping_cents, shipping_label, shipping_weight_grams, delivery_method, discount_cents, tax_cents, currency, ship_address, status, payment_method, settlement_token, provider_payment_id)
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, NULL, ?
             WHERE EXISTS (
               SELECT 1 FROM checkout_reservations
                WHERE public_id = ? AND status IN ('active', 'payment_pending')
@@ -390,8 +394,8 @@ export async function recordPaidOrder(
         .bind(...orderValues, o.reservationId)
     : db
         .prepare(
-          `INSERT INTO orders (provider_session_id, public_id, email, amount_total_cents, shipping_cents, shipping_label, shipping_weight_grams, discount_cents, tax_cents, currency, ship_address, status, payment_method, settlement_token, provider_payment_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, NULL, ?)
+          `INSERT INTO orders (provider_session_id, public_id, email, amount_total_cents, shipping_cents, shipping_label, shipping_weight_grams, delivery_method, discount_cents, tax_cents, currency, ship_address, status, payment_method, settlement_token, provider_payment_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, NULL, ?)
            ON CONFLICT(provider_session_id) DO NOTHING
            RETURNING id`,
         )
