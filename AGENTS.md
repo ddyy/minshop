@@ -32,8 +32,10 @@ Use the narrowest customization surface that fits the change:
    shipping zones and rates, image dimensions, order numbering, and
    template-only features. Override only changed keys; never customize
    `src/config.ts` defaults directly.
-3. **`src/styles/theme.css`** for brand colors, fonts, surfaces, and corner
-   radii. Keep structural styles in `global.css` and avoid restyling individual
+3. **`src/storefront/<set>/theme.css`** for brand colors, fonts, surfaces, and
+   corner radii — each set owns its `@theme` block. `src/styles/theme.css` is a
+   normally-empty override layer applied after the set's tokens. Keep
+   structural styles in `src/styles/base.css` and avoid restyling individual
    components when a shared token will do.
 4. **`public/favicon.svg`** for the browser icon. Products, categories, images,
    and other catalog content belong in the admin, not source files.
@@ -59,7 +61,7 @@ components. Deleting a folder still builds.
 src/
   config.ts              SCHEMA + DEFAULTS (upstream-owned). getConfig() = source of truth.
   store.config.ts        build-time shop overrides, deep-merged on top
-  styles/theme.css       clone-safe brand tokens
+  styles/theme.css       post-set override layer (normally empty; set tokens live in storefront/<set>/theme.css)
   middleware.ts          admin auth gate (fail-closed)
   env.d.ts               Cloudflare.Env binding/secret types
   layouts/               Layout.astro (storefront), AdminLayout.astro

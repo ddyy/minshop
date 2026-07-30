@@ -1,0 +1,48 @@
+/*
+ * The Admin stylesheet entry. Deliberately NOT the storefront's.
+ *
+ * Admin is upstream chrome: it must stay readable no matter what design the
+ * store ships. When it shared global.css it inherited the active set's
+ * tokens and base-layer body rules — under Studio that meant near-black
+ * paper, bone ink, and a film-grain texture behind order tables, with core
+ * Admin text hardcoded dark on top (about 1.1:1). So Admin gets its own
+ * Tailwind compilation with its own stable tokens, and imports no set theme
+ * and no merchant override. Rebranding a store changes the storefront;
+ * Admin looks the same in every store.
+ */
+/* source(none) + explicit src: same reasoning as global.css — without it,
+   Tailwind scans test baselines and docs for class names. */
+@import "tailwindcss" source(none);
+@source "../../src";
+
+/* Exclude every storefront set from THIS compilation's source scan (generated;
+   covers all sets, unlike the per-set files which keep their own). Set
+   templates never render inside Admin, so their utilities would be dead
+   weight here — and no set may restyle Admin by accident. */
+@import "./storefront/_admin.css";
+
+/* Admin's own tokens: the upstream light palette, frozen. These match the
+   default set's values today, but they are Admin's, not the default set's —
+   the default set can evolve without dragging Admin along. */
+@theme {
+  --color-brand: #111827;
+  --color-brand-hover: #374151;
+  --color-ink: #111827;
+  --color-accent: #2563eb;
+  --color-paper: #faf8f4;
+  --color-line: #e7e2d9;
+  --color-surface: #ffffff;
+  --color-muted: #4b5563;
+  --color-faint: #6b7280;
+  --color-on-brand: #ffffff;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    Helvetica, Arial, sans-serif;
+  --font-serif: 'Hoefler Text', 'Iowan Old Style', 'Palatino Linotype', Palatino,
+    Georgia, 'Times New Roman', serif;
+
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+}
+
+@import "./base.css";

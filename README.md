@@ -513,7 +513,7 @@ to someone who hit the URL beforehand.
 > controls to keep, and the checks to run.
 
 
-Brand color, accent, font, and corner radius are **design tokens** in `src/styles/theme.css` (a Tailwind v4 `@theme` block) — rebrand a clone by editing a few values, no component changes:
+Brand color, accent, font, and corner radius are **design tokens** in your storefront set's `theme.css` (`src/storefront/<your-set>/theme.css`, a Tailwind v4 `@theme` block) — rebrand a clone by editing a few values, no component changes:
 
 ```css
 @theme {
@@ -524,7 +524,7 @@ Brand color, accent, font, and corner radius are **design tokens** in `src/style
 }
 ```
 
-These generate the `bg-brand` / `border-brand` / `text-accent` utilities used across the UI, so changing one value re-skins every button and link at once. There is no runtime templating or theme engine: the components are the template, and tokens are the knobs.
+These generate the `bg-brand` / `border-brand` / `text-accent` utilities used across the UI, so changing one value re-skins every button and link at once. (`src/styles/theme.css` is a later, normally empty override layer applied after your set's tokens.) There is no runtime templating or theme engine: the components are the template, and tokens are the knobs.
 
 ## Gotchas
 

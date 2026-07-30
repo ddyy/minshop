@@ -34,6 +34,16 @@ mkdir -p .instances
 restore() { [ -f wrangler.jsonc.bak ] && mv -f wrangler.jsonc.bak wrangler.jsonc || true; }
 trap restore EXIT
 
+# Before creating ANY remote resource: the storefront selection must resolve.
+# Read-only — a broken storefront.config.json used to surface only after the
+# database and bucket already existed on the account.
+echo "▸ [0/5] Validating storefront selection…"
+node --input-type=module -e "
+  import { resolveStorefrontSet } from './scripts/storefront-set.mjs';
+  const s = resolveStorefrontSet();
+  console.log('    storefront set: ' + s.id + ' (from ' + s.source + ')');
+"
+
 echo "▸ [1/5] Creating D1 database '$DB_NAME'…"
 DB_OUT="$($W d1 create "$DB_NAME")"
 DB_ID="$(printf '%s' "$DB_OUT" | grep -oiE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)"

@@ -76,9 +76,23 @@ describe('discovery', () => {
     ]);
   });
 
-  it('ignores directories that are not valid ids', () => {
+  it('fails on a directory that is not a valid id, naming it', () => {
+    // A misnamed directory is an attempted set. Skipping it would silently
+    // drop it from the boundary checker, the generated artifacts, and the CI
+    // matrix — every guard green on a set none of them saw.
     const root = fixture(['default']);
-    mkdirSync(join(root, 'src/storefront', 'Not An Id'), { recursive: true });
+    mkdirSync(join(root, 'src/storefront', 'My-Theme'), { recursive: true });
+
+    expect(() => discoverSetIds(root)).toThrow(/My-Theme/);
+    expect(() => discoverSetIds(root)).toThrow(/lowercase/);
+  });
+
+  it('still ignores hidden directories and plain files', () => {
+    // OS and editor droppings are not attempts at a set.
+    const root = fixture(['default']);
+    mkdirSync(join(root, 'src/storefront', '.backup'), { recursive: true });
+    writeFileSync(join(root, 'src/storefront', '.DS_Store'), '');
+    writeFileSync(join(root, 'src/storefront', 'notes.txt'), '');
 
     expect(discoverSetIds(root)).toEqual(['default']);
   });

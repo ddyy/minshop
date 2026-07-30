@@ -24,6 +24,14 @@ export const RESERVED_SET_IDS = ['default', 'studio', 'market'];
 
 const SET_ID = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 
+/** Mirrors isValidSetId in scripts/storefront-set.mjs — pattern AND length.
+ *  The scaffolder must not accept an id the application later rejects: a
+ *  41-character id would be copied, written into storefront.config.json, and
+ *  only then refused by the resolver, leaving the new store unable to build. */
+function isUsableSetId(id) {
+  return typeof id === 'string' && id.length > 0 && id.length <= 40 && SET_ID.test(id);
+}
+
 /** Turn a directory or store name into a usable set id. */
 export function normalizeSetId(name) {
   const slug = String(name ?? '')
@@ -32,7 +40,7 @@ export function normalizeSetId(name) {
     .replace(/^-+|-+$/g, '')
     .slice(0, 40)
     .replace(/-+$/, '');
-  return SET_ID.test(slug) ? slug : null;
+  return isUsableSetId(slug) ? slug : null;
 }
 
 /**
@@ -46,9 +54,9 @@ export function normalizeSetId(name) {
 export function resolveSetId(requested, directory) {
   if (requested != null) {
     const id = String(requested).trim();
-    if (!SET_ID.test(id)) {
+    if (!isUsableSetId(id)) {
       throw new Error(
-        `Invalid storefront set id: "${id}". Use lowercase letters, digits, and single hyphens.`,
+        `Invalid storefront set id: "${id}". Use lowercase letters, digits, and single hyphens — at most 40 characters.`,
       );
     }
     if (RESERVED_SET_IDS.includes(id)) {

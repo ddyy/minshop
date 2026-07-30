@@ -42,13 +42,35 @@ export function normalizeSetId(name) {
 }
 
 /** Every set present in the tree, sorted. Discovery is dynamic so a generated
- *  store's own set is covered without editing any list. */
+ *  store's own set is covered without editing any list.
+ *
+ *  A DIRECTORY with an invalid name is an error, not something to skip: the
+ *  developer who created src/storefront/My-Theme was clearly adding a set, and
+ *  silently excluding it removes it from the boundary checker, the generated
+ *  artifacts, and the CI matrix at once — every guard reports green on a set
+ *  none of them saw. Dot-prefixed entries (editor and OS droppings) and plain
+ *  files are still ignored; they are not attempts at a set. */
 export function discoverSetIds(root = process.cwd()) {
   const dir = resolve(root, SETS_DIR);
   if (!existsSync(dir)) return [];
-  return readdirSync(dir)
-    .filter((name) => isValidSetId(name) && statSync(join(dir, name)).isDirectory())
-    .sort();
+  const ids = [];
+  const invalid = [];
+  for (const name of readdirSync(dir)) {
+    if (name.startsWith('.')) continue;
+    if (!statSync(join(dir, name)).isDirectory()) continue;
+    if (isValidSetId(name)) ids.push(name);
+    else invalid.push(name);
+  }
+  if (invalid.length > 0) {
+    throw new Error(
+      [
+        `Invalid storefront set director${invalid.length === 1 ? 'y' : 'ies'} under ${SETS_DIR}/: ${invalid.join(', ')}.`,
+        'Set ids use lowercase letters, digits, and single hyphens — at most 40 characters.',
+        'Rename the directory (e.g. "My-Theme" → "my-theme") or move it out of the sets directory.',
+      ].join('\n'),
+    );
+  }
+  return ids.sort();
 }
 
 export function setPath(id, root = process.cwd()) {
@@ -62,7 +84,15 @@ export function setPath(id, root = process.cwd()) {
 }
 
 function storefrontError(message, root) {
-  const available = discoverSetIds(root);
+  // Discovery itself throws on misnamed set directories. Here it is only
+  // decorating another error, so fall back to an empty list rather than
+  // letting the decoration mask the actual failure.
+  let available;
+  try {
+    available = discoverSetIds(root);
+  } catch {
+    available = [];
+  }
   return [
     message,
     available.length > 0

@@ -12,12 +12,13 @@ theme engine and no code editor in Admin — you edit source, build, and deploy.
 | --- | --- |
 | `src/storefront/<your-set>/` | Your storefront set — templates and tokens. Created for you at setup. |
 | `src/styles/theme.css` | Optional overrides applied after your set's tokens. |
-| `src/storefront/Header.astro` | Logo, announcement bar, navigation, search, cart and account placement. |
-| `src/storefront/Footer.astro` | Footer navigation and store attribution. |
-| `src/storefront/ProductCard.astro` | Every product card — catalog, category, search, and the "You may also like" row. |
-| `src/storefront/Catalog.astro` | The catalog page at both `/` and `/products`: headings, category links, grid, empty state. |
-| `src/storefront/ProductDetail.astro` | The product page: gallery, details, purchase panel, and recommendations. |
-| `src/storefront/ContentPage.astro` | The frame around a merchant's Markdown page. |
+| `src/storefront/<your-set>/Header.astro` | Logo, announcement bar, navigation, search, cart and account placement. |
+| `src/storefront/<your-set>/Footer.astro` | Footer navigation and store attribution. |
+| `src/storefront/<your-set>/ProductCard.astro` | Every product card — catalog, category, search, and the "You may also like" row. |
+| `src/storefront/<your-set>/Catalog.astro` | The catalog page at both `/` and `/products`: headings, category links, grid, empty state. |
+| `src/storefront/<your-set>/ProductDetail.astro` | The product page: gallery, details, purchase panel, and recommendations. |
+| `src/storefront/<your-set>/ContentPage.astro` | The frame around a merchant's Markdown page. |
+| `src/storefront/<your-set>/theme.css` | Your set's design tokens: the `@theme` block (colors, fonts, radii) plus the prose and container scales. |
 
 That is the whole store-owned surface.
 
@@ -178,7 +179,7 @@ Two things are contract rather than design:
 - **`style={model.layoutStyle}`** carries the width and title alignment the
   merchant picked in Admin. Drop it and every page reverts to the default.
 
-The prose scale itself is yours, in `theme.css`:
+The prose scale itself is yours, in your set's `theme.css` (outside the `@theme` block):
 
 ```css
 :root {
@@ -257,12 +258,29 @@ upstream, not a test to relax in your set.
 
 ## Styling
 
-Tokens live in `src/styles/theme.css` and become Tailwind utilities
-automatically — `--color-brand` gives you `bg-brand`, `text-brand`, and so on.
-Structure is expressed with Tailwind utilities in your own markup.
+Tokens live in your set's `theme.css` (`src/storefront/<your-set>/theme.css`),
+in a Tailwind v4 `@theme` block, and become utilities automatically —
+`--color-brand` gives you `bg-brand`, `text-brand`, and so on. Structure is
+expressed with Tailwind utilities in your own markup.
 
-Tailwind v4 detects utility usage in `src/storefront/` with no configuration, so
-classes you add there are generated without touching any config file.
+`src/styles/theme.css` is a different, later layer: ordinary custom-property
+overrides applied AFTER your set's tokens. Its normal state is empty. Use it
+for values you want to survive switching sets, or when adopting a design
+system's variables wholesale; everything that defines your set's look belongs
+in the set's own `theme.css`.
+
+The core reads every token through `var()` with a literal fallback, so a set
+that omits a token renders exactly as the default does — omission degrades to
+the current design, never to unstyled markup.
+
+Only your active set's directory is scanned for utilities (inactive sets are
+excluded per build, and generated files under `src/styles/storefront/` wire
+that up — never edit or commit them). Classes you add in your set are
+generated without touching any config file.
+
+Admin is deliberately NOT part of any of this: it compiles its own stylesheet
+(`src/styles/admin.css`) with a frozen palette, so authenticated Admin pages
+look the same in every store, under any set, including dark ones.
 
 Upstream controls keep the functional styling they need — state, accessibility,
 and layout classes stay inside them. Each accepts a root `class` you can merge.
@@ -316,6 +334,35 @@ That separation is the point: edit your own set and an upstream change to the
 default can never collide with your work. Editing `default/` directly gives that
 guarantee up.
 
+The same rule covers the other shipped designs, `studio/` and `market/`, and
+their ids are reserved along with `default` so upstream always has somewhere to
+put them.
+
+## Starting from Studio or Market
+
+The shipped designs are reference implementations, and they are also legitimate
+starting points. Copy one's CONTENTS into your own set rather than selecting it
+directly — a store that selects `studio` is editing an upstream directory again,
+with all the collision it was scaffolded to avoid:
+
+```bash
+rm -rf src/storefront/your-store
+cp -R src/storefront/studio src/storefront/your-store
+```
+
+Leave `storefront.config.json` naming `your-store`. Then run the gates:
+
+```bash
+npm run storefront:check
+npm run test:storefront-contract
+npm run verify
+```
+
+Provenance: `default`, `studio`, and `market` are original designs written for
+this repository. They embed no third-party assets — every font stack resolves
+to system faces, and Studio's grain texture is an inline SVG authored here — so
+copying one into your set carries no license or attribution obligation.
+
 Which set is active is one value:
 
 ```json
@@ -330,7 +377,7 @@ in `storefront.config.json`. Change it and rebuild to try another set;
 Your templates are ordinary tracked files, so git is the undo:
 
 ```bash
-git checkout HEAD -- src/storefront/ProductCard.astro
+git checkout HEAD -- src/storefront/<your-set>/ProductCard.astro
 ```
 
 Work on a branch when making large changes, so the default is always one command

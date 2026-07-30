@@ -2,7 +2,10 @@
 import { getConfig } from '../config';
 import { paymentsInDemoMode } from '../features/payments';
 import { shippingFor } from '../features/shipping/effective';
-import '../styles/global.css';
+// Admin's OWN stylesheet — never global.css, which carries the active
+// storefront set's tokens and base-layer rules. A dark set would otherwise
+// restyle every authenticated Admin page (see src/styles/admin.css).
+import '../styles/admin.css';
 
 type Section =
   | 'dashboard'
@@ -63,7 +66,7 @@ const currentLabel = nav.find((n) => n.key === active)?.label ?? 'Menu';
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>{pageTitle}</title>
   </head>
-  <body class="min-h-screen bg-paper text-gray-900 antialiased">
+  <body class="min-h-screen bg-paper text-ink antialiased">
     <div class="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-8 sm:flex-row sm:gap-10">
       <aside class="w-full shrink-0 sm:w-52 sm:border-r sm:border-line sm:pr-6">
         <a href="/" class="mb-4 block font-serif text-xl tracking-tight sm:mb-8">{storeName}</a>

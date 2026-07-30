@@ -1,7 +1,7 @@
 /// <reference types="vitest/config" />
 import { getViteConfig } from 'astro/config';
 import { resolveStorefrontSet } from './scripts/storefront-set.mjs';
-import { setCssPath } from './scripts/storefront-css.mjs';
+import { setCssPath, writeStorefrontArtifacts } from './scripts/storefront-css.mjs';
 
 // Astro-aware but config-file-free. `getViteConfig` is what compiles `.astro`
 // components, so storefront presentation contracts can be rendered through
@@ -16,6 +16,13 @@ import { setCssPath } from './scripts/storefront-css.mjs';
 // of the selected one. Run one set per process (STOREFRONT=<id> vitest run):
 // looping ids inside a single run re-uses the module cache and silently
 // re-tests the first.
+// Generate the per-set artifacts before resolving: the root tsconfig extends
+// generated tsconfig.storefront.json, so on a fresh checkout the documented
+// standalone commands (test:storefront-contract, test:watch) would otherwise
+// die collecting tests with "Tsconfig not found". Safe to run from any number
+// of concurrent processes — writes are deterministic and idempotent (see the
+// design rule in scripts/storefront-css.mjs).
+writeStorefrontArtifacts();
 const storefront = resolveStorefrontSet();
 
 export default getViteConfig(

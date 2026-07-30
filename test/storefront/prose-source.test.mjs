@@ -12,6 +12,10 @@ import { readFileSync } from 'node:fs';
 import { discoverSetIds, SETS_DIR } from '../../scripts/storefront-set.mjs';
 
 const global = readFileSync('src/styles/global.css', 'utf8');
+// Structural rules moved to base.css so the Admin entry can share them without
+// inheriting the set import. Tests that assert on rules read the structural
+// file; tests about IMPORT ORDER still read the entry point.
+const structural = readFileSync('src/styles/base.css', 'utf8');
 const override = readFileSync('src/styles/theme.css', 'utf8');
 
 // Every SHIPPED set must declare the tokens the core prose rules read. The
@@ -33,14 +37,14 @@ const PROSE_RULES = [
 
 describe('the content-page prose scale', () => {
   it.each(PROSE_RULES)('reads %s from %s', (property, token) => {
-    expect(global).toContain(`${property}: var(${token},`);
+    expect(structural).toContain(`${property}: var(${token},`);
   });
 
   it.each(PROSE_RULES)('keeps today\'s value as the fallback for %s (%s)', (_property, token, literal) => {
     // A store may replace theme.css wholesale with a design system's tokens and
     // omit one of these. That must degrade to the current design, not to an
     // unstyled heading.
-    expect(global).toContain(`var(${token}, ${literal})`);
+    expect(structural).toContain(`var(${token}, ${literal})`);
   });
 
   it('ships at least one set to validate', () => {
@@ -73,7 +77,7 @@ describe('the content-page prose scale', () => {
     // --page-measure is set per page by pageLayoutStyle from the merchant's
     // chosen preset. A theme token must not override an explicit choice of a
     // wide or centred layout, so it sits in the INNER fallback position.
-    expect(global).toContain('max-width: var(--page-measure, var(--prose-measure, 48rem));');
+    expect(structural).toContain('max-width: var(--page-measure, var(--prose-measure, 48rem));');
   });
 
   it.each(sets)('keeps %s prose tokens outside @theme', (id) => {
@@ -90,8 +94,8 @@ describe('the content-page prose scale', () => {
     // Only the content-page scale is tokenized. Admin chrome and structural
     // rules stay core-owned and hardcoded — tokenizing them would enlarge the
     // contract for no customization benefit.
-    expect(global).toContain('[data-admin-nav-toggle]');
-    expect(global).toContain('[data-gallery]');
+    expect(structural).toContain('[data-admin-nav-toggle]');
+    expect(structural).toContain('[data-gallery]');
   });
 });
 
@@ -108,7 +112,7 @@ describe('the page container', () => {
     // renders exactly as the default did, and one that declares some inherits
     // the rest. Without the fallbacks, dropping a token would collapse the
     // page to zero width or lose its padding entirely.
-    expect(global).toContain(`${property}: var(${token}, ${literal})`);
+    expect(structural).toContain(`${property}: var(${token}, ${literal})`);
   });
 
   it.each(sets)('%s declares the container tokens it wants', (id) => {
@@ -125,6 +129,6 @@ describe('the page container', () => {
     const layout = readFileSync('src/layouts/Layout.astro', 'utf8');
 
     expect(layout).toContain('<main class="page-shell">');
-    expect(global).toContain('.page-shell {');
+    expect(structural).toContain('.page-shell {');
   });
 });

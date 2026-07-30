@@ -49,20 +49,48 @@ jobs:
       - name: Run complete verification
         run: npm run verify
 
-  # The job above verifies whichever set storefront.config.json names. That is
-  # one design out of three, and the contract suite exists precisely to hold for
-  # any design — so run it against the sets the default selection does not cover.
-  # Not the full `verify`: the parts this omits (integration, MCP, scaffold,
-  # Stripe country data) are set-independent and would only triple the bill.
+  # Which sets exist is a property of the TREE, not of this file: a generated
+  # store carries its merchant-owned set plus whatever shipped sets it kept,
+  # and a hardcoded list here would silently stop covering them. Discovery
+  # asks the same resolver the build uses.
+  discover:
+    name: Discover storefront sets
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sets: ${{ steps.discover.outputs.sets }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: List sets not covered by the main job
+        id: discover
+        run: |
+          sets=$(node --input-type=module -e "
+            import { discoverSetIds, resolveConfiguredSet } from './scripts/storefront-set.mjs';
+            const configured = resolveConfiguredSet().id;
+            console.log(JSON.stringify(discoverSetIds().filter((id) => id !== configured)));
+          ")
+          echo "discovered: $sets"
+          echo "sets=$sets" >> "$GITHUB_OUTPUT"
+
+  # The main job verifies whichever set storefront.config.json names. The
+  # contract suite exists precisely to hold for ANY design — so run it against
+  # every other set in the tree. Not the full `verify`: the parts this omits
+  # (integration, MCP, scaffold, Stripe country data) are set-independent and
+  # would only multiply the bill.
   sets:
     name: Verify set (${{ matrix.set }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: discover
+    if: needs.discover.outputs.sets != '[]'
 
     strategy:
       fail-fast: false
       matrix:
-        set: [market, studio]
+        set: ${{ fromJSON(needs.discover.outputs.sets) }}
 
     env:
       STOREFRONT: ${{ matrix.set }}

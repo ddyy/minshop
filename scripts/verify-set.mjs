@@ -28,6 +28,7 @@ const steps = [
   ['npx', ['vitest', 'run', 'test/storefront']],
   ['npx', ['astro', 'check', '--tsconfig', tsconfig]],
   ['npx', ['astro', 'build']],
+  ['node', ['scripts/check-built-css.mjs']],
 ];
 
 for (const [cmd, args] of steps) {

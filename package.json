@@ -17,7 +17,7 @@
     "test:storefront-equivalence": "astro build && bash test/integration/storefront-baselines.sh",
     "test:storefront-contract": "vitest run test/storefront",
     "storefront:check": "node scripts/check-storefront.mjs",
-    "verify": "npm run storefront:sync && vitest run && astro check && npm run storefront:check && astro build && npm run test:integration && node --experimental-strip-types scripts/check-stripe-countries.mjs && npm run mcp:check && npm run scaffold:check",
+    "verify": "npm run storefront:sync && vitest run && astro check && npm run storefront:check && astro build && node scripts/check-built-css.mjs && npm run test:integration && node --experimental-strip-types scripts/check-stripe-countries.mjs && npm run mcp:check && npm run scaffold:check",
     "verify:set": "node scripts/verify-set.mjs",
     "db:migrate": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",

@@ -28,7 +28,19 @@ function createTemplateRepository(root) {
   mkdirSync(join(repository, 'create-minshop'), { recursive: true });
   mkdirSync(join(repository, '.github', 'workflows'), { recursive: true });
   mkdirSync(join(repository, 'mcp'), { recursive: true });
+  mkdirSync(join(repository, 'scripts'), { recursive: true });
   mkdirSync(join(repository, 'src', 'storefront', 'default'), { recursive: true });
+  // The REAL resolver and CI workflow, not stand-ins: the generated-store
+  // matrix test below proves the actual discovery command covers the actual
+  // sets a generated repository carries.
+  writeFileSync(
+    join(repository, 'scripts', 'storefront-set.mjs'),
+    readFileSync(new URL('../../scripts/storefront-set.mjs', import.meta.url), 'utf8'),
+  );
+  writeFileSync(
+    join(repository, '.github', 'workflows', 'verify.yml'),
+    readFileSync(new URL('../../.github/workflows/verify.yml', import.meta.url), 'utf8'),
+  );
   writeFileSync(
     join(repository, 'src', 'storefront', 'default', 'ProductCard.astro'),
     '<li>card</li>\n',
@@ -148,6 +160,16 @@ test('rejects reserved and malformed storefront set ids', () => {
   }
 });
 
+test('enforces the application resolver 40-character limit on explicit ids', () => {
+  // isValidSetId in scripts/storefront-set.mjs caps ids at 40 characters. An
+  // explicit --set that passes here but fails there scaffolds a store whose
+  // committed config the application refuses — it cannot build at all.
+  const forty = `a${'b'.repeat(39)}`;
+  assert.equal(forty.length, 40);
+  assert.equal(resolveSetId(forty, '/tmp/x'), forty);
+  assert.throws(() => resolveSetId(`${forty}c`, '/tmp/x'), /Invalid storefront set id/);
+});
+
 test('normalizeSetId returns null when nothing usable survives', () => {
   assert.equal(normalizeSetId('!!!'), null);
 });
@@ -173,6 +195,43 @@ test('gives the generated store its own storefront set, selected', () => {
     JSON.parse(readFileSync(join(result.target, 'storefront.config.json'), 'utf8')).set,
     'acme-supply',
   );
+});
+
+test('the generated repository CI matrix discovers every set it carries', () => {
+  const root = mkdtempSync(join(tmpdir(), 'create-minshop-'));
+  const repository = createTemplateRepository(root);
+
+  const result = scaffoldMinshop({
+    directory: 'acme-supply',
+    install: false,
+    cwd: root,
+    repository,
+    stdio: 'pipe',
+  });
+
+  // The workflow must derive its matrix, not enumerate upstream's sets: a
+  // hardcoded list can never contain a merchant's own set, so the store's
+  // retained shipped sets would break without CI noticing.
+  const workflow = readFileSync(join(result.target, '.github/workflows/verify.yml'), 'utf8');
+  assert.equal(workflow.includes('discoverSetIds'), true);
+  assert.equal(workflow.includes('set: [market, studio]'), false);
+
+  // Run THE SAME discovery command the workflow runs, inside the generated
+  // repository: the main job covers the merchant set (named by the config),
+  // so the matrix must be exactly the retained shipped sets.
+  const discovery = spawnSync(
+    'node',
+    [
+      '--input-type=module',
+      '-e',
+      `import { discoverSetIds, resolveConfiguredSet } from './scripts/storefront-set.mjs';
+       const configured = resolveConfiguredSet().id;
+       console.log(JSON.stringify(discoverSetIds().filter((id) => id !== configured)));`,
+    ],
+    { cwd: result.target, encoding: 'utf8' },
+  );
+  assert.equal(discovery.status, 0, discovery.stderr);
+  assert.deepEqual(JSON.parse(discovery.stdout.trim()), ['default']);
 });
 
 test('honours an explicit --set id', () => {

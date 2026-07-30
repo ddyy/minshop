@@ -123,10 +123,27 @@ export function writeStorefrontArtifacts(root = process.cwd()) {
     writeIfChanged(setTsconfigPath(id, root), storefrontSetTsconfig(id));
   }
 
+  // The Admin entry's exclusion list: EVERY set, because no set's templates
+  // render inside Admin and no set may restyle it. Named with a leading
+  // underscore, which no set id can carry, so it cannot collide with a set's
+  // own generated file.
+  const adminExclusions = ids.map((id) => `@source not "../../storefront/${id}";`).join('\n');
+  writeIfChanged(
+    resolve(root, GENERATED_CSS_DIR, '_admin.css'),
+    `/*
+ * GENERATED — do not edit, and do not commit.
+ * Written by scripts/storefront-css.mjs for src/styles/admin.css: keeps every
+ * storefront set out of the Admin stylesheet's source scan.
+ */
+${adminExclusions || '/* no sets */'}
+`,
+  );
+
   const live = new Set(ids);
   const cssDir = resolve(root, GENERATED_CSS_DIR);
   if (existsSync(cssDir)) {
     for (const name of readdirSync(cssDir)) {
+      if (name.startsWith('_')) continue; // not per-set (e.g. _admin.css)
       const id = name.replace(/\.css$/, '');
       if (name.endsWith('.css') && !live.has(id)) rmSync(resolve(cssDir, name), { force: true });
     }

@@ -19,8 +19,27 @@ import { setCssPath, writeStorefrontArtifacts } from './scripts/storefront-css.m
 const storefront = resolveStorefrontSet();
 writeStorefrontArtifacts();
 
+// Stamp every build with the set it was compiled for. The deploy scripts
+// refuse to ship an artifact whose stamp disagrees with the current
+// selection — without this, `deploy --skip-build` happily deploys whatever
+// design happened to be in dist/, and nothing ever knows.
+const storefrontStamp = {
+  name: 'minshop:storefront-stamp',
+  hooks: {
+    'astro:build:done': async () => {
+      const { writeFileSync, mkdirSync } = await import('node:fs');
+      mkdirSync(new URL('./dist', import.meta.url).pathname, { recursive: true });
+      writeFileSync(
+        new URL('./dist/storefront-set.json', import.meta.url).pathname,
+        `${JSON.stringify({ set: storefront.id }, null, 2)}\n`,
+      );
+    },
+  },
+};
+
 export default defineConfig({
   output: 'server',
+  integrations: [storefrontStamp],
   // Replaced by the equivalent middleware guard so the bearer-capability
   // /pay/otk_… form can support clients that omit Origin without weakening
   // cookie-authenticated Admin/account forms.
