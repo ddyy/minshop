@@ -1,0 +1,35 @@
+---
+import type { StorefrontShellModel } from '../../features/storefront/models';
+
+/**
+ * STORE-OWNED. Edit freely — this file belongs to your store.
+ *
+ * Footer links come from the merchant's navigation menu, already filtered to
+ * targets that are actually publishable, so nothing here can render a dead
+ * link. Like the header, this renders on every page.
+ */
+interface Props {
+  model: StorefrontShellModel;
+}
+
+const { model } = Astro.props;
+---
+
+<footer class="border-t border-line">
+  <div
+    class="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-6 py-10 text-xs uppercase tracking-widest text-gray-500"
+  >
+    <span>&copy; {model.storeName}</span>
+    {
+      model.footerLinks.length > 0 && (
+        <nav aria-label="Footer" class="flex flex-wrap items-center gap-x-6 gap-y-3">
+          {model.footerLinks.map((link) => (
+            <a href={link.href} class="hover:text-brand">
+              {link.text}
+            </a>
+          ))}
+        </nav>
+      )
+    }
+  </div>
+</footer>

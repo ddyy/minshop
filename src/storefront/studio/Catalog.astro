@@ -1,0 +1,64 @@
+---
+import type { CatalogPageModel } from '../../features/storefront/models';
+import ProductCard from './ProductCard.astro';
+import CatalogSort from '../../features/storefront/controls/CatalogSort.astro';
+import CatalogPagination from '../../features/storefront/controls/CatalogPagination.astro';
+
+/**
+ * STORE-OWNED. Edit freely — this file belongs to your store.
+ *
+ * The catalog, rendered at both `/` and `/products`. It performs no queries and
+ * parses no query parameters: every product, link, and URL on `model` is
+ * already built and bounded.
+ *
+ * Keep <CatalogSort> and <CatalogPagination>. Their hrefs encode the query
+ * semantics the catalog's canonical URLs and caching depend on, and their
+ * landmarks and rel hints are what make a paginated series legible to crawlers.
+ *
+ * See CUSTOMIZING.md for the full contract.
+ */
+interface Props {
+  model: CatalogPageModel;
+}
+
+const { model } = Astro.props;
+---
+
+<div class="mb-10">
+  <p class="text-xs uppercase tracking-[0.25em] text-gray-500">{model.eyebrow}</p>
+  <h1 class="mt-2 font-serif text-4xl tracking-tight sm:text-5xl">{model.heading}</h1>
+</div>
+
+{
+  model.categories.length > 0 && (
+    <div class="mb-12 flex flex-wrap gap-x-6 gap-y-2 text-xs uppercase tracking-widest text-gray-500">
+      {model.categories.map((category) => (
+        <a
+          href={category.href}
+          class="border-b border-transparent pb-0.5 hover:border-brand hover:text-brand"
+        >
+          {category.text}
+        </a>
+      ))}
+    </div>
+  )
+}
+
+<CatalogSort model={model.sort} />
+
+{
+  /* role="status" is the contract, not the wording: an empty catalog must
+     announce itself to assistive technology rather than rendering a blank
+     grid. Reword it freely; keep the role and keep it non-empty. */
+  model.products.length === 0 && (
+    <p role="status" class="text-gray-500">
+      No products yet.
+    </p>
+  )
+}
+
+<ul class="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-3">
+  {model.products.map((card, i) => <ProductCard card={card} index={i} />)}
+</ul>
+
+<CatalogPagination model={model.pagination} />
