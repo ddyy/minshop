@@ -1,16 +1,22 @@
 #!/usr/bin/env node
 /**
- * Regenerates the files that must agree with the selected storefront set.
+ * Regenerates the files that must agree with the storefront sets on disk.
  *
  * `astro build` does this through astro.config.mjs, but `astro check` reads
  * tsconfig before that config is evaluated, and a fresh clone has never
- * generated either file. Run this first so type checking and the boundary
- * checker see the same set the build would compile.
+ * generated any of them. Run this first so type checking and the boundary
+ * checker see the same artifacts the build would.
+ *
+ * Writes are deterministic — see the design rule in storefront-css.mjs. The
+ * STOREFRONT variable changes which set THIS process selects (reported below),
+ * never what gets written.
  */
 import { resolveStorefrontSet } from './storefront-set.mjs';
-import { writeActiveStorefrontCss, writeActiveStorefrontTsconfig } from './storefront-css.mjs';
+import { writeStorefrontArtifacts } from './storefront-css.mjs';
 
-const { id, source } = resolveStorefrontSet();
-writeActiveStorefrontCss(id);
-writeActiveStorefrontTsconfig(id);
-console.log(`storefront set: ${id} (from ${source})`);
+const { ids, configured } = writeStorefrontArtifacts();
+const active = resolveStorefrontSet();
+console.log(
+  `storefront sets: ${ids.join(', ')} — active for this process: ${active.id} (from ${active.source})` +
+    (active.id === configured.id ? '' : `; editor/shared tsconfig stays on ${configured.id}`),
+);

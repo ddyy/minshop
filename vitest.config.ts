@@ -1,6 +1,7 @@
 /// <reference types="vitest/config" />
 import { getViteConfig } from 'astro/config';
 import { resolveStorefrontSet } from './scripts/storefront-set.mjs';
+import { setCssPath } from './scripts/storefront-css.mjs';
 
 // Astro-aware but config-file-free. `getViteConfig` is what compiles `.astro`
 // components, so storefront presentation contracts can be rendered through
@@ -24,6 +25,9 @@ export default getViteConfig(
       include: ['src/**/*.test.ts', 'test/storefront/**/*.test.{ts,mjs}'],
       alias: {
         '#storefront': storefront.dir,
+        // Mirrors astro.config.mjs: if a test ever renders something that
+        // pulls global.css, the CSS import resolves to the same per-set file.
+        '#storefront-css': setCssPath(storefront.id),
         // Lets pure-function modules that merely read deployment vars at import
         // time (config.ts, and the email templates through it) be unit-tested.
         // Real bindings stay out of scope — see the stub's own note.

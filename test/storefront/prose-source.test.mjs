@@ -64,7 +64,7 @@ describe('the content-page prose scale', () => {
   it('applies the merchant override after the active set', () => {
     // Order is the whole contract: the set supplies the design, the store's own
     // values win over it.
-    expect(global.indexOf('storefront-active.css')).toBeLessThan(
+    expect(global.indexOf('#storefront-css')).toBeLessThan(
       global.indexOf('./theme.css'),
     );
   });

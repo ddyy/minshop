@@ -84,24 +84,41 @@ function storefrontError(message, root) {
  */
 export function resolveStorefrontSet(root = process.cwd()) {
   const override = process.env.STOREFRONT?.trim();
-  const source = override ? 'the STOREFRONT environment variable' : CONFIG_FILE;
-  let id = override;
-
-  if (!id) {
-    const file = resolve(root, CONFIG_FILE);
-    if (!existsSync(file)) {
-      throw new Error(storefrontError(`Missing ${CONFIG_FILE}.`, root));
-    }
-    let parsed;
-    try {
-      parsed = JSON.parse(readFileSync(file, 'utf8'));
-    } catch (error) {
-      throw new Error(storefrontError(`${CONFIG_FILE} is not valid JSON: ${error.message}`, root));
-    }
-    id = typeof parsed?.set === 'string' ? parsed.set.trim() : '';
-    if (!id) throw new Error(storefrontError(`${CONFIG_FILE} has no "set" string.`, root));
+  if (override) {
+    return validateSet(override, 'the STOREFRONT environment variable', root);
   }
+  return resolveConfiguredSet(root);
+}
 
+/**
+ * The set named by the CONFIG FILE alone, ignoring any STOREFRONT override.
+ *
+ * This exists for the generated artifacts that are shared between processes
+ * (the editor's tsconfig paths). Those must never follow a per-process
+ * environment variable: a `STOREFRONT=x` build running beside a dev server
+ * would otherwise rewrite state the dev server watches, the dev server would
+ * restart and write it back, and whichever process read the file second would
+ * silently combine one set's templates with another's styling. Shared files
+ * follow the durable selection; the override affects only in-process state
+ * (the Vite alias, an explicit --tsconfig flag).
+ */
+export function resolveConfiguredSet(root = process.cwd()) {
+  const file = resolve(root, CONFIG_FILE);
+  if (!existsSync(file)) {
+    throw new Error(storefrontError(`Missing ${CONFIG_FILE}.`, root));
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (error) {
+    throw new Error(storefrontError(`${CONFIG_FILE} is not valid JSON: ${error.message}`, root));
+  }
+  const id = typeof parsed?.set === 'string' ? parsed.set.trim() : '';
+  if (!id) throw new Error(storefrontError(`${CONFIG_FILE} has no "set" string.`, root));
+  return validateSet(id, CONFIG_FILE, root);
+}
+
+function validateSet(id, source, root) {
   if (!isValidSetId(id)) {
     throw new Error(storefrontError(`${source} names "${id}", which is not a valid set id.`, root));
   }

@@ -18,7 +18,7 @@
     "test:storefront-contract": "vitest run test/storefront",
     "storefront:check": "node scripts/check-storefront.mjs",
     "verify": "npm run storefront:sync && vitest run && astro check && npm run storefront:check && astro build && npm run test:integration && node --experimental-strip-types scripts/check-stripe-countries.mjs && npm run mcp:check && npm run scaffold:check",
-    "verify:set": "npm run storefront:sync && vitest run test/storefront && astro check && astro build",
+    "verify:set": "node scripts/verify-set.mjs",
     "db:migrate": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "db:seed": "wrangler d1 execute DB --local --file=./seed.sql",

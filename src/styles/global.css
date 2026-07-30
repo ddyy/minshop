@@ -1,8 +1,11 @@
 @import "tailwindcss";
 
-/* Generated from the resolved storefront set: its Tailwind scope and its design
-   tokens. See scripts/storefront-css.mjs. */
-@import "./storefront-active.css";
+/* The active set's Tailwind scope and design tokens. The alias resolves to a
+   per-set generated stylesheet (src/styles/storefront/<set>.css), so which set
+   this process compiles is decided by the alias in astro.config.mjs — not by
+   rewriting a shared file that another process might be reading. See
+   scripts/storefront-css.mjs. */
+@import "#storefront-css";
 
 /* Merchant overrides, applied AFTER the active set's tokens so a store's own
    without touching this one. Edit theme.css to rebrand; everything below is

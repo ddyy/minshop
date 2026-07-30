@@ -2,10 +2,7 @@ import { defineConfig } from 'astro/config';
 import cloudflare from '@astrojs/cloudflare';
 import tailwindcss from '@tailwindcss/vite';
 import { resolveStorefrontSet } from './scripts/storefront-set.mjs';
-import {
-  writeActiveStorefrontCss,
-  writeActiveStorefrontTsconfig,
-} from './scripts/storefront-css.mjs';
+import { setCssPath, writeStorefrontArtifacts } from './scripts/storefront-css.mjs';
 
 // SSR on Cloudflare Workers. platformProxy lets `astro dev` read bindings
 // (D1, R2, vars) from wrangler.jsonc locally.
@@ -13,12 +10,14 @@ import {
 // integration is deprecated).
 
 // Which storefront set this build compiles. Resolved once, here, and shared
-// with Tailwind through a generated stylesheet — the alias and the CSS scope
-// must never disagree, or the build succeeds while shipping an unstyled or
-// wrongly styled site.
+// with Tailwind through the #storefront-css alias below — the template alias
+// and the CSS scope must never disagree, or the build succeeds while shipping
+// an unstyled or wrongly styled site. The generated files are written for ALL
+// sets and are byte-identical no matter which set this process selected, so a
+// concurrent build for another set cannot fight a running dev server over
+// them (see the design rule in scripts/storefront-css.mjs).
 const storefront = resolveStorefrontSet();
-writeActiveStorefrontCss(storefront.id);
-writeActiveStorefrontTsconfig(storefront.id);
+writeStorefrontArtifacts();
 
 export default defineConfig({
   output: 'server',
@@ -35,7 +34,14 @@ export default defineConfig({
   vite: {
     plugins: [tailwindcss()],
     resolve: {
-      alias: { '#storefront': storefront.dir },
+      alias: {
+        '#storefront': storefront.dir,
+        // The per-set stylesheet this process compiles. Selection by alias is
+        // the point: the files on disk never change per process, only which
+        // one global.css's @import resolves to. Tailwind v4's plugin follows
+        // Vite aliases in CSS @import (probed before relying on it).
+        '#storefront-css': setCssPath(storefront.id),
+      },
     },
   },
 });
