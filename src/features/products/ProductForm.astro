@@ -47,7 +47,7 @@ const price = product
 // Input increment matches the currency's precision: 0.01 (USD), 1 (JPY), 0.001 (BHD).
 const priceStep = priceDecimals > 0 ? (10 ** -priceDecimals).toFixed(priceDecimals) : '1';
 const inputClass =
-  'mt-1 w-full rounded-md border border-gray-300 px-3 py-2 focus:border-brand focus:outline-none';
+  'mt-1 w-full rounded-md border border-line px-3 py-2 focus:border-brand focus:outline-none';
 ---
 
 <form
@@ -72,7 +72,7 @@ const inputClass =
 
   <div>
     <label class="block text-sm font-medium" for="slug">
-      Slug <span class="text-gray-400">(URL — blank to auto-generate from name)</span>
+      Slug <span class="text-faint">(URL — blank to auto-generate from name)</span>
     </label>
     <input
       id="slug"
@@ -112,7 +112,7 @@ const inputClass =
       />
       Requires shipping
     </label>
-    <p class="mt-1 text-xs text-gray-500">
+    <p class="mt-1 text-xs text-muted">
       Uncheck for digital goods (ebooks, gift cards). They are excluded from shipment weight
       and never block checkout for a missing weight.
     </p>
@@ -126,7 +126,7 @@ const inputClass =
         value={product?.weight_grams != null ? formatWeightValue(product.weight_grams, weightUnit) : ''}
         class={inputClass}
       />
-      <p class="mt-1 text-xs text-gray-500">
+      <p class="mt-1 text-xs text-muted">
         Packed item weight, excluding the shared packaging allowance set in Shipping.
         {weightRequired
           ? ' Required: every shipping zone prices by weight, so this product cannot be sold without it.'
@@ -141,7 +141,7 @@ const inputClass =
         <label class="block text-sm font-medium" for="image">
           Image
         </label>
-        <input id="image" name="image" type="file" accept="image/*" class="mt-1 block w-full text-sm text-gray-600 file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-brand file:px-4 file:py-2 file:text-xs file:font-medium file:uppercase file:tracking-wider file:text-white hover:file:bg-brand-hover" />
+        <input id="image" name="image" type="file" accept="image/*" class="mt-1 block w-full text-sm text-muted file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-brand file:px-4 file:py-2 file:text-xs file:font-medium file:uppercase file:tracking-wider file:text-on-brand hover:file:bg-brand-hover" />
       </div>
     )
   }
@@ -150,7 +150,7 @@ const inputClass =
     categoryOptions.length > 0 && (
       <fieldset>
         <legend class="block text-sm font-medium">Categories</legend>
-        <div class="mt-1 max-h-48 space-y-1 overflow-auto rounded-md border border-gray-300 p-2">
+        <div class="mt-1 max-h-48 space-y-1 overflow-auto rounded-md border border-line p-2">
           {categoryOptions.map((c) => (
             <label
               class="flex items-center gap-2 text-sm"
@@ -180,9 +180,9 @@ const inputClass =
   <input type="hidden" name="currency" value={defaultCurrency} />
 
   <div class="flex gap-3 pt-2">
-    <button type="submit" class="rounded-md bg-brand px-5 py-2 font-medium text-white hover:bg-brand-hover">
+    <button type="submit" class="rounded-md bg-brand px-5 py-2 font-medium text-on-brand hover:bg-brand-hover">
       {submitLabel}
     </button>
-    <a href="/admin/products" class="rounded-md border border-gray-300 px-5 py-2 hover:bg-gray-50">Cancel</a>
+    <a href="/admin/products" class="rounded-md border border-line px-5 py-2 hover:bg-surface">Cancel</a>
   </div>
 </form>

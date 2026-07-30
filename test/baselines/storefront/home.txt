@@ -36,7 +36,7 @@ cache-tag: catalog,shell
     </script>
 <link rel="stylesheet" href="/_astro/global.<hash>.css">
 </head>
-<body class="flex min-h-screen flex-col bg-paper text-gray-900 antialiased">
+<body class="flex min-h-screen flex-col bg-paper text-ink antialiased">
 <header class="sticky top-0 z-20 border-b border-line bg-paper/85 backdrop-blur">
 <div class="mx-auto flex max-w-6xl items-center gap-6 px-6 py-5">
 <a href="/" aria-label="My Shop" class="font-serif text-2xl tracking-tight">
@@ -45,7 +45,7 @@ cache-tag: catalog,shell
 <form method="GET" action="/search" class="ml-auto hidden flex-1 justify-end sm:flex" role="search">
 <input type="search" name="q" value placeholder="Search" aria-label="Search products" class="w-40 border-0 border-b border-line bg-transparent px-1 py-1 text-sm transition-all focus:w-56 focus:border-brand focus:outline-none">
 </form>
-<nav aria-label="Primary" class="ml-auto flex min-w-0 items-center gap-4 text-xs uppercase tracking-widest text-gray-500 sm:gap-6">
+<nav aria-label="Primary" class="ml-auto flex min-w-0 items-center gap-4 text-xs uppercase tracking-widest text-muted sm:gap-6">
 <div class="hidden min-w-0 items-center gap-4 xl:flex xl:gap-6">
 <a href="/" title="Shop" class="min-w-0 truncate hover:text-brand">Shop</a>
 <a href="/categories/apparel" title="Apparel" class="min-w-0 truncate hover:text-brand">Apparel</a>
@@ -59,7 +59,7 @@ cache-tag: catalog,shell
 </path>
 </svg>
 </summary>
-<div class="absolute right-0 z-40 mt-3 flex min-w-44 flex-col gap-3 border border-line bg-white p-4 shadow-lg">
+<div class="absolute right-0 z-40 mt-3 flex min-w-44 flex-col gap-3 border border-line bg-surface p-4 shadow-lg">
 <a href="/" class="hover:text-brand">Shop</a>
 <a href="/categories/apparel" class="hover:text-brand">Apparel</a>
 <a href="/pages/about" class="hover:text-brand">About</a>
@@ -75,13 +75,13 @@ cache-tag: catalog,shell
 </header>
 <main class="page-shell">
 <div class="mb-10">
-<p class="text-xs uppercase tracking-[0.25em] text-gray-500">Shop</p>
+<p class="text-xs uppercase tracking-[0.25em] text-muted">Shop</p>
 <h1 class="mt-2 font-serif text-4xl tracking-tight sm:text-5xl">All products</h1>
 </div>
-<div class="mb-12 flex flex-wrap gap-x-6 gap-y-2 text-xs uppercase tracking-widest text-gray-500">
+<div class="mb-12 flex flex-wrap gap-x-6 gap-y-2 text-xs uppercase tracking-widest text-muted">
 <a href="/categories/apparel" class="border-b border-transparent pb-0.5 hover:border-brand hover:text-brand">Apparel</a>
 </div>
-<div class="mb-8 flex flex-wrap items-baseline gap-x-5 gap-y-1 text-xs uppercase tracking-widest text-gray-500">
+<div class="mb-8 flex flex-wrap items-baseline gap-x-5 gap-y-1 text-xs uppercase tracking-widest text-muted">
 <span>Sort</span>
 <a href="/?sort=newest&amp;dir=asc" aria-current="true" class="hover:text-brand text-brand">Newest ↓</a>
 <a href="/?sort=price&amp;dir=asc" class="hover:text-brand ">Price</a>
@@ -90,229 +90,229 @@ cache-tag: catalog,shell
 <ul class="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-3">
 <li class="reveal group" style="animation-delay:0ms">
 <a href="/products/pagination-item-30" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
+<div class="relative overflow-hidden rounded-md bg-surface">
 <img src="/placeholder.png" alt="Pagination Item 30" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="eager" fetchpriority="high" decoding="async">
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 30</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.30</p>
+<p class="mt-1 text-sm tabular-nums text-muted">$10.30</p>
 </a>
 </li>
 <li class="reveal group" style="animation-delay:60ms">
 <a href="/products/pagination-item-29" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
+<div class="relative overflow-hidden rounded-md bg-surface">
 <img src="/placeholder.png" alt="Pagination Item 29" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 29</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.29</p>
+<p class="mt-1 text-sm tabular-nums text-muted">$10.29</p>
 </a>
 </li>
 <li class="reveal group" style="animation-delay:120ms">
 <a href="/products/pagination-item-28" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
+<div class="relative overflow-hidden rounded-md bg-surface">
 <img src="/placeholder.png" alt="Pagination Item 28" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 28</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.28</p>
+<p class="mt-1 text-sm tabular-nums text-muted">$10.28</p>
 </a>
 </li>
 <li class="reveal group" style="animation-delay:180ms">
 <a href="/products/pagination-item-27" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
+<div class="relative overflow-hidden rounded-md bg-surface">
 <img src="/placeholder.png" alt="Pagination Item 27" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 27</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.27</p>
+<p class="mt-1 text-sm tabular-nums text-muted">$10.27</p>
 </a>
 </li>
 <li class="reveal group" style="animation-delay:240ms">
 <a href="/products/pagination-item-26" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
+<div class="relative overflow-hidden rounded-md bg-surface">
 <img src="/placeholder.png" alt="Pagination Item 26" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 26</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.26</p>
+<p class="mt-1 text-sm tabular-nums text-muted">$10.26</p>
 </a>
 </li>
 <li class="reveal group" style="animation-delay:300ms">
 <a href="/products/pagination-item-25" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
+<div class="relative overflow-hidden rounded-md bg-surface">
 <img src="/placeholder.png" alt="Pagination Item 25" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 25</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.25</p>
+<p class="mt-1 text-sm tabular-nums text-muted">$10.25</p>
 </a>
 </li>
 <li class="reveal group" style="animation-delay:360ms">
 <a href="/products/pagination-item-24" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
+<div class="relative overflow-hidden rounded-md bg-surface">
 <img src="/placeholder.png" alt="Pagination Item 24" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 24</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.24</p>
+<p class="mt-1 text-sm tabular-nums text-muted">$10.24</p>
 </a>
 </li>
 <li class="reveal group" style="animation-delay:420ms">
 <a href="/products/pagination-item-23" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
+<div class="relative overflow-hidden rounded-md bg-surface">
 <img src="/placeholder.png" alt="Pagination Item 23" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 23</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.23</p>
+<p class="mt-1 text-sm tabular-nums text-muted">$10.23</p>
 </a>
 </li>
 <li class="reveal group" style="animation-delay:480ms">
 <a href="/products/pagination-item-22" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
+<div class="relative overflow-hidden rounded-md bg-surface">
 <img src="/placeholder.png" alt="Pagination Item 22" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 22</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.22</p>
+<p class="mt-1 text-sm tabular-nums text-muted">$10.22</p>
 </a>
 </li>
 <li class="reveal group" style="animation-delay:480ms">
 <a href="/products/pagination-item-21" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
+<div class="relative overflow-hidden rounded-md bg-surface">
 <img src="/placeholder.png" alt="Pagination Item 21" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 21</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.21</p>
+<p class="mt-1 text-sm tabular-nums text-muted">$10.21</p>
 </a>
 </li>
 <li class="reveal group" style="animation-delay:480ms">
 <a href="/products/pagination-item-20" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
+<div class="relative overflow-hidden rounded-md bg-surface">
 <img src="/placeholder.png" alt="Pagination Item 20" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 20</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.20</p>
+<p class="mt-1 text-sm tabular-nums text-muted">$10.20</p>
 </a>
 </li>
 <li class="reveal group" style="animation-delay:480ms">
 <a href="/products/pagination-item-19" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
+<div class="relative overflow-hidden rounded-md bg-surface">
 <img src="/placeholder.png" alt="Pagination Item 19" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 19</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.19</p>
+<p class="mt-1 text-sm tabular-nums text-muted">$10.19</p>
 </a>
 </li>
 <li class="reveal group" style="animation-delay:480ms">
 <a href="/products/pagination-item-18" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
+<div class="relative overflow-hidden rounded-md bg-surface">
 <img src="/placeholder.png" alt="Pagination Item 18" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 18</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.18</p>
+<p class="mt-1 text-sm tabular-nums text-muted">$10.18</p>
 </a>
 </li>
 <li class="reveal group" style="animation-delay:480ms">
 <a href="/products/pagination-item-17" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
+<div class="relative overflow-hidden rounded-md bg-surface">
 <img src="/placeholder.png" alt="Pagination Item 17" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 17</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.17</p>
+<p class="mt-1 text-sm tabular-nums text-muted">$10.17</p>
 </a>
 </li>
 <li class="reveal group" style="animation-delay:480ms">
 <a href="/products/pagination-item-16" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
+<div class="relative overflow-hidden rounded-md bg-surface">
 <img src="/placeholder.png" alt="Pagination Item 16" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 16</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.16</p>
+<p class="mt-1 text-sm tabular-nums text-muted">$10.16</p>
 </a>
 </li>
 <li class="reveal group" style="animation-delay:480ms">
 <a href="/products/pagination-item-15" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
+<div class="relative overflow-hidden rounded-md bg-surface">
 <img src="/placeholder.png" alt="Pagination Item 15" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 15</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.15</p>
+<p class="mt-1 text-sm tabular-nums text-muted">$10.15</p>
 </a>
 </li>
 <li class="reveal group" style="animation-delay:480ms">
 <a href="/products/pagination-item-14" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
+<div class="relative overflow-hidden rounded-md bg-surface">
 <img src="/placeholder.png" alt="Pagination Item 14" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 14</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.14</p>
+<p class="mt-1 text-sm tabular-nums text-muted">$10.14</p>
 </a>
 </li>
 <li class="reveal group" style="animation-delay:480ms">
 <a href="/products/pagination-item-13" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
+<div class="relative overflow-hidden rounded-md bg-surface">
 <img src="/placeholder.png" alt="Pagination Item 13" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 13</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.13</p>
+<p class="mt-1 text-sm tabular-nums text-muted">$10.13</p>
 </a>
 </li>
 <li class="reveal group" style="animation-delay:480ms">
 <a href="/products/pagination-item-12" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
+<div class="relative overflow-hidden rounded-md bg-surface">
 <img src="/placeholder.png" alt="Pagination Item 12" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 12</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.12</p>
+<p class="mt-1 text-sm tabular-nums text-muted">$10.12</p>
 </a>
 </li>
 <li class="reveal group" style="animation-delay:480ms">
 <a href="/products/pagination-item-11" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
+<div class="relative overflow-hidden rounded-md bg-surface">
 <img src="/placeholder.png" alt="Pagination Item 11" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 11</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.11</p>
+<p class="mt-1 text-sm tabular-nums text-muted">$10.11</p>
 </a>
 </li>
 <li class="reveal group" style="animation-delay:480ms">
 <a href="/products/pagination-item-10" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
+<div class="relative overflow-hidden rounded-md bg-surface">
 <img src="/placeholder.png" alt="Pagination Item 10" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 10</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.10</p>
+<p class="mt-1 text-sm tabular-nums text-muted">$10.10</p>
 </a>
 </li>
 <li class="reveal group" style="animation-delay:480ms">
 <a href="/products/pagination-item-9" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
+<div class="relative overflow-hidden rounded-md bg-surface">
 <img src="/placeholder.png" alt="Pagination Item 9" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 9</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.09</p>
+<p class="mt-1 text-sm tabular-nums text-muted">$10.09</p>
 </a>
 </li>
 <li class="reveal group" style="animation-delay:480ms">
 <a href="/products/pagination-item-8" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
+<div class="relative overflow-hidden rounded-md bg-surface">
 <img src="/placeholder.png" alt="Pagination Item 8" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 8</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.08</p>
+<p class="mt-1 text-sm tabular-nums text-muted">$10.08</p>
 </a>
 </li>
 <li class="reveal group" style="animation-delay:480ms">
 <a href="/products/pagination-item-7" class="block">
-<div class="relative overflow-hidden rounded-md bg-gray-100">
+<div class="relative overflow-hidden rounded-md bg-surface">
 <img src="/placeholder.png" alt="Pagination Item 7" class="aspect-square w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
 </div>
 <h2 class="mt-4 text-sm font-medium tracking-tight">Pagination Item 7</h2>
-<p class="mt-1 text-sm tabular-nums text-gray-500">$10.07</p>
+<p class="mt-1 text-sm tabular-nums text-muted">$10.07</p>
 </a>
 </li>
 </ul>
 <nav class="mt-14 flex items-center justify-center gap-1" aria-label="Pagination">
-<a href="/" aria-current="page" class="px-3 py-1.5 text-xs uppercase tracking-widest text-gray-500 hover:text-brand font-medium text-brand">1</a>
-<a href="/?page=2" class="px-3 py-1.5 text-xs uppercase tracking-widest text-gray-500 hover:text-brand ">2</a>
-<a href="/?page=2" class="px-3 py-1.5 text-xs uppercase tracking-widest text-gray-500 hover:text-brand" rel="next">Next</a>
+<a href="/" aria-current="page" class="px-3 py-1.5 text-xs uppercase tracking-widest text-muted hover:text-brand font-medium text-brand">1</a>
+<a href="/?page=2" class="px-3 py-1.5 text-xs uppercase tracking-widest text-muted hover:text-brand ">2</a>
+<a href="/?page=2" class="px-3 py-1.5 text-xs uppercase tracking-widest text-muted hover:text-brand" rel="next">Next</a>
 </nav>
 </main>
 <footer class="border-t border-line">
-<div class="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-6 py-10 text-xs uppercase tracking-widest text-gray-500">
+<div class="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-6 py-10 text-xs uppercase tracking-widest text-muted">
 <span>&copy; My Shop</span>
 </div>
 </footer>
@@ -322,7 +322,7 @@ cache-tag: catalog,shell
 <aside data-cart-panel class="absolute right-0 top-0 flex h-full w-full max-w-md translate-x-full flex-col bg-paper shadow-xl transition-transform duration-300">
 <div class="flex items-center justify-between border-b border-line px-6 py-5">
 <h2 class="font-serif text-2xl tracking-tight">Your cart</h2>
-<button type="button" data-cart-close aria-label="Close cart" class="-mr-2 flex h-11 w-11 items-center justify-center rounded-md text-3xl leading-none text-gray-400 transition-colors hover:bg-gray-100 hover:text-brand">&times;</button>
+<button type="button" data-cart-close aria-label="Close cart" class="-mr-2 flex h-11 w-11 items-center justify-center rounded-md text-3xl leading-none text-faint transition-colors hover:bg-surface hover:text-brand">&times;</button>
 </div>
 <div data-cart-body class="flex-1 overflow-y-auto px-6 py-5">
 </div>

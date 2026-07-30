@@ -6,76 +6,75 @@ import StoreCartControl from '../../features/storefront/controls/StoreCartContro
 import StoreAccountControl from '../../features/storefront/controls/StoreAccountControl.astro';
 
 /**
- * STORE-OWNED. Edit freely — this file belongs to your store.
+ * Studio — a masthead that gets out of the way.
  *
- * It renders on EVERY page, including cart, checkout, payment, account, and
- * Admin login. A broken header is a broken checkout, so keep the core controls
- * below and change their placement and styling rather than their markup.
+ * The wordmark is the only large thing; everything else is set in small caps at
+ * the right edge so the eye drops straight to the work. Not sticky: a gallery
+ * does not follow you around the room, and a fixed bar over a dark full-bleed
+ * image reads as a smudge.
  *
- * See CUSTOMIZING.md for the full contract.
+ * Renders on checkout, the pay page, and Admin login too, so the controls stay
+ * as they are.
  */
 interface Props {
   model: StorefrontShellModel;
 }
 
 const { model } = Astro.props;
+const small =
+  'text-[10px] font-medium uppercase tracking-[0.24em] text-[color:var(--studio-muted)] hover:text-[color:var(--studio-bone)]';
 ---
 
-{/* Announcement bar. Deliberately NOT fixed: the header below is sticky, so a
-    fixed bar would need the header offset by the bar's height — which varies
-    as the message wraps on narrow screens. Static means it's seen on load,
-    scrolls away, and costs no vertical space on mobile. */}
 {
   model.announcement && (
-    <div class="bg-brand text-white">
-      <div class="mx-auto max-w-6xl px-6 py-2 text-center text-xs tracking-wide">
-        {model.announcement.href ? (
-          <a href={model.announcement.href} class="underline-offset-2 hover:underline">
-            {model.announcement.text}
-          </a>
-        ) : (
-          model.announcement.text
-        )}
-      </div>
+    <div class="bg-brand px-4 py-2.5 text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-[color:var(--color-paper)]">
+      {model.announcement.href ? (
+        <a href={model.announcement.href} class="underline-offset-4 hover:underline">
+          {model.announcement.text}
+        </a>
+      ) : (
+        model.announcement.text
+      )}
     </div>
   )
 }
 
-<header class="sticky top-0 z-20 border-b border-line bg-paper/85 backdrop-blur">
-  <div class="mx-auto flex max-w-6xl items-center gap-6 px-6 py-5">
-    <a href="/" aria-label={model.storeName} class="font-serif text-2xl tracking-tight">
+<header class="border-b border-line">
+  <div class="mx-auto flex max-w-[96rem] flex-wrap items-baseline gap-x-10 gap-y-4 px-12 pb-6 pt-8">
+    <a href="/" aria-label={model.storeName} class="shrink-0">
       {
         model.logo ? (
-          /* Not lazy: the header logo is above the fold on every page. The
-             store name stays the alt text, so the header still reads the
-             same to a screen reader or when the image fails. */
-          <img src={model.logo.src} alt={model.logo.alt} class="h-8 max-w-48 object-contain sm:h-10" />
+          <img src={model.logo.src} alt={model.logo.alt} class="h-9 max-w-52 object-contain" />
         ) : (
-          <span>{model.storeName}</span>
+          <span class="font-serif text-3xl tracking-[-0.02em]">{model.storeName}</span>
         )
       }
     </a>
+
+    <nav aria-label="Store" class="ml-auto flex min-w-0 items-center gap-6">
+      <StoreNav
+        links={model.headerLinks}
+        class={`hidden min-w-0 items-center gap-6 xl:flex ${small}`}
+        disclosureClass={`relative order-last xl:hidden ${small}`}
+      />
+      {model.blog.enabled && <a href={model.blog.href} class={small}>Journal</a>}
+      <a href={model.search.action} class={`${small} sm:hidden`}>Search</a>
+      {model.account.enabled && <StoreAccountControl href={model.account.href} class={small} />}
+      {
+        model.cart.enabled && (
+          <StoreCartControl
+            href={model.cart.href}
+            class="inline-flex items-center text-[10px] font-medium uppercase tracking-[0.24em] text-[color:var(--studio-bone)] hover:text-brand"
+          />
+        )
+      }
+    </nav>
+
     <StoreSearch
       action={model.search.action}
       query={model.search.query}
-      class="ml-auto hidden flex-1 justify-end sm:flex"
+      class="hidden w-full border-b border-line pb-1 focus-within:border-brand sm:block sm:w-56"
+      inputClass="w-full bg-transparent px-0 py-0.5 text-sm focus:outline-none"
     />
-    {/* ml-auto pins the whole nav to the right edge of the header row, so it
-        stays flush right no matter how few items a merchant has.
-        min-w-0 is what lets long labels ellipsize instead of overflowing the
-        page: flex items default to min-width:auto, and without it here the
-        shrink stops at this level and the row grows past the viewport —
-        putting min-w-0 only on the links themselves is not enough. */}
-    <nav
-      aria-label="Primary"
-      class="ml-auto flex min-w-0 items-center gap-4 text-xs uppercase tracking-widest text-gray-500 sm:gap-6"
-    >
-      <StoreNav links={model.headerLinks} />
-      {model.blog.enabled && <a href={model.blog.href} class="hover:text-brand">Blog</a>}
-      {/* Search input is desktop-only; give mobile a link to the search page. */}
-      <a href={model.search.action} class="hover:text-brand sm:hidden">Search</a>
-      {model.cart.enabled && <StoreCartControl href={model.cart.href} />}
-      {model.account.enabled && <StoreAccountControl href={model.account.href} />}
-    </nav>
   </div>
 </header>

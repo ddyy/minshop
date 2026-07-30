@@ -29,7 +29,7 @@ const {
   id,
   label = 'Choose from Media',
   allowUpload = true,
-  buttonClass = 'rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand hover:text-brand',
+  buttonClass = 'rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-muted hover:border-brand hover:text-brand',
 } = Astro.props;
 ---
 
@@ -62,7 +62,7 @@ const {
         type="button"
         data-picker-close
         aria-label="Close"
-        class="text-2xl leading-none text-gray-400 hover:text-brand"
+        class="text-2xl leading-none text-faint hover:text-brand"
       >
         &times;
       </button>
@@ -75,12 +75,12 @@ const {
             type="file"
             data-picker-file
             accept="image/jpeg,image/png,image/webp,image/gif"
-            class="block w-full text-sm text-gray-600 file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-brand file:px-4 file:py-2 file:text-xs file:font-medium file:uppercase file:tracking-wider file:text-white hover:file:bg-brand-hover sm:w-auto"
+            class="block w-full text-sm text-muted file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-brand file:px-4 file:py-2 file:text-xs file:font-medium file:uppercase file:tracking-wider file:text-on-brand hover:file:bg-brand-hover sm:w-auto"
           />
           <button
             type="button"
             data-picker-upload
-            class="rounded-md bg-brand px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover"
+            class="rounded-md bg-brand px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-on-brand hover:bg-brand-hover"
           >
             Upload
           </button>
@@ -91,23 +91,23 @@ const {
     <p data-picker-error class="hidden px-5 pt-3 text-sm text-red-700"></p>
 
     <div data-picker-grid class="grid max-h-[60vh] grid-cols-3 gap-4 overflow-y-auto p-5 sm:grid-cols-4">
-      <p class="col-span-full py-8 text-center text-sm text-gray-500">Loading…</p>
+      <p class="col-span-full py-8 text-center text-sm text-muted">Loading…</p>
     </div>
 
     <div class="flex items-center justify-between border-t border-line px-5 py-3 text-xs">
-      <span data-picker-count class="text-gray-500"></span>
+      <span data-picker-count class="text-muted"></span>
       <span class="flex gap-2">
         <button
           type="button"
           data-picker-prev
-          class="rounded-md border border-line px-3 py-1.5 uppercase tracking-widest text-gray-600 disabled:opacity-40"
+          class="rounded-md border border-line px-3 py-1.5 uppercase tracking-widest text-muted disabled:opacity-40"
         >
           Previous
         </button>
         <button
           type="button"
           data-picker-next
-          class="rounded-md border border-line px-3 py-1.5 uppercase tracking-widest text-gray-600 disabled:opacity-40"
+          class="rounded-md border border-line px-3 py-1.5 uppercase tracking-widest text-muted disabled:opacity-40"
         >
           Next
         </button>
@@ -160,7 +160,7 @@ const {
 
     async function load() {
       clearError();
-      grid.innerHTML = '<p class="col-span-full py-8 text-center text-sm text-gray-500">Loading…</p>';
+      grid.innerHTML = '<p class="col-span-full py-8 text-center text-sm text-muted">Loading…</p>';
       let payload: PickerPage;
       try {
         const res = await fetch(`/api/admin/media?limit=${PAGE_SIZE}&offset=${offset}`, {
@@ -178,7 +178,7 @@ const {
       grid.innerHTML = '';
       if (payload.media.length === 0) {
         grid.innerHTML =
-          '<p class="col-span-full py-8 text-center text-sm text-gray-500">No images yet.</p>';
+          '<p class="col-span-full py-8 text-center text-sm text-muted">No images yet.</p>';
       }
       for (const item of payload.media) {
         const button = document.createElement('button');
@@ -186,7 +186,7 @@ const {
         button.className =
           'group flex flex-col gap-1 rounded-md border border-line p-2 text-left hover:border-brand';
         button.innerHTML = `
-          <span class="block aspect-square overflow-hidden rounded bg-gray-50">
+          <span class="block aspect-square overflow-hidden rounded bg-surface">
             <img src="${item.url}" alt="" loading="lazy" decoding="async"
                  class="h-full w-full object-contain" />
           </span>

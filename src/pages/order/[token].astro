@@ -59,14 +59,14 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
     order ? (
       <Fragment>
         <h1 class="mb-2 font-serif text-3xl tracking-tight sm:text-4xl">Thank you! Your order is confirmed.</h1>
-        <p class="mb-6 text-sm text-gray-500">
+        <p class="mb-6 text-sm text-muted">
           Order #{orderRef}
           {order.email && <Fragment> · a receipt is on its way to {order.email}</Fragment>}
         </p>
 
-        <div class="overflow-hidden rounded-lg border border-gray-200 bg-white">
+        <div class="overflow-hidden rounded-lg border border-line bg-surface">
           <table class="w-full text-left text-sm">
-            <thead class="bg-gray-100 text-gray-600">
+            <thead class="bg-surface text-muted">
               <tr>
                 <th class="px-4 py-2 font-medium">Item</th>
                 <th class="px-4 py-2 font-medium">Qty</th>
@@ -75,7 +75,7 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
             </thead>
             <tbody>
               {items.map((it) => (
-                <tr class="border-t border-gray-100">
+                <tr class="border-t border-line">
                   <td class="px-4 py-2">{it.name}</td>
                   <td class="px-4 py-2">{it.quantity}</td>
                   <td class="px-4 py-2">
@@ -91,11 +91,11 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
           Total: {formatPrice(order.amount_total_cents, order.currency)}
         </p>
         {paymentLabel && (
-          <p class="mt-1 text-sm text-gray-500">Paid with {paymentLabel}</p>
+          <p class="mt-1 text-sm text-muted">Paid with {paymentLabel}</p>
         )}
         {/* Amounts only — the internal note is for the merchant, not the buyer. */}
         {order.refunded_cents > 0 && (
-          <p class="mt-2 text-sm text-gray-600">
+          <p class="mt-2 text-sm text-muted">
             {order.refunded_cents >= order.amount_total_cents
               ? `Refunded ${formatPrice(order.refunded_cents, order.currency)}.`
               : `Refunded ${formatPrice(order.refunded_cents, order.currency)} — ${formatPrice(
@@ -113,7 +113,7 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
         {/* Order not recorded yet — poll until the webhook lands (no JS). */}
         <meta http-equiv="refresh" content="3" />
         <h1 class="mb-2 font-serif text-3xl tracking-tight sm:text-4xl">Confirming your order…</h1>
-        <p class="text-gray-600">
+        <p class="text-muted">
           Your payment went through and we're recording your order. This page
           refreshes automatically — it usually takes just a few seconds.
         </p>

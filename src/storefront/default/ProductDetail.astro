@@ -25,7 +25,7 @@ interface Props {
 const { model, purchase } = Astro.props;
 ---
 
-<a href={model.backHref} class="text-xs uppercase tracking-widest text-gray-400 hover:text-brand">
+<a href={model.backHref} class="text-xs uppercase tracking-widest text-faint hover:text-brand">
   &larr; Back to shop
 </a>
 
@@ -49,7 +49,7 @@ const { model, purchase } = Astro.props;
   <div class="reveal flex flex-col" style="animation-delay:90ms">
     {
       model.categories.length > 0 && (
-        <div class="mb-4 flex flex-wrap gap-x-4 gap-y-1 text-xs uppercase tracking-widest text-gray-400">
+        <div class="mb-4 flex flex-wrap gap-x-4 gap-y-1 text-xs uppercase tracking-widest text-faint">
           {model.categories.map((category) => (
             <a href={category.href} class="hover:text-brand">
               {category.text}
@@ -61,12 +61,12 @@ const { model, purchase } = Astro.props;
 
     <h1 class="font-serif text-4xl tracking-tight">{model.name}</h1>
     <p
-      class="mt-4 text-2xl tabular-nums text-gray-700"
+      class="mt-4 text-2xl tabular-nums text-muted"
       data-price-display
       data-base={model.priceCents}
       data-currency={model.currency}
     >
-      {model.priceVaries && <span class="text-base text-gray-400">from </span>}
+      {model.priceVaries && <span class="text-base text-faint">from </span>}
       {model.formattedPrice}
     </p>
     {
@@ -79,7 +79,7 @@ const { model, purchase } = Astro.props;
         </p>
       )
     }
-    <p class="mt-6 max-w-prose leading-relaxed text-gray-600">{model.description}</p>
+    <p class="mt-6 max-w-prose leading-relaxed text-muted">{model.description}</p>
 
     <ProductPurchaseForm model={purchase} />
 
@@ -89,7 +89,7 @@ const { model, purchase } = Astro.props;
       type="button"
       data-share
       data-share-title={model.name}
-      class="mt-6 hidden w-fit items-center gap-2 text-xs uppercase tracking-widest text-gray-400 transition hover:text-brand"
+      class="mt-6 hidden w-fit items-center gap-2 text-xs uppercase tracking-widest text-faint transition hover:text-brand"
     >
       <svg
         width="14"
@@ -116,7 +116,7 @@ const { model, purchase } = Astro.props;
 {
   model.related.length > 0 && (
     <section class="mt-20 border-t border-line pt-12">
-      <h2 class="mb-8 text-xs uppercase tracking-[0.25em] text-gray-400">You may also like</h2>
+      <h2 class="mb-8 text-xs uppercase tracking-[0.25em] text-faint">You may also like</h2>
       <ul class="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-4">
         {model.related.map((card, i) => (
           <ProductCard card={card} index={i} headingLevel="h3" />

@@ -12,7 +12,7 @@ interface Props {
 
 const { action, submitLabel, category = null, parentOptions, error = null } = Astro.props;
 const inputClass =
-  'mt-1 w-full rounded-md border border-gray-300 px-3 py-2 focus:border-brand focus:outline-none';
+  'mt-1 w-full rounded-md border border-line px-3 py-2 focus:border-brand focus:outline-none';
 ---
 
 <form method="POST" action={action} class="max-w-lg space-y-4">
@@ -31,7 +31,7 @@ const inputClass =
 
   <div>
     <label class="block text-sm font-medium" for="slug">
-      Slug <span class="text-gray-400">(URL — blank to auto-generate from name)</span>
+      Slug <span class="text-faint">(URL — blank to auto-generate from name)</span>
     </label>
     <input id="slug" name="slug" type="text" value={category?.slug ?? ''} placeholder="auto-from-name" class={inputClass} />
   </div>
@@ -52,9 +52,9 @@ const inputClass =
   </div>
 
   <div class="flex gap-3 pt-2">
-    <button type="submit" class="rounded-md bg-brand px-5 py-2 font-medium text-white hover:bg-brand-hover">
+    <button type="submit" class="rounded-md bg-brand px-5 py-2 font-medium text-on-brand hover:bg-brand-hover">
       {submitLabel}
     </button>
-    <a href="/admin/categories" class="rounded-md border border-gray-300 px-5 py-2 hover:bg-gray-50">Cancel</a>
+    <a href="/admin/categories" class="rounded-md border border-line px-5 py-2 hover:bg-surface">Cancel</a>
   </div>
 </form>

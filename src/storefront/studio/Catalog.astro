@@ -5,17 +5,16 @@ import CatalogSort from '../../features/storefront/controls/CatalogSort.astro';
 import CatalogPagination from '../../features/storefront/controls/CatalogPagination.astro';
 
 /**
- * STORE-OWNED. Edit freely — this file belongs to your store.
+ * Studio — a hung wall, not a grid.
  *
- * The catalog, rendered at both `/` and `/products`. It performs no queries and
- * parses no query parameters: every product, link, and URL on `model` is
- * already built and bounded.
+ * Tiles alternate 5/7 and 7/5 across twelve columns and take vertical offsets,
+ * so the eye moves diagonally instead of scanning rows. Pure CSS: the rhythm
+ * comes from nth-child spans and margins, nothing measures or positions at
+ * runtime.
  *
- * Keep <CatalogSort> and <CatalogPagination>. Their hrefs encode the query
- * semantics the catalog's canonical URLs and caching depend on, and their
- * landmarks and rel hints are what make a paginated series legible to crawlers.
- *
- * See CUSTOMIZING.md for the full contract.
+ * <CatalogSort> and <CatalogPagination> are restyled through `class` only —
+ * their hrefs carry the catalogue's query semantics, and rebuilding them here
+ * would fork which URLs exist and which one is canonical.
  */
 interface Props {
   model: CatalogPageModel;
@@ -24,41 +23,95 @@ interface Props {
 const { model } = Astro.props;
 ---
 
-<div class="mb-10">
-  <p class="text-xs uppercase tracking-[0.25em] text-gray-500">{model.eyebrow}</p>
-  <h1 class="mt-2 font-serif text-4xl tracking-tight sm:text-5xl">{model.heading}</h1>
-</div>
+<header class="pb-10 pt-16">
+  <p class="mb-6 text-[10px] font-medium uppercase tracking-[0.32em] text-brand">{model.eyebrow}</p>
+  <h1 class="font-serif text-[clamp(3.2rem,8vw,7rem)] font-normal leading-[0.9] tracking-[-0.035em]">
+    {model.heading}
+  </h1>
+</header>
 
 {
   model.categories.length > 0 && (
-    <div class="mb-12 flex flex-wrap gap-x-6 gap-y-2 text-xs uppercase tracking-widest text-gray-500">
+    <nav
+      aria-label="Categories"
+      class="flex flex-wrap gap-x-8 gap-y-3 pb-7 text-[10px] font-medium uppercase tracking-[0.2em] text-[color:var(--studio-muted)]"
+    >
       {model.categories.map((category) => (
-        <a
-          href={category.href}
-          class="border-b border-transparent pb-0.5 hover:border-brand hover:text-brand"
-        >
+        <a href={category.href} class="hover:text-[color:var(--studio-bone)]">
           {category.text}
         </a>
       ))}
-    </div>
+    </nav>
   )
 }
 
-<CatalogSort model={model.sort} />
+<CatalogSort
+  model={model.sort}
+  class="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line pb-8 text-[10px] font-medium uppercase tracking-[0.2em] text-[color:var(--studio-muted)]"
+/>
 
 {
-  /* role="status" is the contract, not the wording: an empty catalog must
-     announce itself to assistive technology rather than rendering a blank
-     grid. Reword it freely; keep the role and keep it non-empty. */
   model.products.length === 0 && (
-    <p role="status" class="text-gray-500">
-      No products yet.
+    <p role="status" class="py-24 text-center font-serif text-3xl text-[color:var(--studio-muted)]">
+      Nothing on the wall yet.
     </p>
   )
 }
 
-<ul class="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-3">
-  {model.products.map((card, i) => <ProductCard card={card} index={i} />)}
-</ul>
+{
+  model.products.length > 0 && (
+    <ul class="studio-wall grid grid-cols-1 gap-x-10 gap-y-16 py-16 md:grid-cols-12">
+      {model.products.map((card, i) => (
+        <ProductCard card={card} index={i} />
+      ))}
+    </ul>
+  )
+}
 
-<CatalogPagination model={model.pagination} />
+<CatalogPagination
+  model={model.pagination}
+  class="flex items-center justify-center gap-3 border-t border-line py-12 text-[10px] font-medium uppercase tracking-[0.2em] text-[color:var(--studio-muted)]"
+/>
+
+<style>
+  /* The asymmetry. Tiles alternate wide and narrow and drop against each other,
+     which is what stops a twelve-column grid reading as rows of three. */
+  @media (min-width: 768px) {
+    .studio-wall > :global(li) {
+      grid-column: span 5;
+    }
+    .studio-wall > :global(li:nth-child(4n + 2)) {
+      grid-column: span 7;
+      margin-top: 6rem;
+    }
+    .studio-wall > :global(li:nth-child(4n + 3)) {
+      grid-column: span 7;
+    }
+    .studio-wall > :global(li:nth-child(4n + 4)) {
+      grid-column: span 5;
+      margin-top: 5rem;
+    }
+    /* Portrait for the narrow tiles, landscape for the wide ones — the shape
+       changes with the span rather than every image being a square. */
+    .studio-wall > :global(li) :global(img) {
+      aspect-ratio: 4 / 5;
+    }
+    .studio-wall > :global(li:nth-child(4n + 2)) :global(img),
+    .studio-wall > :global(li:nth-child(4n + 3)) :global(img) {
+      aspect-ratio: 16 / 11;
+    }
+  }
+  @media (max-width: 767px) {
+    /* Composed, not stacked: alternate tiles inset from the right so the column
+       still has a rhythm at phone width. */
+    .studio-wall > :global(li) :global(img) {
+      aspect-ratio: 3 / 4;
+    }
+    .studio-wall > :global(li:nth-child(even)) {
+      padding-left: 18%;
+    }
+    .studio-wall > :global(li:nth-child(even)) :global(img) {
+      aspect-ratio: 1 / 1;
+    }
+  }
+</style>

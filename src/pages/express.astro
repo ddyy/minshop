@@ -143,7 +143,7 @@ const METHOD: Record<string, { label: string; hint: string }> = {
 
 <Layout title="Checkout" description="Express checkout.">
   <div class="mx-auto max-w-md">
-    <p class="text-xs uppercase tracking-[0.25em] text-gray-500">Express checkout</p>
+    <p class="text-xs uppercase tracking-[0.25em] text-muted">Express checkout</p>
     <h1 class="mt-2 mb-6 font-serif text-3xl tracking-tight sm:text-4xl">{heading}</h1>
 
     <ul class="divide-y divide-line border-y border-line">
@@ -159,7 +159,7 @@ const METHOD: Record<string, { label: string; hint: string }> = {
             />
             <div class="min-w-0 flex-1">
               <p class="truncate text-sm font-medium">{l.name}</p>
-              <p class="text-xs text-gray-500">Qty {l.qty}</p>
+              <p class="text-xs text-muted">Qty {l.qty}</p>
             </div>
             <span class="tabular-nums">{formatPrice(l.unitPriceCents * l.qty)}</span>
           </li>
@@ -168,7 +168,7 @@ const METHOD: Record<string, { label: string; hint: string }> = {
     </ul>
 
     <div class="mt-4 flex items-center justify-between">
-      <span class="text-xs uppercase tracking-widest text-gray-500">Total</span>
+      <span class="text-xs uppercase tracking-widest text-muted">Total</span>
       <span class="text-lg tabular-nums">{formatPrice(totalCents)}</span>
     </div>
 
@@ -187,11 +187,11 @@ const METHOD: Record<string, { label: string; hint: string }> = {
                 still submits, or the server would fall back to the raw first
                 zone — possibly the very country the Stripe filter removed. */}
             {m === 'stripe' && destination.showSelect && (
-              <label class="mb-2 flex items-center justify-between gap-2 text-xs uppercase tracking-widest text-gray-500">
+              <label class="mb-2 flex items-center justify-between gap-2 text-xs uppercase tracking-widest text-muted">
                 Ship to
                 <select
                   name="country"
-                  class="rounded-md border border-gray-200 px-2 py-1.5 text-sm normal-case tracking-normal text-gray-900"
+                  class="rounded-md border border-line px-2 py-1.5 text-sm normal-case tracking-normal text-ink"
                 >
                   {destination.countries.map((c) => (
                     <option value={c} selected={c === destination.defaultCountry}>
@@ -208,17 +208,17 @@ const METHOD: Record<string, { label: string; hint: string }> = {
               type="submit"
               class={`flex w-full items-center justify-between gap-3 rounded-lg px-5 py-3 text-left transition ${
                 i === 0
-                  ? 'bg-brand text-white hover:bg-brand-hover'
-                  : 'border border-line text-gray-700 hover:border-brand'
+                  ? 'bg-brand text-on-brand hover:bg-brand-hover'
+                  : 'border border-line text-muted hover:border-brand'
               }`}
             >
               <span>
                 <span class="block text-sm font-medium">{METHOD[m]?.label ?? m}</span>
-                <span class={`block text-xs ${i === 0 ? 'text-white/70' : 'text-gray-500'}`}>
+                <span class={`block text-xs ${i === 0 ? 'text-on-brand/70' : 'text-muted'}`}>
                   {METHOD[m]?.hint ?? ''}
                 </span>
               </span>
-              <span aria-hidden="true" class={i === 0 ? 'text-white/80' : 'text-gray-400'}>
+              <span aria-hidden="true" class={i === 0 ? 'text-on-brand/80' : 'text-faint'}>
                 &rarr;
               </span>
             </button>
@@ -229,7 +229,7 @@ const METHOD: Record<string, { label: string; hint: string }> = {
 
     <a
       href={backHref}
-      class="mt-6 inline-block text-xs uppercase tracking-widest text-gray-400 hover:text-brand"
+      class="mt-6 inline-block text-xs uppercase tracking-widest text-faint hover:text-brand"
     >
       &larr; Back
     </a>

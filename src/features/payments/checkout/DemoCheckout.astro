@@ -41,22 +41,22 @@ try {
   </div>
 
   <h1 class="mb-1 font-serif text-3xl tracking-tight sm:text-4xl">Checkout</h1>
-  <p class="mb-6 text-sm text-gray-500">{storeName}</p>
+  <p class="mb-6 text-sm text-muted">{storeName}</p>
 
   {/* Order summary */}
-  <div class="mb-6 rounded-lg border border-line bg-white p-4">
+  <div class="mb-6 rounded-lg border border-line bg-surface p-4">
     <ul class="divide-y divide-line text-sm">
       {items.map((it) => (
         <li class="flex items-center justify-between gap-3 py-2">
           <span class="min-w-0 truncate">
-            {it.n} <span class="text-gray-400">× {it.q}</span>
+            {it.n} <span class="text-faint">× {it.q}</span>
           </span>
           <span class="shrink-0 tabular-nums">{formatPrice(it.p * it.q, pending.currency)}</span>
         </li>
       ))}
     </ul>
     {shipping && (
-      <div class="flex items-center justify-between border-t border-line pt-2 text-sm text-gray-500">
+      <div class="flex items-center justify-between border-t border-line pt-2 text-sm text-muted">
         <span>Shipping</span>
         <span class="tabular-nums">{shipping}</span>
       </div>
@@ -80,7 +80,7 @@ try {
         for real. Settlement prefers the submitted value
         (resolveRequiredOrderEmail). */}
     <div>
-      <label class="mb-1 block text-xs font-medium text-gray-500" for="email">
+      <label class="mb-1 block text-xs font-medium text-muted" for="email">
         Email for the order confirmation
       </label>
       <input
@@ -90,45 +90,45 @@ try {
         value={pending.email ?? ''}
         autocomplete="email"
         required
-        class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none"
+        class="w-full rounded-md border border-line px-3 py-2 text-sm focus:border-brand focus:outline-none"
       />
     </div>
 
     {/* Decorative test-card fields — prefilled and ignored; they exist so the
         flow looks like a real card form. */}
     <fieldset class="rounded-lg border border-line p-3">
-      <legend class="px-1 text-xs font-medium text-gray-500">Card (test — input ignored)</legend>
+      <legend class="px-1 text-xs font-medium text-muted">Card (test — input ignored)</legend>
       <input
         type="text"
         value="4242 4242 4242 4242"
         inputmode="numeric"
         aria-label="Card number"
-        class="mb-2 w-full rounded-md border border-gray-200 px-3 py-2 font-mono text-sm text-gray-600"
+        class="mb-2 w-full rounded-md border border-line px-3 py-2 font-mono text-sm text-muted"
       />
       <div class="flex gap-2">
         <input
           type="text"
           value="12 / 34"
           aria-label="Expiry"
-          class="w-1/2 rounded-md border border-gray-200 px-3 py-2 font-mono text-sm text-gray-600"
+          class="w-1/2 rounded-md border border-line px-3 py-2 font-mono text-sm text-muted"
         />
         <input
           type="text"
           value="123"
           aria-label="CVC"
-          class="w-1/2 rounded-md border border-gray-200 px-3 py-2 font-mono text-sm text-gray-600"
+          class="w-1/2 rounded-md border border-line px-3 py-2 font-mono text-sm text-muted"
         />
       </div>
     </fieldset>
 
     <div>
-      <label class="mb-1 block text-xs font-medium text-gray-500" for="outcome">
+      <label class="mb-1 block text-xs font-medium text-muted" for="outcome">
         Simulate outcome
       </label>
       <select
         id="outcome"
         name="outcome"
-        class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none"
+        class="w-full rounded-md border border-line px-3 py-2 text-sm focus:border-brand focus:outline-none"
       >
         {Object.entries(OUTCOMES).map(([value, label]) => (
           <option value={value}>{label}</option>
@@ -138,11 +138,11 @@ try {
 
     <button
       type="submit"
-      class="w-full rounded-md bg-brand px-5 py-3 text-sm font-medium uppercase tracking-wider text-white hover:bg-brand-hover"
+      class="w-full rounded-md bg-brand px-5 py-3 text-sm font-medium uppercase tracking-wider text-on-brand hover:bg-brand-hover"
     >
       Pay {total}
     </button>
-    <a href="/cart" class="block text-center text-xs uppercase tracking-widest text-gray-400 hover:text-brand">
+    <a href="/cart" class="block text-center text-xs uppercase tracking-widest text-faint hover:text-brand">
       Cancel
     </a>
   </form>

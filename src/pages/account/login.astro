@@ -50,12 +50,12 @@ if (Astro.request.method === 'POST') {
 
     {
       sent ? (
-        <p class="rounded-md border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+        <p class="rounded-md border border-line bg-surface px-4 py-3 text-sm text-muted">
           Check your email — we sent a one-time sign-in link. It expires in 15 minutes.
         </p>
       ) : (
         <Fragment>
-          <p class="mb-5 text-sm text-gray-500">
+          <p class="mb-5 text-sm text-muted">
             Enter your email and we'll send a sign-in link — no password needed. Use the address
             from your orders to see your order history.
           </p>
@@ -72,14 +72,14 @@ if (Astro.request.method === 'POST') {
               autofocus
               autocomplete="email"
               placeholder="you@example.com"
-              class="w-full rounded-md border border-gray-200 px-3 py-2"
+              class="w-full rounded-md border border-line px-3 py-2"
             />
             <div class="flex justify-center">
               <Turnstile />
             </div>
             <button
               type="submit"
-              class="w-full rounded-md bg-brand px-4 py-2.5 font-medium text-white hover:bg-brand-hover"
+              class="w-full rounded-md bg-brand px-4 py-2.5 font-medium text-on-brand hover:bg-brand-hover"
             >
               Send sign-in link
             </button>

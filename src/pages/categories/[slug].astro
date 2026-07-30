@@ -75,7 +75,7 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
 ---
 
 <Layout title={category.name}>
-  <nav class="mb-4 flex flex-wrap gap-x-2 text-xs uppercase tracking-widest text-gray-400">
+  <nav class="mb-4 flex flex-wrap gap-x-2 text-xs uppercase tracking-widest text-faint">
     <a href={shopHref} class="hover:text-brand">Shop</a>
     {
       trail.map((c) => (
@@ -93,7 +93,7 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
 
   {
     subcats.length > 0 && (
-      <div class="mb-12 flex flex-wrap gap-x-6 gap-y-2 text-xs uppercase tracking-widest text-gray-500">
+      <div class="mb-12 flex flex-wrap gap-x-6 gap-y-2 text-xs uppercase tracking-widest text-muted">
         {subcats.map((c) => (
           <a
             href={`/categories/${c.slug}`}
@@ -108,7 +108,7 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
 
   <CatalogSort model={buildSortModel(base, sort, dir)} />
 
-  {products.length === 0 && <p class="text-gray-500">No products in this category yet.</p>}
+  {products.length === 0 && <p class="text-muted">No products in this category yet.</p>}
 
   <ul class="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-3">
     {

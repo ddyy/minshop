@@ -12,7 +12,7 @@ interface Props {
 }
 
 const { model, class: className = 'mt-14 flex items-center justify-center gap-1' } = Astro.props;
-const linkCls = 'px-3 py-1.5 text-xs uppercase tracking-widest text-gray-500 hover:text-brand';
+const linkCls = 'px-3 py-1.5 text-xs uppercase tracking-widest text-muted hover:text-brand';
 ---
 
 {
@@ -25,7 +25,7 @@ const linkCls = 'px-3 py-1.5 text-xs uppercase tracking-widest text-gray-500 hov
       )}
       {model.items.map((item) =>
         item.page === null ? (
-          <span class="px-2 text-xs text-gray-400">…</span>
+          <span class="px-2 text-xs text-faint">…</span>
         ) : (
           <a
             href={item.href}

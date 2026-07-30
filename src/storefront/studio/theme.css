@@ -1,60 +1,124 @@
 /*
- * ── Brand theming surface ────────────────────────────────────────────────
- * THIS is the file to edit when you rebrand a clone — colors, fonts, radii.
- * Upstream (the template) keeps structural CSS in global.css and doesn't touch
- * this file, so your theme never conflicts when you pull updates.
+ * ── Studio — image-led, gallery-dark, editorial ──────────────────────────
  *
- * Tailwind v4 turns each --color-* into utilities (bg-brand, text-accent, …)
- * and uses --font-sans / --radius-* as global defaults. See README → Theming.
+ * The default is warm paper with hairline rules. The strongest way to be
+ * genuinely different is not another palette but the opposite luminance: near
+ * black, so product photography reads as work hung on a wall rather than as
+ * entries in a list.
+ *
+ * One hot accent, used sparingly. If something is vermilion it is either the
+ * primary purchase action or a piece of orientation — never decoration.
  */
 @theme {
-  /* Primary brand — solid buttons, primary actions, focus ring */
-  --color-brand: #111827;        /* swap for your brand color */
-  --color-brand-hover: #374151;  /* hover shade of the above */
+  --color-brand: #ff4a1c;
+  --color-brand-hover: #ff6a44;
 
-  /* Accent — text links */
-  --color-accent: #2563eb;
+  /* Bone on ink. This is why --color-ink had to become a token. */
+  --color-ink: #efe9dd;
 
-  /* Surfaces — warm paper background + hairline rules (editorial minimal) */
-  --color-paper: #faf8f4;
-  --color-line: #e7e2d9;
+  --color-accent: #ff4a1c;
 
-  /* Typography — sans body + a characterful system serif for display (no webfont) */
-  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
-    Helvetica, Arial, sans-serif;
-  --font-serif: 'Hoefler Text', 'Iowan Old Style', 'Palatino Linotype', Palatino,
-    Georgia, 'Times New Roman', serif;
+  /* Ink and bone. `paper` is the page, and here the page is dark — warm rather
+     than neutral, because a neutral near-black reads as a terminal and a warm
+     one reads as a room. */
+  --color-paper: #0d0c0b;
+  --color-line: #2a2823;
 
-  /* Corner radius (Tailwind defaults, surfaced here for one-place editing) */
-  --radius-md: 0.375rem;
-  --radius-lg: 0.5rem;
+  /* On a dark page a raised panel goes *up*, not down — the inverse of the
+     light sets, which is exactly why these had to become tokens. */
+  --color-surface: #17171a;
+
+  /* Both levels clear 4.5:1 against `surface`, the lighter of the two
+     backgrounds they land on — 8.3:1 and 4.9:1. On a dark page the band
+     between "dimmer" and "unreadable" is narrow, so faint is only one step
+     down from muted rather than the two steps the light sets can afford. */
+  --color-muted: #b8b0a2;
+  --color-faint: #8b857a;
+
+  /* Near-black on vermilion. White on #ff4a1c is about 3.3:1 and fails AA for
+     button text; this is roughly 7:1. */
+  --color-on-brand: #14100e;
+
+  --font-sans: ui-sans-serif, -apple-system, 'Helvetica Neue', Helvetica,
+    sans-serif;
+  /* High-contrast didone. Every fallback is a system face: nothing here needs a
+     remote font to render. */
+  --font-serif: 'Didot', 'Bodoni 72', 'Hoefler Text', 'Playfair Display',
+    Georgia, serif;
+
+  /* Square. A gallery does not round its corners. */
+  --radius-md: 0px;
+  --radius-lg: 0px;
+}
+
+/* A wide stage. The default's 72rem column is an editorial measure; this design
+   is about imagery, so it takes the width and tightens the top. */
+:root {
+  --page-max: 96rem;
+  --page-pad-x: 3rem;
+  --page-pad-y: 2rem;
 }
 
 /*
- * Content-page prose scale.
- *
- * Ordinary custom properties, intentionally OUTSIDE @theme: the core
- * `.markdown-content` rules consume them directly, and they define no Tailwind
- * utility namespace. Moving them into @theme would imply a utility-token role
- * they do not have.
- *
- * Every rule that reads one also carries today's value as its final fallback,
- * so deleting a line here — or replacing this whole file with a design system's
- * tokens — degrades to the current design rather than to browser defaults.
+ * Content pages get the display face at scale. This is the one place the brief
+ * asks for the prose ramp to be visibly the design's own rather than inherited.
  */
-/* Page container. The default is a centred editorial column. */
 :root {
-  --page-max: 72rem;
-  --page-pad-x: 1.5rem;
-  --page-pad-y: 3rem;
+  --prose-measure: 42rem;
+  --prose-leading: 1.85;
+  --prose-h1-size: 4rem;
+  --prose-h1-tracking: -0.035em;
+  --prose-h2-size: 2.25rem;
+  --prose-h2-tracking: -0.02em;
+  --prose-h3-size: 1.375rem;
 }
 
 :root {
-  --prose-measure: 48rem;
-  --prose-leading: 1.75;
-  --prose-h1-size: 2.25rem;
-  --prose-h1-tracking: -0.02em;
-  --prose-h2-size: 1.5rem;
-  --prose-h2-tracking: -0.01em;
-  --prose-h3-size: 1.125rem;
+  --studio-muted: #8b857a;
+  --studio-bone: #efe9dd;
+  --studio-well: #17171a;
+}
+
+/* Dark surfaces need their own defaults: the structural CSS assumes a light
+   page, so text and rules are set here rather than fought per component. */
+@layer base {
+  body {
+    /*
+     * Atmosphere, not decoration.
+     *
+     * Two fixed layers over the page colour. First a single soft wash from
+     * above — the room is lit from the ceiling, and the light falls off as it
+     * descends, so the top of a long page is a little warmer than the bottom.
+     * Then fine grain, the texture of a print rather than a screen, which also
+     * breaks up the banding a large dark gradient would otherwise show on an
+     * 8-bit display.
+     *
+     * Both are `fixed`, so they belong to the room and the content scrolls
+     * through them. Static: nothing animates, so there is nothing for
+     * reduced-motion to suppress.
+     */
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23g)' opacity='.5'/%3E%3C/svg%3E"),
+      radial-gradient(120% 80% at 50% -20%, #2a2520 0%, #17151300 55%, #0d0c0b00 100%);
+    background-attachment: fixed, fixed;
+    background-repeat: repeat, no-repeat;
+    background-size: 140px 140px, 100% 100%;
+    /* Grain sits at a few per cent so it is felt rather than seen; any more and
+       it costs contrast on body copy. */
+    background-blend-mode: overlay, normal;
+  }
+  /* Prose on a dark page. Core .markdown-content sets structure; colour is the
+     set's business. */
+  .markdown-content {
+    color: #cdc6b8;
+  }
+  .markdown-content h1,
+  .markdown-content h2,
+  .markdown-content h3 {
+    color: var(--studio-bone);
+  }
+  :where(a, button, input, select, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 3px;
+  }
 }

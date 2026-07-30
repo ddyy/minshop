@@ -37,7 +37,7 @@ const showAny = model.showAddToCart || model.showBuyNow;
 
         {model.variants.length > 0 && (
           <fieldset class="mb-6">
-            <legend class="mb-2 text-xs uppercase tracking-widest text-gray-500">
+            <legend class="mb-2 text-xs uppercase tracking-widest text-muted">
               {model.variantLabel || 'Option'}
             </legend>
             <div class="flex flex-col gap-2">
@@ -45,7 +45,7 @@ const showAny = model.showAddToCart || model.showBuyNow;
                 <label
                   class={`flex items-center justify-between gap-3 rounded-md border px-4 py-2.5 text-sm transition ${
                     variant.soldOut
-                      ? 'cursor-not-allowed border-line text-gray-400'
+                      ? 'cursor-not-allowed border-line text-faint'
                       : 'cursor-pointer border-line hover:border-brand'
                   }`}
                 >
@@ -66,7 +66,7 @@ const showAny = model.showAddToCart || model.showBuyNow;
                       {variant.soldOut && ' — sold out'}
                     </span>
                   </span>
-                  <span class="tabular-nums text-gray-500">{variant.formattedPrice}</span>
+                  <span class="tabular-nums text-muted">{variant.formattedPrice}</span>
                 </label>
               ))}
             </div>
@@ -75,7 +75,7 @@ const showAny = model.showAddToCart || model.showBuyNow;
 
         {model.extras.length > 0 && (
           <fieldset class="mb-6">
-            <legend class="mb-2 text-xs uppercase tracking-widest text-gray-500">Add-ons</legend>
+            <legend class="mb-2 text-xs uppercase tracking-widest text-muted">Add-ons</legend>
             <div class="flex flex-col gap-2">
               {model.extras.map((extra) => (
                 <label class="flex cursor-pointer items-center justify-between gap-3 rounded-md border border-line px-4 py-2.5 text-sm transition hover:border-brand">
@@ -89,7 +89,7 @@ const showAny = model.showAddToCart || model.showBuyNow;
                     />
                     <span>{extra.label}</span>
                   </span>
-                  <span class="tabular-nums text-gray-500">+{extra.formattedPriceDelta}</span>
+                  <span class="tabular-nums text-muted">+{extra.formattedPriceDelta}</span>
                 </label>
               ))}
             </div>
@@ -97,7 +97,7 @@ const showAny = model.showAddToCart || model.showBuyNow;
         )}
 
         {model.soldOut ? (
-          <span class="inline-block cursor-not-allowed rounded-md border border-line px-8 py-3 text-sm font-medium uppercase tracking-wider text-gray-400">
+          <span class="inline-block cursor-not-allowed rounded-md border border-line px-8 py-3 text-sm font-medium uppercase tracking-wider text-faint">
             Sold out
           </span>
         ) : (
@@ -105,7 +105,7 @@ const showAny = model.showAddToCart || model.showBuyNow;
             {model.showAddToCart && (
               <button
                 type="submit"
-                class="rounded-md border border-line px-8 py-3 text-sm font-medium uppercase tracking-wider text-gray-700 transition hover:border-brand hover:text-brand"
+                class="rounded-md border border-line px-8 py-3 text-sm font-medium uppercase tracking-wider text-muted transition hover:border-brand hover:text-brand"
               >
                 Add to cart
               </button>
@@ -116,7 +116,7 @@ const showAny = model.showAddToCart || model.showBuyNow;
                 formaction={model.expressAction}
                 formmethod="GET"
                 data-fullpage
-                class="rounded-md bg-brand px-8 py-3 text-sm font-medium uppercase tracking-wider text-white transition hover:bg-brand-hover"
+                class="rounded-md bg-brand px-8 py-3 text-sm font-medium uppercase tracking-wider text-on-brand transition hover:bg-brand-hover"
               >
                 Buy now
               </button>
@@ -127,7 +127,7 @@ const showAny = model.showAddToCart || model.showBuyNow;
     ) : (
       <div class="mt-10 flex gap-3">
         {model.soldOut && (
-          <span class="cursor-not-allowed rounded-md border border-line px-8 py-3 text-sm font-medium uppercase tracking-wider text-gray-400">
+          <span class="cursor-not-allowed rounded-md border border-line px-8 py-3 text-sm font-medium uppercase tracking-wider text-faint">
             Sold out
           </span>
         )}
@@ -137,7 +137,7 @@ const showAny = model.showAddToCart || model.showBuyNow;
             <input type="hidden" name="product_id" value={model.productId} />
             <button
               type="submit"
-              class="rounded-md border border-line px-8 py-3 text-sm font-medium uppercase tracking-wider text-gray-700 transition hover:border-brand hover:text-brand"
+              class="rounded-md border border-line px-8 py-3 text-sm font-medium uppercase tracking-wider text-muted transition hover:border-brand hover:text-brand"
             >
               Add to cart
             </button>
@@ -148,7 +148,7 @@ const showAny = model.showAddToCart || model.showBuyNow;
             <input type="hidden" name="product_id" value={model.productId} />
             <button
               type="submit"
-              class="rounded-md bg-brand px-8 py-3 text-sm font-medium uppercase tracking-wider text-white transition hover:bg-brand-hover"
+              class="rounded-md bg-brand px-8 py-3 text-sm font-medium uppercase tracking-wider text-on-brand transition hover:bg-brand-hover"
             >
               Buy now
             </button>

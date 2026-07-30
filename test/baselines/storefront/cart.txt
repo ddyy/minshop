@@ -35,7 +35,7 @@ cache-control: private, no-store
     </script>
 <link rel="stylesheet" href="/_astro/global.<hash>.css">
 </head>
-<body class="flex min-h-screen flex-col bg-paper text-gray-900 antialiased">
+<body class="flex min-h-screen flex-col bg-paper text-ink antialiased">
 <header class="sticky top-0 z-20 border-b border-line bg-paper/85 backdrop-blur">
 <div class="mx-auto flex max-w-6xl items-center gap-6 px-6 py-5">
 <a href="/" aria-label="My Shop" class="font-serif text-2xl tracking-tight">
@@ -44,7 +44,7 @@ cache-control: private, no-store
 <form method="GET" action="/search" class="ml-auto hidden flex-1 justify-end sm:flex" role="search">
 <input type="search" name="q" value placeholder="Search" aria-label="Search products" class="w-40 border-0 border-b border-line bg-transparent px-1 py-1 text-sm transition-all focus:w-56 focus:border-brand focus:outline-none">
 </form>
-<nav aria-label="Primary" class="ml-auto flex min-w-0 items-center gap-4 text-xs uppercase tracking-widest text-gray-500 sm:gap-6">
+<nav aria-label="Primary" class="ml-auto flex min-w-0 items-center gap-4 text-xs uppercase tracking-widest text-muted sm:gap-6">
 <div class="hidden min-w-0 items-center gap-4 xl:flex xl:gap-6">
 <a href="/" title="Shop" class="min-w-0 truncate hover:text-brand">Shop</a>
 <a href="/categories/apparel" title="Apparel" class="min-w-0 truncate hover:text-brand">Apparel</a>
@@ -58,7 +58,7 @@ cache-control: private, no-store
 </path>
 </svg>
 </summary>
-<div class="absolute right-0 z-40 mt-3 flex min-w-44 flex-col gap-3 border border-line bg-white p-4 shadow-lg">
+<div class="absolute right-0 z-40 mt-3 flex min-w-44 flex-col gap-3 border border-line bg-surface p-4 shadow-lg">
 <a href="/" class="hover:text-brand">Shop</a>
 <a href="/categories/apparel" class="hover:text-brand">Apparel</a>
 <a href="/pages/about" class="hover:text-brand">About</a>
@@ -80,7 +80,7 @@ cache-control: private, no-store
 <img src="/placeholder.png" alt class="h-16 w-16 shrink-0 rounded object-cover" width="600" height="600" loading="lazy" fetchpriority="auto" decoding="async" data-image-fade>
 <span class="min-w-0">
 <span class="block truncate">Pagination Item 2</span>
-<span class="block text-xs tabular-nums text-gray-500">$10.02 each</span>
+<span class="block text-xs tabular-nums text-muted">$10.02 each</span>
 </span>
 </a>
 <div class="ml-auto flex items-center gap-4">
@@ -88,13 +88,13 @@ cache-control: private, no-store
 <input type="hidden" name="_action" value="update">
 <input type="hidden" name="key" value="prod_<id>">
 <input type="number" name="qty" min="0" max="99" value="1" aria-label="Quantity" class="w-14 border-b border-line bg-transparent py-1 text-center tabular-nums focus:border-brand focus:outline-none">
-<button type="submit" class="text-xs uppercase tracking-widest text-gray-400 hover:text-brand">Update</button>
+<button type="submit" class="text-xs uppercase tracking-widest text-faint hover:text-brand">Update</button>
 </form>
 <span class="w-20 text-right tabular-nums">$10.02</span>
 <form method="POST" action="/api/cart" class="flex items-center">
 <input type="hidden" name="_action" value="remove">
 <input type="hidden" name="key" value="prod_<id>">
-<button type="submit" aria-label="Remove" class="text-xs uppercase tracking-widest text-gray-400 hover:text-red-600">Remove</button>
+<button type="submit" aria-label="Remove" class="text-xs uppercase tracking-widest text-faint hover:text-red-600">Remove</button>
 </form>
 </div>
 </li>
@@ -102,24 +102,24 @@ cache-control: private, no-store
 <div class="mt-10 flex justify-end">
 <div class="w-full sm:max-w-sm">
 <div class="flex items-center justify-between">
-<span class="text-xs uppercase tracking-widest text-gray-500">Subtotal</span>
+<span class="text-xs uppercase tracking-widest text-muted">Subtotal</span>
 <span class="text-lg tabular-nums">$10.02</span>
 </div>
 <form method="POST" action="/api/checkout" class="mt-4 space-y-2">
 <input type="hidden" name="source" value="cart">
-<button type="submit" name="method" value="demo" class="flex w-full items-center justify-between gap-3 rounded-lg px-5 py-3 text-left transition bg-brand text-white hover:bg-brand-hover">
+<button type="submit" name="method" value="demo" class="flex w-full items-center justify-between gap-3 rounded-lg px-5 py-3 text-left transition bg-brand text-on-brand hover:bg-brand-hover">
 <span>
 <span class="block text-sm font-medium">Demo checkout</span>
-<span class="block text-xs text-white/70">Simulated — places a real test order, no charge</span>
+<span class="block text-xs text-on-brand/70">Simulated — places a real test order, no charge</span>
 </span>
-<span aria-hidden="true" class="text-white/80">&rarr;</span>
+<span aria-hidden="true" class="text-on-brand/80">&rarr;</span>
 </button>
 </form>
 </div>
 </div>
 </main>
 <footer class="border-t border-line">
-<div class="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-6 py-10 text-xs uppercase tracking-widest text-gray-500">
+<div class="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-6 py-10 text-xs uppercase tracking-widest text-muted">
 <span>&copy; My Shop</span>
 </div>
 </footer>
@@ -129,7 +129,7 @@ cache-control: private, no-store
 <aside data-cart-panel class="absolute right-0 top-0 flex h-full w-full max-w-md translate-x-full flex-col bg-paper shadow-xl transition-transform duration-300">
 <div class="flex items-center justify-between border-b border-line px-6 py-5">
 <h2 class="font-serif text-2xl tracking-tight">Your cart</h2>
-<button type="button" data-cart-close aria-label="Close cart" class="-mr-2 flex h-11 w-11 items-center justify-center rounded-md text-3xl leading-none text-gray-400 transition-colors hover:bg-gray-100 hover:text-brand">&times;</button>
+<button type="button" data-cart-close aria-label="Close cart" class="-mr-2 flex h-11 w-11 items-center justify-center rounded-md text-3xl leading-none text-faint transition-colors hover:bg-surface hover:text-brand">&times;</button>
 </div>
 <div data-cart-body class="flex-1 overflow-y-auto px-6 py-5">
 </div>

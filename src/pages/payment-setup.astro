@@ -48,7 +48,7 @@ const guide = GUIDES[method] ?? null;
 
 <Layout title="Set up payments" description="How to enable a payment method.">
   <div class="mx-auto max-w-xl py-8">
-    <a href="/cart" class="text-xs uppercase tracking-widest text-gray-400 hover:text-brand">
+    <a href="/cart" class="text-xs uppercase tracking-widest text-faint hover:text-brand">
       &larr; Back to cart
     </a>
 
@@ -56,14 +56,14 @@ const guide = GUIDES[method] ?? null;
       guide ? (
         <>
           <h1 class="mt-4 font-serif text-3xl tracking-tight">{guide.title}</h1>
-          <p class="mt-3 text-gray-600">{guide.intro}</p>
+          <p class="mt-3 text-muted">{guide.intro}</p>
           <ol class="mt-6 space-y-3">
             {guide.steps.map((s, i) => (
               <li class="flex gap-3 text-sm">
                 <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand/10 text-xs font-medium text-brand">
                   {i + 1}
                 </span>
-                <span class="pt-0.5 text-gray-700">{s}</span>
+                <span class="pt-0.5 text-muted">{s}</span>
               </li>
             ))}
           </ol>
@@ -71,7 +71,7 @@ const guide = GUIDES[method] ?? null;
       ) : (
         <>
           <h1 class="mt-4 font-serif text-3xl tracking-tight">Set up payments</h1>
-          <p class="mt-3 text-gray-600">
+          <p class="mt-3 text-muted">
             This payment method isn't configured yet. Add a real rail (card or Lightning)
             in Admin → Settings → Payments, or keep using the Demo checkout to try the store.
           </p>

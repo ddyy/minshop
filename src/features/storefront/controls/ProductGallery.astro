@@ -38,7 +38,7 @@ const hasGallery = images.length > 1;
     <div class={className}>
       <div
         data-hero-track
-        class="no-scrollbar relative flex snap-x snap-mandatory overflow-x-auto scroll-smooth rounded-lg bg-gray-100"
+        class="no-scrollbar relative flex snap-x snap-mandatory overflow-x-auto scroll-smooth rounded-lg bg-surface"
       >
         {images.map((image) => (
           <img
@@ -53,11 +53,11 @@ const hasGallery = images.length > 1;
             fetchpriority={image.hero.priority ? 'high' : 'auto'}
             decoding="async"
             {...(image.hero.priority ? {} : { 'data-image-fade': '' })}
-            class={`aspect-square w-full shrink-0 snap-center bg-gray-100 object-cover${soldOut ? ' opacity-60' : ''}`}
+            class={`aspect-square w-full shrink-0 snap-center bg-surface object-cover${soldOut ? ' opacity-60' : ''}`}
           />
         ))}
         {soldOut && (
-          <span class="absolute left-4 top-4 rounded-full bg-white/90 px-3 py-1 text-xs uppercase tracking-widest text-gray-700 ring-1 ring-line">
+          <span class="absolute left-4 top-4 rounded-full bg-surface/90 px-3 py-1 text-xs uppercase tracking-widest text-muted ring-1 ring-line">
             {soldOutLabel}
           </span>
         )}
@@ -66,7 +66,7 @@ const hasGallery = images.length > 1;
         {images.map((image) => (
           <a
             href={`#pi-${image.anchor}`}
-            class="shrink-0 overflow-hidden rounded border border-line bg-gray-100 transition hover:border-brand"
+            class="shrink-0 overflow-hidden rounded border border-line bg-surface transition hover:border-brand"
           >
             <img
               src={image.thumbnail.src}
@@ -78,21 +78,21 @@ const hasGallery = images.length > 1;
               loading="lazy"
               decoding="async"
               data-image-fade
-              class="h-16 w-16 bg-gray-100 object-cover"
+              class="h-16 w-16 bg-surface object-cover"
             />
           </a>
         ))}
       </div>
     </div>
   ) : (
-    <div class={`${className} relative overflow-hidden rounded-lg bg-gray-100`.trim()}>
+    <div class={`${className} relative overflow-hidden rounded-lg bg-surface`.trim()}>
       <StoreImage
         image={hero}
         fade
-        class={`aspect-square w-full bg-gray-100 object-cover${soldOut ? ' opacity-60' : ''}`}
+        class={`aspect-square w-full bg-surface object-cover${soldOut ? ' opacity-60' : ''}`}
       />
       {soldOut && (
-        <span class="absolute left-4 top-4 rounded-full bg-white/90 px-3 py-1 text-xs uppercase tracking-widest text-gray-700 ring-1 ring-line">
+        <span class="absolute left-4 top-4 rounded-full bg-surface/90 px-3 py-1 text-xs uppercase tracking-widest text-muted ring-1 ring-line">
           {soldOutLabel}
         </span>
       )}

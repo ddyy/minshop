@@ -19,11 +19,11 @@ const { method, enabled, label } = Astro.props;
     aria-checked={enabled ? 'true' : 'false'}
     aria-label={`${enabled ? 'Disable' : 'Enable'} ${label}`}
     class={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
-      enabled ? 'bg-brand' : 'bg-gray-300'
+      enabled ? 'bg-brand' : 'bg-faint'
     }`}
   >
     <span
-      class={`inline-block size-5 rounded-full bg-white shadow transition ${
+      class={`inline-block size-5 rounded-full bg-surface shadow transition ${
         enabled ? 'translate-x-5' : 'translate-x-0.5'
       }`}
     />

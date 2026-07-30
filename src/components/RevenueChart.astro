@@ -21,10 +21,10 @@ const md = (day: string) => day.slice(5); // MM-DD
 
 <div>
   <div class="mb-3 flex items-baseline justify-between">
-    <h2 class="text-xs uppercase tracking-widest text-gray-400">
+    <h2 class="text-xs uppercase tracking-widest text-faint">
       Revenue &middot; last {data.length} days
     </h2>
-    <span class="text-xs text-gray-400">
+    <span class="text-xs text-faint">
       {formatPrice(total)} &middot; {orders} {orders === 1 ? 'order' : 'orders'}
     </span>
   </div>
@@ -48,7 +48,7 @@ const md = (day: string) => day.slice(5); // MM-DD
     }
   </svg>
 
-  <div class="mt-2 flex justify-between text-xs tabular-nums text-gray-400">
+  <div class="mt-2 flex justify-between text-xs tabular-nums text-faint">
     <span>{data[0] && md(data[0].day)}</span>
     <span>{data[data.length - 1] && md(data[data.length - 1].day)}</span>
   </div>

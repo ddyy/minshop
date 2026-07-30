@@ -45,13 +45,13 @@ const { action, selects, search, hidden = {}, active, count, noun = 'result' } =
   {
     search && (
       <label class="flex flex-col gap-1">
-        <span class="text-xs uppercase tracking-widest text-gray-400">Search</span>
+        <span class="text-xs uppercase tracking-widest text-faint">Search</span>
         <input
           type="search"
           name={search.name}
           value={search.value ?? ''}
           placeholder={search.placeholder}
-          class="w-56 rounded-md border border-gray-200 px-3 py-1.5 text-sm"
+          class="w-56 rounded-md border border-line px-3 py-1.5 text-sm"
         />
       </label>
     )
@@ -60,10 +60,10 @@ const { action, selects, search, hidden = {}, active, count, noun = 'result' } =
   {
     selects.map((s) => (
       <label class="flex flex-col gap-1">
-        <span class="text-xs uppercase tracking-widest text-gray-400">{s.label}</span>
+        <span class="text-xs uppercase tracking-widest text-faint">{s.label}</span>
         <select
           name={s.name}
-          class="rounded-md border border-gray-200 px-2 py-1.5 text-sm"
+          class="rounded-md border border-line px-2 py-1.5 text-sm"
           data-filter-select
         >
           <option value="">{s.anyLabel}</option>
@@ -79,7 +79,7 @@ const { action, selects, search, hidden = {}, active, count, noun = 'result' } =
 
   <button
     type="submit"
-    class="rounded-md border border-line px-4 py-1.5 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand hover:text-brand"
+    class="rounded-md border border-line px-4 py-1.5 text-xs font-medium uppercase tracking-wider text-muted hover:border-brand hover:text-brand"
   >
     Apply
   </button>
@@ -88,7 +88,7 @@ const { action, selects, search, hidden = {}, active, count, noun = 'result' } =
     active && (
       <a
         href={action}
-        class="py-1.5 text-xs uppercase tracking-widest text-gray-400 hover:text-brand"
+        class="py-1.5 text-xs uppercase tracking-widest text-faint hover:text-brand"
       >
         Clear
       </a>
@@ -97,7 +97,7 @@ const { action, selects, search, hidden = {}, active, count, noun = 'result' } =
 
   {
     active && count !== undefined && (
-      <span class="py-1.5 text-xs text-gray-500">
+      <span class="py-1.5 text-xs text-muted">
         {count} {noun}
         {count === 1 ? '' : 's'}
       </span>

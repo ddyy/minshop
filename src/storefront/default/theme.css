@@ -12,12 +12,36 @@
   --color-brand: #111827;        /* swap for your brand color */
   --color-brand-hover: #374151;  /* hover shade of the above */
 
+  /* Body text. Tokenized alongside --color-paper: a set that changes the page
+     colour must be able to change the text colour with it, and a hardcoded
+     utility on <body> beats anything a set declares in the base layer. */
+  --color-ink: #111827;
+
   /* Accent — text links */
   --color-accent: #2563eb;
 
   /* Surfaces — warm paper background + hairline rules (editorial minimal) */
   --color-paper: #faf8f4;
   --color-line: #e7e2d9;
+
+  /* Raised panels: cards, form wells, the checkout summary. Distinct from
+     `paper` so a panel can sit *on* the page rather than dissolving into it. */
+  --color-surface: #ffffff;
+
+  /* Secondary and tertiary text. Two levels, not one — the storefront leans on
+     the distinction between a supporting line and an incidental one, and
+     collapsing them flattens every summary and product meta block.
+
+     Both clear 4.5:1 on `surface`. `faint` was gray-400 in a dozen places
+     before these became tokens, which is 2.6:1 on white — legible to us,
+     invisible to anyone else. */
+  --color-muted: #4b5563;
+  --color-faint: #6b7280;
+
+  /* Label colour on a `brand` fill. A token rather than a hardcoded white,
+     because a set is free to pick a light brand — and then white fails
+     contrast on every primary button at once. */
+  --color-on-brand: #ffffff;
 
   /* Typography — sans body + a characterful system serif for display (no webfont) */
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,

@@ -16,12 +16,21 @@
   --color-brand: #0b47c7;
   --color-brand-hover: #0938a3;
 
+  --color-ink: #0f1419;
+
   --color-accent: #0b47c7;
 
   /* White paper, cool hairlines. The default's warm paper reads editorial;
      this reads like a working tool. */
   --color-paper: #ffffff;
   --color-line: #dbe1e8;
+
+  /* Paper is already white here, so a raised panel has to go *down* — a faint
+     cool grey — to read as a distinct surface. */
+  --color-surface: #f4f6f8;
+  --color-muted: #5c6773;
+  --color-faint: #67727e;
+  --color-on-brand: #ffffff;
 
   /* System stacks only — no remote font is required to render. */
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,

@@ -4,14 +4,29 @@
  * search landmark role, and the accessible label — the parts that make search
  * work and stay reachable. Where it sits and how wide it is belong to the
  * header, so the root takes a `class`.
+ *
+ * The field's own appearance is a set decision too, hence `inputClass`. It was
+ * hardcoded here, which meant any header drawing its own rule around search got
+ * two stacked hairlines — the control's and its own. The default below is the
+ * editorial underline the default set has always rendered, so sets that don't
+ * pass anything are unaffected.
  */
 interface Props {
   action: string;
   query: string;
   class?: string;
+  inputClass?: string;
 }
 
-const { action, query, class: className = '' } = Astro.props;
+const DEFAULT_INPUT_CLASS =
+  'w-40 border-0 border-b border-line bg-transparent px-1 py-1 text-sm transition-all focus:w-56 focus:border-brand focus:outline-none';
+
+const {
+  action,
+  query,
+  class: className = '',
+  inputClass = DEFAULT_INPUT_CLASS,
+} = Astro.props;
 ---
 
 <form method="GET" action={action} class={className} role="search">
@@ -21,6 +36,6 @@ const { action, query, class: className = '' } = Astro.props;
     value={query}
     placeholder="Search"
     aria-label="Search products"
-    class="w-40 border-0 border-b border-line bg-transparent px-1 py-1 text-sm transition-all focus:w-56 focus:border-brand focus:outline-none"
+    class={inputClass}
   />
 </form>

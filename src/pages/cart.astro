@@ -66,7 +66,7 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
 
   {
     lines.length === 0 ? (
-      <p class="text-gray-600">
+      <p class="text-muted">
         Your cart is empty.{' '}
         <a href={shopHref} class="border-b border-brand text-brand">
           Continue shopping
@@ -96,11 +96,11 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
                 <span class="min-w-0">
                   <span class="block truncate">{l.product.name}</span>
                   {(l.variant || l.extras.length > 0) && (
-                    <span class="block truncate text-xs text-gray-500">
+                    <span class="block truncate text-xs text-muted">
                       {[l.variant?.label, ...l.extras.map((e) => e.label)].filter(Boolean).join(' · ')}
                     </span>
                   )}
-                  <span class="block text-xs tabular-nums text-gray-500">
+                  <span class="block text-xs tabular-nums text-muted">
                     {formatPrice(l.unitPriceCents)} each
                   </span>
                   {l.availableStock <= 0 ? (
@@ -130,7 +130,7 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
                   />
                   <button
                     type="submit"
-                    class="text-xs uppercase tracking-widest text-gray-400 hover:text-brand"
+                    class="text-xs uppercase tracking-widest text-faint hover:text-brand"
                   >
                     Update
                   </button>
@@ -142,7 +142,7 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
                   <button
                     type="submit"
                     aria-label="Remove"
-                    class="text-xs uppercase tracking-widest text-gray-400 hover:text-red-600"
+                    class="text-xs uppercase tracking-widest text-faint hover:text-red-600"
                   >
                     Remove
                   </button>
@@ -157,23 +157,23 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
         <div class="mt-10 flex justify-end">
           <div class="w-full sm:max-w-sm">
             <div class="flex items-center justify-between">
-              <span class="text-xs uppercase tracking-widest text-gray-500">Subtotal</span>
+              <span class="text-xs uppercase tracking-widest text-muted">Subtotal</span>
               <span class="text-lg tabular-nums">{formatPrice(subtotalCents)}</span>
             </div>
 
             {methods.length === 0 ? (
-              <p class="mt-4 rounded-lg border border-dashed border-line px-5 py-4 text-center text-sm text-gray-500">
+              <p class="mt-4 rounded-lg border border-dashed border-line px-5 py-4 text-center text-sm text-muted">
                 Checkout is currently unavailable.
               </p>
             ) : (
             <form method="POST" action="/api/checkout" class="mt-4 space-y-2">
               <input type="hidden" name="source" value="cart" />
               {destination.showSelect && (
-                <label class="mb-2 flex items-center justify-between gap-2 text-xs uppercase tracking-widest text-gray-500">
+                <label class="mb-2 flex items-center justify-between gap-2 text-xs uppercase tracking-widest text-muted">
                   Ship to
                   <select
                     name="country"
-                    class="rounded-md border border-gray-200 px-2 py-1.5 text-sm normal-case tracking-normal text-gray-900"
+                    class="rounded-md border border-line px-2 py-1.5 text-sm normal-case tracking-normal text-ink"
                   >
                     {destination.countries.map((c) => (
                       <option value={c} selected={c === destination.defaultCountry}>
@@ -201,24 +201,24 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
                     value={m}
                     class={`flex w-full items-center justify-between gap-3 rounded-lg px-5 py-3 text-left transition ${
                       primary
-                        ? 'bg-brand text-white hover:bg-brand-hover'
-                        : 'border border-line text-gray-700 hover:border-brand'
+                        ? 'bg-brand text-on-brand hover:bg-brand-hover'
+                        : 'border border-line text-muted hover:border-brand'
                     }`}
                   >
                     <span>
                       <span class="block text-sm font-medium">{METHOD[m]?.label ?? m}</span>
-                      <span class={`block text-xs ${primary ? 'text-white/70' : 'text-gray-500'}`}>
+                      <span class={`block text-xs ${primary ? 'text-on-brand/70' : 'text-muted'}`}>
                         {METHOD[m]?.hint ?? ''}
                       </span>
                     </span>
-                    <span aria-hidden="true" class={primary ? 'text-white/80' : 'text-gray-400'}>
+                    <span aria-hidden="true" class={primary ? 'text-on-brand/80' : 'text-faint'}>
                       &rarr;
                     </span>
                   </button>
                 ) : (
                   <a
                     href={`/payment-setup?method=${m}`}
-                    class="flex w-full items-center justify-between gap-3 rounded-lg border border-dashed border-line px-5 py-3 text-left text-gray-400 transition hover:border-brand hover:text-brand"
+                    class="flex w-full items-center justify-between gap-3 rounded-lg border border-dashed border-line px-5 py-3 text-left text-faint transition hover:border-brand hover:text-brand"
                   >
                     <span>
                       <span class="block text-sm font-medium">{METHOD[m]?.label ?? m}</span>

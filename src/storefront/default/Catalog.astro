@@ -25,13 +25,13 @@ const { model } = Astro.props;
 ---
 
 <div class="mb-10">
-  <p class="text-xs uppercase tracking-[0.25em] text-gray-500">{model.eyebrow}</p>
+  <p class="text-xs uppercase tracking-[0.25em] text-muted">{model.eyebrow}</p>
   <h1 class="mt-2 font-serif text-4xl tracking-tight sm:text-5xl">{model.heading}</h1>
 </div>
 
 {
   model.categories.length > 0 && (
-    <div class="mb-12 flex flex-wrap gap-x-6 gap-y-2 text-xs uppercase tracking-widest text-gray-500">
+    <div class="mb-12 flex flex-wrap gap-x-6 gap-y-2 text-xs uppercase tracking-widest text-muted">
       {model.categories.map((category) => (
         <a
           href={category.href}
@@ -51,7 +51,7 @@ const { model } = Astro.props;
      announce itself to assistive technology rather than rendering a blank
      grid. Reword it freely; keep the role and keep it non-empty. */
   model.products.length === 0 && (
-    <p role="status" class="text-gray-500">
+    <p role="status" class="text-muted">
       No products yet.
     </p>
   )

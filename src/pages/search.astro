@@ -65,7 +65,7 @@ const fillerCards = fillers.map((product) => buildProductCard(product, cardOptio
 
 <Layout title={q ? `Search: ${q}` : 'Search'}>
   <div class="mb-8">
-    <p class="text-xs uppercase tracking-[0.25em] text-gray-500">Search</p>
+    <p class="text-xs uppercase tracking-[0.25em] text-muted">Search</p>
     <h1 class="mt-2 font-serif text-4xl tracking-tight sm:text-5xl">
       {q ? q : 'Find something'}
     </h1>
@@ -86,12 +86,12 @@ const fillerCards = fillers.map((product) => buildProductCard(product, cardOptio
   {
     q &&
       (autoCorrected ? (
-        <p class="mb-8 text-sm text-gray-500">
+        <p class="mb-8 text-sm text-muted">
           No matches for “{q}” — showing results for{' '}
-          <strong class="font-medium text-gray-900">{suggestion}</strong>.
+          <strong class="font-medium text-ink">{suggestion}</strong>.
         </p>
       ) : products.length > 0 ? (
-        <p class="mb-8 text-xs uppercase tracking-widest text-gray-500">
+        <p class="mb-8 text-xs uppercase tracking-widest text-muted">
           {total} result{total === 1 ? '' : 's'} for “{q}”
         </p>
       ) : null)
@@ -110,7 +110,7 @@ const fillerCards = fillers.map((product) => buildProductCard(product, cardOptio
   {
     fillers.length > 0 && (
       <>
-        <p class="mb-8 mt-16 text-xs uppercase tracking-widest text-gray-500">
+        <p class="mb-8 mt-16 text-xs uppercase tracking-widest text-muted">
           More from these categories
         </p>
         <ul class="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-3">
@@ -124,7 +124,7 @@ const fillerCards = fillers.map((product) => buildProductCard(product, cardOptio
 
   {
     q && products.length === 0 && (
-      <p class="text-gray-500">No products match “{q}”. Try a different word.</p>
+      <p class="text-muted">No products match “{q}”. Try a different word.</p>
     )
   }
 

@@ -31,7 +31,7 @@ const Heading = headingLevel;
 
 <li class="reveal group" style={`animation-delay:${Math.min(index, 8) * 60}ms`}>
   <a href={card.href} class="block">
-    <div class="relative overflow-hidden rounded-md bg-gray-100">
+    <div class="relative overflow-hidden rounded-md bg-surface">
       <StoreImage
         image={card.image}
         fade
@@ -39,13 +39,13 @@ const Heading = headingLevel;
       />
       {
         !card.inStock && (
-          <span class="absolute left-3 top-3 rounded-full bg-white/90 px-2.5 py-0.5 text-xs uppercase tracking-widest text-gray-700 ring-1 ring-line">
+          <span class="absolute left-3 top-3 rounded-full bg-surface/90 px-2.5 py-0.5 text-xs uppercase tracking-widest text-muted ring-1 ring-line">
             Sold out
           </span>
         )
       }
     </div>
     <Heading class="mt-4 text-sm font-medium tracking-tight">{card.name}</Heading>
-    <p class="mt-1 text-sm tabular-nums text-gray-500">{card.formattedPrice}</p>
+    <p class="mt-1 text-sm tabular-nums text-muted">{card.formattedPrice}</p>
   </a>
 </li>

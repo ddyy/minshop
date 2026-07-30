@@ -2,11 +2,8 @@
 import type { StorefrontShellModel } from '../../features/storefront/models';
 
 /**
- * STORE-OWNED. Edit freely — this file belongs to your store.
- *
- * Footer links come from the merchant's navigation menu, already filtered to
- * targets that are actually publishable, so nothing here can render a dead
- * link. Like the header, this renders on every page.
+ * Studio — the colophon. Set small and quiet at the foot of the page, the way a
+ * catalogue credits itself.
  */
 interface Props {
   model: StorefrontShellModel;
@@ -17,14 +14,16 @@ const { model } = Astro.props;
 
 <footer class="border-t border-line">
   <div
-    class="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-6 py-10 text-xs uppercase tracking-widest text-gray-500"
+    class="mx-auto flex max-w-[96rem] flex-wrap items-baseline gap-x-8 gap-y-3 px-12 py-14 text-[10px] font-medium uppercase tracking-[0.24em] text-[color:var(--studio-muted)]"
   >
-    <span>&copy; {model.storeName}</span>
+    <span class="font-serif text-base normal-case tracking-normal text-[color:var(--studio-bone)]">
+      {model.storeName}
+    </span>
     {
       model.footerLinks.length > 0 && (
-        <nav aria-label="Footer" class="flex flex-wrap items-center gap-x-6 gap-y-3">
+        <nav aria-label="Footer" class="flex flex-wrap items-center gap-x-8 gap-y-3">
           {model.footerLinks.map((link) => (
-            <a href={link.href} class="hover:text-brand">
+            <a href={link.href} class="hover:text-[color:var(--studio-bone)]">
               {link.text}
             </a>
           ))}

@@ -27,7 +27,7 @@ const { model } = Astro.props;
     scrolls away, and costs no vertical space on mobile. */}
 {
   model.announcement && (
-    <div class="bg-brand text-white">
+    <div class="bg-brand text-on-brand">
       <div class="mx-auto max-w-6xl px-6 py-2 text-center text-xs tracking-wide">
         {model.announcement.href ? (
           <a href={model.announcement.href} class="underline-offset-2 hover:underline">
@@ -68,7 +68,7 @@ const { model } = Astro.props;
         putting min-w-0 only on the links themselves is not enough. */}
     <nav
       aria-label="Primary"
-      class="ml-auto flex min-w-0 items-center gap-4 text-xs uppercase tracking-widest text-gray-500 sm:gap-6"
+      class="ml-auto flex min-w-0 items-center gap-4 text-xs uppercase tracking-widest text-muted sm:gap-6"
     >
       <StoreNav links={model.headerLinks} />
       {model.blog.enabled && <a href={model.blog.href} class="hover:text-brand">Blog</a>}

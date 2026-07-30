@@ -86,7 +86,7 @@ const dollars = (cents: number) => (cents / 100).toFixed(2);
           <input type="hidden" name="_action" value="review_refund" />
           <button
             type="submit"
-            class="rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-amber-900 hover:bg-amber-100"
+            class="rounded-md border border-amber-300 bg-surface px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-amber-900 hover:bg-amber-100"
           >
             Mark reviewed
           </button>
@@ -97,13 +97,13 @@ const dollars = (cents: number) => (cents / 100).toFixed(2);
 
   <dl class="grid grid-cols-2 gap-x-8 gap-y-3 px-5 py-4 text-sm sm:grid-cols-3">
     <div>
-      <dt class="text-xs uppercase tracking-widest text-gray-400">Order total</dt>
+      <dt class="text-xs uppercase tracking-widest text-faint">Order total</dt>
       <dd class="tabular-nums">{formatPrice(order.amount_total_cents, order.currency)}</dd>
     </div>
     {
       order.provider_refunded_cents > 0 && (
         <div>
-          <dt class="text-xs uppercase tracking-widest text-gray-400">Through provider</dt>
+          <dt class="text-xs uppercase tracking-widest text-faint">Through provider</dt>
           <dd class="tabular-nums">
             {formatPrice(order.provider_refunded_cents, order.currency)}
           </dd>
@@ -113,7 +113,7 @@ const dollars = (cents: number) => (cents / 100).toFixed(2);
     {
       order.external_refunded_cents > 0 && (
         <div>
-          <dt class="text-xs uppercase tracking-widest text-gray-400">Recorded by hand</dt>
+          <dt class="text-xs uppercase tracking-widest text-faint">Recorded by hand</dt>
           <dd class="tabular-nums">
             {formatPrice(order.external_refunded_cents, order.currency)}
           </dd>
@@ -121,15 +121,15 @@ const dollars = (cents: number) => (cents / 100).toFixed(2);
       )
     }
     <div>
-      <dt class="text-xs uppercase tracking-widest text-gray-400">Total refunded</dt>
+      <dt class="text-xs uppercase tracking-widest text-faint">Total refunded</dt>
       <dd class="font-medium tabular-nums">{formatPrice(order.refunded_cents, order.currency)}</dd>
     </div>
     <div>
-      <dt class="text-xs uppercase tracking-widest text-gray-400">Refundable left</dt>
+      <dt class="text-xs uppercase tracking-widest text-faint">Refundable left</dt>
       <dd class="tabular-nums">{formatPrice(remaining, order.currency)}</dd>
     </div>
     <div>
-      <dt class="text-xs uppercase tracking-widest text-gray-400">Net</dt>
+      <dt class="text-xs uppercase tracking-widest text-faint">Net</dt>
       <dd class="font-medium tabular-nums">
         {formatPrice(order.amount_total_cents - order.refunded_cents, order.currency)}
       </dd>
@@ -144,25 +144,25 @@ const dollars = (cents: number) => (cents / 100).toFixed(2);
             <span
               class:list={[
                 'tabular-nums font-medium',
-                r.amount_cents < 0 ? 'text-gray-500' : '',
-                reversed.has(r.id) ? 'text-gray-400 line-through' : '',
+                r.amount_cents < 0 ? 'text-muted' : '',
+                reversed.has(r.id) ? 'text-faint line-through' : '',
               ]}
             >
               {r.amount_cents < 0 ? '−' : ''}
               {formatPrice(Math.abs(r.amount_cents), order.currency)}
             </span>
-            <span class="text-xs uppercase tracking-widest text-gray-400">
+            <span class="text-xs uppercase tracking-widest text-faint">
               {KIND_LABEL[r.kind] ?? r.kind}
             </span>
-            <span class="text-xs text-gray-500">{formatDate(r.created_at, undefined, timeZone)}</span>
-            {r.created_by && <span class="text-xs text-gray-500">{r.created_by}</span>}
+            <span class="text-xs text-muted">{formatDate(r.created_at, undefined, timeZone)}</span>
+            {r.created_by && <span class="text-xs text-muted">{r.created_by}</span>}
             {r.provider_refund_id && (
-              <span class="font-mono text-xs text-gray-400">{r.provider_refund_id}</span>
+              <span class="font-mono text-xs text-faint">{r.provider_refund_id}</span>
             )}
             {reversed.has(r.id) && (
-              <span class="text-xs uppercase tracking-widest text-gray-400">Voided</span>
+              <span class="text-xs uppercase tracking-widest text-faint">Voided</span>
             )}
-            <span class="w-full text-xs text-gray-500">
+            <span class="w-full text-xs text-muted">
               {[r.reason, r.note].filter(Boolean).join(' — ')}
             </span>
             {/* Only entries minshop invented can be corrected here. A provider's
@@ -180,7 +180,7 @@ const dollars = (cents: number) => (cents / 100).toFixed(2);
                   <input type="hidden" name="refund_id" value={r.public_id} />
                   <button
                     type="submit"
-                    class="text-xs uppercase tracking-widest text-gray-400 hover:text-red-600"
+                    class="text-xs uppercase tracking-widest text-faint hover:text-red-600"
                   >
                     Void
                   </button>
@@ -213,7 +213,7 @@ const dollars = (cents: number) => (cents / 100).toFixed(2);
             >
               Refund {formatPrice(remaining, order.currency)} through provider
             </button>
-            <p class="mt-2 text-xs text-gray-500">
+            <p class="mt-2 text-xs text-muted">
               Sends the money back. For a partial refund, use your provider’s dashboard — it
               syncs back here automatically.
             </p>
@@ -223,7 +223,7 @@ const dollars = (cents: number) => (cents / 100).toFixed(2);
         {canRecord && (
           <form method="POST" action={`/api/admin/orders/${order.public_id}`} class="space-y-2">
             <input type="hidden" name="_action" value="record_refund" />
-            <p class="text-xs uppercase tracking-widest text-gray-400">
+            <p class="text-xs uppercase tracking-widest text-faint">
               {isDemo ? 'Mark demo order refunded' : 'Record a refund you already sent'}
             </p>
             <div class="flex flex-wrap items-center gap-2">
@@ -236,23 +236,23 @@ const dollars = (cents: number) => (cents / 100).toFixed(2);
                 value={dollars(remaining)}
                 required
                 aria-label="Refund amount"
-                class="w-28 rounded-md border border-gray-200 px-2 py-1.5 text-sm tabular-nums"
+                class="w-28 rounded-md border border-line px-2 py-1.5 text-sm tabular-nums"
               />
               <input
                 type="text"
                 name="note"
                 placeholder="How it was sent (internal)"
                 aria-label="Internal note"
-                class="min-w-48 flex-1 rounded-md border border-gray-200 px-2 py-1.5 text-sm"
+                class="min-w-48 flex-1 rounded-md border border-line px-2 py-1.5 text-sm"
               />
               <button
                 type="submit"
-                class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand"
+                class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-muted hover:border-brand"
               >
                 {isDemo ? 'Mark refunded' : 'Record refund'}
               </button>
             </div>
-            <p class="text-xs text-gray-500">
+            <p class="text-xs text-muted">
               {isDemo
                 ? 'This only updates the demo order and store statistics. No money was charged or returned.'
                 : 'This only updates minshop’s records and moves no money. Send the refund from your wallet or provider first.'}
@@ -263,7 +263,7 @@ const dollars = (cents: number) => (cents / 100).toFixed(2);
         {canSyncProvider && (
           <form method="POST" action={`/api/admin/orders/${order.public_id}`} class="space-y-2">
             <input type="hidden" name="_action" value="sync_refund" />
-            <p class="text-xs uppercase tracking-widest text-gray-400">
+            <p class="text-xs uppercase tracking-widest text-faint">
               Sync a refund from your provider
             </p>
             <div class="flex flex-wrap items-center gap-2">
@@ -276,23 +276,23 @@ const dollars = (cents: number) => (cents / 100).toFixed(2);
                 required
                 aria-label="Total refunded at the provider"
                 placeholder={dollars(order.amount_total_cents)}
-                class="w-28 rounded-md border border-gray-200 px-2 py-1.5 text-sm tabular-nums"
+                class="w-28 rounded-md border border-line px-2 py-1.5 text-sm tabular-nums"
               />
               <input
                 type="text"
                 name="provider_refund_id"
                 placeholder="Provider refund ID (optional)"
                 aria-label="Provider refund ID"
-                class="min-w-48 flex-1 rounded-md border border-gray-200 px-2 py-1.5 text-sm"
+                class="min-w-48 flex-1 rounded-md border border-line px-2 py-1.5 text-sm"
               />
               <button
                 type="submit"
-                class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-700 hover:border-brand"
+                class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider text-muted hover:border-brand"
               >
                 Sync total
               </button>
             </div>
-            <p class="text-xs text-gray-500">
+            <p class="text-xs text-muted">
               Use this only if a refund you made at the provider never appeared here. Enter the
               <strong> total refunded so far</strong>, not just the latest amount.
             </p>
