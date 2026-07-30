@@ -1,6 +1,7 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   buildShipmentPayload,
+  findTransactionForRate,
   purchaseLabel,
   carrierCodeFor,
   distanceUnitFor,
@@ -184,5 +185,76 @@ describe('shipment payload metadata', () => {
   it('carries the order id so the dashboard can cross-reference', () => {
     const payload = buildShipmentPayload(FROM, TO, { length: 1, width: 1, height: 1, weightGrams: 1 }, 'g', 'ord_7');
     expect(payload.metadata).toBe('order ord_7');
+  });
+});
+
+describe('findTransactionForRate', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const respond = (body: unknown, status = 200) =>
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status })));
+  const tx = (over: Record<string, unknown> = {}) => ({
+    object_id: 'txn_1',
+    status: 'SUCCESS',
+    rate: 'rate_1',
+    tracking_number: '9400x',
+    label_url: 'https://l.example/x.pdf',
+    ...over,
+  });
+  const find = () => findTransactionForRate('tok', 'rate_1', 'USPS');
+
+  it('treats an empty page as pending — absence is not proof of no purchase', async () => {
+    respond({ results: [] });
+    expect(await find()).toEqual({ ok: true, value: { state: 'pending' } });
+  });
+  it('treats a missing results property as inconclusive, changing nothing', async () => {
+    respond({});
+    expect((await find()).ok).toBe(false);
+    respond({ results: 'nope' });
+    expect((await find()).ok).toBe(false);
+  });
+  it("only an explicit terminal ERROR on OUR rate proves 'none'", async () => {
+    respond({ results: [tx({ status: 'ERROR', object_id: 'txn_err' })] });
+    expect(await find()).toEqual({ ok: true, value: { state: 'none' } });
+  });
+  it('a later SUCCESS is recoverable even beside an earlier ERROR', async () => {
+    respond({ results: [tx({ status: 'ERROR', object_id: 'txn_err' }), tx()] });
+    const result = await find();
+    expect(result).toMatchObject({ ok: true, value: { state: 'purchased' } });
+  });
+  it('QUEUED, WAITING, and REFUNDPENDING stay pending — unresolved money', async () => {
+    for (const status of ['QUEUED', 'WAITING', 'REFUNDPENDING']) {
+      respond({ results: [tx({ status })] });
+      expect(await find(), status).toEqual({ ok: true, value: { state: 'pending' } });
+    }
+  });
+  it('REFUNDREJECTED means the purchased label stands', async () => {
+    respond({ results: [tx({ status: 'REFUNDREJECTED' })] });
+    expect(await find()).toMatchObject({ ok: true, value: { state: 'purchased' } });
+  });
+  it('REFUNDED is its own audited terminal state, carrying the original label', async () => {
+    respond({ results: [tx({ status: 'REFUNDED' })] });
+    const result = await find();
+    expect(result).toMatchObject({
+      ok: true,
+      value: { state: 'refunded', label: { transactionId: 'txn_1', trackingNumber: '9400x' } },
+    });
+  });
+  it('an incomplete SUCCESS is a reconciliation error, never a reopen', async () => {
+    respond({ results: [tx({ label_url: undefined })] });
+    expect((await find()).ok).toBe(false);
+  });
+  it('an unknown status is a reconciliation error, never a reopen', async () => {
+    respond({ results: [tx({ status: 'SOMETHING_NEW' })] });
+    expect((await find()).ok).toBe(false);
+  });
+  it('matches the rate EXACTLY — same-order metadata cannot substitute', async () => {
+    // A different rate's transaction, even tagged with our order, is a
+    // different attempt: it must not settle this one.
+    respond({ results: [tx({ rate: 'rate_OTHER', metadata: 'order ord_42' })] });
+    expect(await find()).toEqual({ ok: true, value: { state: 'pending' } });
+  });
+  it('accepts an expanded rate object as the exact match', async () => {
+    respond({ results: [tx({ rate: { object_id: 'rate_1' } })] });
+    expect(await find()).toMatchObject({ ok: true, value: { state: 'purchased' } });
   });
 });

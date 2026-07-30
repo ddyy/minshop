@@ -343,7 +343,15 @@ export async function purchaseLabel(
 /** What Shippo's records say happened to an attempt we lost track of. */
 export type ReconcileOutcome =
   | { state: 'purchased'; label: PurchasedLabel }
+  /** Bought, then refunded at Shippo — record the original for audit; only then
+   *  may the order reopen. */
+  | { state: 'refunded'; label: PurchasedLabel }
+  /** Not settled: still processing, a refund is pending, or simply NOT VISIBLE
+   *  YET. Absence of evidence is not evidence of absence — the lost POST may
+   *  still land, which is the whole reason reconciliation exists. */
   | { state: 'pending' }
+  /** Shippo explicitly judged the attempt: a terminal ERROR transaction for
+   *  EXACTLY our rate. The only state that reopens purchasing. */
   | { state: 'none' };
 
 interface ShippoTransactionListItem {
@@ -357,46 +365,70 @@ interface ShippoTransactionListItem {
 }
 
 /**
- * Ask Shippo whether a transaction exists for this rate — the AUTHORITATIVE
- * answer for a submitted purchase whose response was lost. Matches on the rate
- * id (and accepts the order-metadata match as a belt), because a rate can be
- * bought at most once per transaction attempt in this flow.
+ * Ask Shippo whether a transaction exists for this rate — the authoritative
+ * input for settling a submitted purchase whose response was lost.
+ *
+ * Classification FAILS CLOSED: only an explicit terminal ERROR proves no
+ * purchase; an empty page, an unrecognized status, or a malformed response
+ * never reopens the order, because reopening wrongly is a second real charge.
+ * Matching is by EXACT rate id — order metadata is display/belt, never a
+ * substitute (a same-order transaction for a different rate is a different
+ * attempt and must not settle this one).
  */
 export async function findTransactionForRate(
   token: string,
   rateId: string,
-  orderPublicId: string | null,
   provider: string,
 ): Promise<LabelResult<ReconcileOutcome>> {
-  // Server-side filter where supported; the client-side match below is what we
-  // actually trust.
   const result = await shippo(token, `/transactions/?rate=${encodeURIComponent(rateId)}&results=25`);
   if (!result.ok) return result;
-  const list = (result.value as { results?: ShippoTransactionListItem[] }).results ?? [];
-  const matches = list.filter((tx) => {
-    const txRate = typeof tx.rate === 'string' ? tx.rate : tx.rate?.object_id;
-    if (txRate === rateId) return true;
-    return !!orderPublicId && tx.metadata === `order ${orderPublicId}`;
-  });
-  if (matches.length === 0) return { ok: true, value: { state: 'none' } };
-  const success = matches.find((tx) => tx.status === 'SUCCESS');
-  if (success && success.object_id && success.tracking_number && success.label_url) {
-    return {
-      ok: true,
-      value: {
-        state: 'purchased',
-        label: {
-          transactionId: success.object_id,
-          trackingNumber: success.tracking_number,
-          trackingUrl: success.tracking_url_provider ?? null,
-          labelUrl: success.label_url,
-          provider,
-        },
-      },
-    };
+  const results = (result.value as { results?: unknown }).results;
+  if (!Array.isArray(results)) {
+    // A 200 without the documented shape is not an answer — change nothing.
+    return { ok: false, error: 'Shippo answered with an unexpected shape; reconciliation is inconclusive.' };
   }
-  // Transactions exist but none succeeded: ERROR means the attempt terminated
-  // without purchasing; anything still QUEUED/WAITING is not settled yet.
-  const stillRunning = matches.some((tx) => tx.status === 'QUEUED' || tx.status === 'WAITING');
-  return { ok: true, value: { state: stillRunning ? 'pending' : 'none' } };
+  const matches = (results as ShippoTransactionListItem[]).filter((tx) => {
+    const txRate = typeof tx.rate === 'string' ? tx.rate : tx.rate?.object_id;
+    return txRate === rateId;
+  });
+  // Missing from this page ≠ never happened: the POST may still complete or
+  // become visible later. Stay pending; the merchant can retry or force-resolve.
+  if (matches.length === 0) return { ok: true, value: { state: 'pending' } };
+
+  const toLabel = (tx: ShippoTransactionListItem): PurchasedLabel | null =>
+    tx.object_id && tx.tracking_number && tx.label_url
+      ? {
+          transactionId: tx.object_id,
+          trackingNumber: tx.tracking_number,
+          trackingUrl: tx.tracking_url_provider ?? null,
+          labelUrl: tx.label_url,
+          provider,
+        }
+      : null;
+
+  // Priority: a live purchase outranks everything (SUCCESS, or a refund Shippo
+  // REJECTED — that label still stands); then a completed refund (terminal but
+  // must be recorded); then anything unresolved; then the explicit no.
+  const success = matches.find((tx) => tx.status === 'SUCCESS' || tx.status === 'REFUNDREJECTED');
+  if (success) {
+    const label = toLabel(success);
+    return label
+      ? { ok: true, value: { state: 'purchased', label } }
+      : { ok: false, error: 'Shippo reports a purchased label but its record is incomplete; reconcile in the dashboard.' };
+  }
+  const refunded = matches.find((tx) => tx.status === 'REFUNDED');
+  if (refunded) {
+    const label = toLabel(refunded);
+    return label
+      ? { ok: true, value: { state: 'refunded', label } }
+      : { ok: false, error: 'Shippo reports a refunded label but its record is incomplete; reconcile in the dashboard.' };
+  }
+  if (matches.some((tx) => tx.status === 'QUEUED' || tx.status === 'WAITING' || tx.status === 'REFUNDPENDING')) {
+    return { ok: true, value: { state: 'pending' } };
+  }
+  if (matches.every((tx) => tx.status === 'ERROR')) {
+    return { ok: true, value: { state: 'none' } };
+  }
+  // A status this code does not know is not a license to reopen.
+  return { ok: false, error: 'Shippo reported a transaction status this version does not recognize; reconcile in the dashboard.' };
 }

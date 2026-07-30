@@ -21,12 +21,14 @@ import {
 import {
   claimPurchase,
   discardLabelAttempt,
+  forceDiscardLabelAttempt,
   getLabelRecord,
   isPurchaseStale,
   markLabelFailed,
   markLabelUncertain,
   recordPurchased,
   recordQuote,
+  recordRefundedAttempt,
 } from '../../../../features/shipping/labelStore';
 import { queueNotification } from '../../../../features/email/outboxStore';
 import {
@@ -320,6 +322,19 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
       : fail('There is no discardable label attempt — a submitted purchase must be reconciled with Shippo instead.');
   }
 
+  if (action === 'label_force_discard') {
+    // The risk-bearing override, chosen by a human who has read what it costs:
+    // deleting a submitted attempt ends the single-shot guarantee for this
+    // order — if the lost request completes after all, its label will exist
+    // only at Shippo. Reconciliation is always the safe path; this exists for
+    // attempts whose POST plausibly never left the building.
+    return (await forceDiscardLabelAttempt(env.DB, id))
+      ? notice(
+          'Attempt force-discarded. If the original request did reach Shippo, its label will appear only in your Shippo dashboard.',
+        )
+      : fail('There is no submitted attempt to force-discard.');
+  }
+
   // Ask Shippo what actually happened to a submitted-but-unsettled attempt.
   // This is the ONLY path that reopens (proven no purchase → 'failed') or
   // durably records (found a SUCCESS transaction → same guarded completion as
@@ -344,22 +359,41 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     const outcome = await findTransactionForRate(
       token,
       record.rate_id!,
-      existing.public_id,
       rate?.provider ?? record.provider ?? 'Carrier',
     );
     if (!outcome.ok) return fail(`Could not reconcile with Shippo: ${outcome.error}`);
 
     if (outcome.value.state === 'pending') {
-      return fail('Shippo is still processing that purchase — try reconciling again shortly.');
+      return fail(
+        'Shippo has no settled answer yet — the purchase may still be processing or not yet visible. Try again shortly; nothing was changed.',
+      );
+    }
+    if (outcome.value.state === 'refunded') {
+      // Bought, then refunded at the provider: record the original transaction
+      // for the audit trail; only that recording reopens quoting.
+      const refFound = outcome.value.label;
+      const audited = await recordRefundedAttempt(env.DB, id, record.claim_token!, {
+        transactionId: refFound.transactionId,
+        provider: refFound.provider,
+        service: rate?.service ?? record.service ?? '',
+        amountCents: rate?.amountCents ?? record.amount_cents ?? 0,
+        trackingNumber: refFound.trackingNumber,
+        labelUrl: refFound.labelUrl,
+        carrierCode: carrierCodeFor(refFound.provider),
+      });
+      if (!audited) return fail('The attempt changed state while reconciling — reload and check again.');
+      return notice(
+        `Shippo shows the label was purchased and then refunded (transaction ${refFound.transactionId}). Recorded — you can fetch rates again.`,
+      );
     }
     if (outcome.value.state === 'none') {
       await markLabelFailed(
         env.DB,
         id,
         record.claim_token!,
-        'Reconciled with Shippo: no label was purchased.',
+        'Reconciled with Shippo: the attempt terminated in ERROR without purchasing.',
       );
-      return notice('Shippo confirms no label was purchased. You can fetch rates again.');
+      return notice('Shippo explicitly reports the attempt failed without purchasing. You can fetch rates again.');
     }
     const found = outcome.value.label;
     const recorded = await recordPurchased(env.DB, id, record.claim_token!, {

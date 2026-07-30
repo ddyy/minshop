@@ -289,6 +289,21 @@ const willEmailCustomer =
               Reconcile with Shippo
             </button>
           </form>
+          <details class="text-xs text-amber-900/80">
+            <summary class="cursor-pointer">The request never reached Shippo? (risk-bearing override)</summary>
+            <p class="mt-2">
+              Force-discarding abandons the single-purchase guarantee for this order: if the
+              lost request did reach Shippo and completes later, that label will exist only
+              in your Shippo dashboard and will not be recorded here. Reconcile first when
+              in doubt.
+            </p>
+            <form method="POST" action={`/api/admin/orders/${order.public_id}`} class="mt-2">
+              <input type="hidden" name="_action" value="label_force_discard" />
+              <button type="submit" class="rounded-md border border-amber-400 px-3 py-1.5 font-medium uppercase tracking-wider hover:bg-amber-100">
+                I accept the risk — force discard
+              </button>
+            </form>
+          </details>
         </div>
       )
     }
@@ -349,6 +364,21 @@ const willEmailCustomer =
                       Reconcile with Shippo
                     </button>
                   </form>
+                  <details class="text-xs text-amber-900/80">
+                    <summary class="cursor-pointer">The request never reached Shippo? (risk-bearing override)</summary>
+                    <p class="mt-2">
+                      Force-discarding abandons the single-purchase guarantee for this order: if the
+                      lost request did reach Shippo and completes later, that label will exist only
+                      in your Shippo dashboard and will not be recorded here. Reconcile first when
+                      in doubt.
+                    </p>
+                    <form method="POST" action={`/api/admin/orders/${order.public_id}`} class="mt-2">
+                      <input type="hidden" name="_action" value="label_force_discard" />
+                      <button type="submit" class="rounded-md border border-amber-400 px-3 py-1.5 font-medium uppercase tracking-wider hover:bg-amber-100">
+                        I accept the risk — force discard
+                      </button>
+                    </form>
+                  </details>
                 </div>
               ) : labelRecord?.status === 'purchased' ? (
                 <p>

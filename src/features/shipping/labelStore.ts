@@ -259,3 +259,47 @@ export async function discardLabelAttempt(db: D1Database, orderId: number): Prom
     .run();
   return (result.meta?.changes ?? 0) > 0;
 }
+
+/**
+ * Shippo confirms the attempt bought a label that was then REFUNDED. Record the
+ * original transaction for audit FIRST — only that recording reopens quoting
+ * (status 'failed'), so the money trail survives even though no usable label
+ * exists.
+ */
+export async function recordRefundedAttempt(
+  db: D1Database,
+  orderId: number,
+  claimToken: string,
+  p: PurchasedRecord,
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE shipping_labels
+          SET status = 'failed', transaction_id = ?2, provider = ?3, service = ?4,
+              amount_cents = ?5, tracking_number = ?6, label_url = ?7,
+              error = 'Purchased then refunded at Shippo (transaction ' || ?2 || ').',
+              updated_at = datetime('now')
+        WHERE order_id = ?1 AND status IN ('purchasing', 'uncertain') AND claim_token = ?8`,
+    )
+    .bind(orderId, p.transactionId, p.provider, p.service, p.amountCents, p.trackingNumber, p.labelUrl, claimToken)
+    .run();
+  return (result.meta?.changes ?? 0) > 0;
+}
+
+/**
+ * The MANUAL RISK-BEARING OVERRIDE for an attempt whose POST plausibly never
+ * reached Shippo. Deleting a submitted attempt abandons the single-shot
+ * guarantee for this order: if the lost request completes after all, its label
+ * exists only at Shippo. The route puts that in the merchant's own words
+ * before offering this; nothing calls it automatically.
+ */
+export async function forceDiscardLabelAttempt(db: D1Database, orderId: number): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `DELETE FROM shipping_labels
+        WHERE order_id = ?1 AND status IN ('purchasing', 'uncertain')`,
+    )
+    .bind(orderId)
+    .run();
+  return (result.meta?.changes ?? 0) > 0;
+}

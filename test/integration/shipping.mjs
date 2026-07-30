@@ -13,7 +13,9 @@ import { countProductsMissingWeight } from '../../src/features/shipping/sellabil
 import {
   PURCHASE_LEASE_SECONDS,
   claimPurchase,
+  forceDiscardLabelAttempt,
   markLabelFailed,
+  recordRefundedAttempt,
   discardLabelAttempt,
   getLabelRecord,
   markLabelUncertain,
@@ -454,6 +456,57 @@ await check('an uncertain outcome blocks everything except reconciliation', asyn
   assert.equal(await discardLabelAttempt(db, 1), false, 'uncertain is not discardable');
   await markLabelFailed(db, 1, claim.claimToken, 'Reconciled: no label was purchased.');
   assert.equal(await recordQuote(db, 1, 'shp_b'), true, 'a proven no-purchase reopens the order');
+});
+
+await check('a refunded-at-Shippo attempt reopens only after recording the audit trail', async () => {
+  const db = await freshDb();
+  await addOrder(db, 1);
+  await recordQuote(db, 1, 'shp_a');
+  const claim = await claimPurchase(db, 1, 'rate_1');
+  await markLabelUncertain(db, 1, claim.claimToken, 'network lost');
+  const audited = await recordRefundedAttempt(db, 1, claim.claimToken, {
+    transactionId: 'txn_refunded',
+    provider: 'USPS',
+    service: 'Priority Mail',
+    amountCents: 733,
+    trackingNumber: '9400ref',
+    labelUrl: 'https://labels.example/ref.pdf',
+    carrierCode: 'usps',
+  });
+  assert.equal(audited, true);
+  const row = await getLabelRecord(db, 1);
+  assert.equal(row.status, 'failed', 'refunded attempt reopens quoting');
+  assert.equal(row.transaction_id, 'txn_refunded', 'original transaction is on record');
+  assert.match(row.error, /refunded at Shippo/);
+  assert.equal(await recordQuote(db, 1, 'shp_b'), true);
+  // Stale token cannot fake the audit.
+  await addOrder(db, 2);
+  await recordQuote(db, 2, 'shp_c');
+  await claimPurchase(db, 2, 'rate_2');
+  assert.equal(
+    await recordRefundedAttempt(db, 2, 'wrong-token', {
+      transactionId: 'x', provider: 'USPS', service: '', amountCents: 0,
+      trackingNumber: 'x', labelUrl: 'x', carrierCode: 'usps',
+    }),
+    false,
+  );
+});
+
+await check('force-discard is the only local exit for a submitted attempt', async () => {
+  const db = await freshDb();
+  await addOrder(db, 1);
+  await recordQuote(db, 1, 'shp_a');
+  await claimPurchase(db, 1, 'rate_1');
+  assert.equal(await discardLabelAttempt(db, 1), false, 'safe discard refuses');
+  assert.equal(await forceDiscardLabelAttempt(db, 1), true, 'the override removes it');
+  assert.equal(await recordQuote(db, 1, 'shp_b'), true, 'the order reopens — risk accepted');
+  // But never a purchased row.
+  const claim2 = await claimPurchase(db, 1, 'rate_2');
+  await recordPurchased(db, 1, claim2.claimToken, {
+    transactionId: 'txn_ok', provider: 'USPS', service: 'PM', amountCents: 700,
+    trackingNumber: '9400ok', labelUrl: 'https://labels.example/ok.pdf', carrierCode: 'usps',
+  });
+  assert.equal(await forceDiscardLabelAttempt(db, 1), false, 'purchased rows are permanent');
 });
 
 await check('recordPurchased lands label, fulfillment, and the shipped email in one batch', async () => {
