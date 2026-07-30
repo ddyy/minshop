@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { experimental_AstroContainer as AstroContainer } from 'astro/container';
-import ProductDetail from '#storefront/ProductDetail.astro';
+import ProductDetail from '#theme/ProductDetail.astro';
 import AltProductDetail from './fixtures/product-detail/AltProductDetail.astro';
 import ProductPurchaseForm from '../../src/features/storefront/controls/ProductPurchaseForm.astro';
 import ProductGallery from '../../src/features/storefront/controls/ProductGallery.astro';

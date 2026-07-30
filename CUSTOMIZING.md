@@ -10,15 +10,15 @@ theme engine and no code editor in Admin — you edit source, build, and deploy.
 
 | File | What it controls |
 | --- | --- |
-| `src/storefront/<your-set>/` | Your storefront set — templates and tokens. Created for you at setup. |
-| `src/styles/theme.css` | Optional overrides applied after your set's tokens. |
-| `src/storefront/<your-set>/Header.astro` | Logo, announcement bar, navigation, search, cart and account placement. |
-| `src/storefront/<your-set>/Footer.astro` | Footer navigation and store attribution. |
-| `src/storefront/<your-set>/ProductCard.astro` | Every product card — catalog, category, search, and the "You may also like" row. |
-| `src/storefront/<your-set>/Catalog.astro` | The catalog page at both `/` and `/products`: headings, category links, grid, empty state. |
-| `src/storefront/<your-set>/ProductDetail.astro` | The product page: gallery, details, purchase panel, and recommendations. |
-| `src/storefront/<your-set>/ContentPage.astro` | The frame around a merchant's Markdown page. |
-| `src/storefront/<your-set>/theme.css` | Your set's design tokens: the `@theme` block (colors, fonts, radii) plus the prose and container scales. |
+| `src/themes/<your-theme>/` | Your theme — templates and tokens. Created for you at setup. |
+| `src/styles/overrides.css` | Optional overrides applied after your theme's tokens. |
+| `src/themes/<your-theme>/Header.astro` | Logo, announcement bar, navigation, search, cart and account placement. |
+| `src/themes/<your-theme>/Footer.astro` | Footer navigation and store attribution. |
+| `src/themes/<your-theme>/ProductCard.astro` | Every product card — catalog, category, search, and the "You may also like" row. |
+| `src/themes/<your-theme>/Catalog.astro` | The catalog page at both `/` and `/products`: headings, category links, grid, empty state. |
+| `src/themes/<your-theme>/ProductDetail.astro` | The product page: gallery, details, purchase panel, and recommendations. |
+| `src/themes/<your-theme>/ContentPage.astro` | The frame around a merchant's Markdown page. |
+| `src/themes/<your-theme>/tokens.css` | Your theme's design tokens: the `@theme` block (colors, fonts, radii) plus the prose and container scales. |
 
 That is the whole store-owned surface.
 
@@ -179,7 +179,7 @@ Two things are contract rather than design:
 - **`style={model.layoutStyle}`** carries the width and title alignment the
   merchant picked in Admin. Drop it and every page reverts to the default.
 
-The prose scale itself is yours, in your set's `theme.css` (outside the `@theme` block):
+The prose scale itself is yours, in your theme's `tokens.css` (outside the `@theme` block):
 
 ```css
 :root {
@@ -215,8 +215,8 @@ The width and padding of the page are yours, via tokens the layout reads:
 }
 ```
 
-Declare them in your set's `theme.css`. Omit any and it falls back to the value
-above, so a set that says nothing renders like the default. A dense design can
+Declare them in your theme's `tokens.css`. Omit any and it falls back to the value
+above, so a theme that says nothing renders like the default. A dense design can
 widen and tighten; an editorial one can narrow.
 
 To run an element full-bleed to the container edge, use a negative margin equal
@@ -243,7 +243,7 @@ yours — "Primary", "Shop", "Main" all pass. An unlabelled `<nav>` does not.
 in the mobile disclosure, so navigation is reachable at every width with
 scripts blocked. That duplication is deliberate and asserted; if a design
 genuinely needs a single responsive navigation, that is a change to the control
-upstream, not a test to relax in your set.
+upstream, not a test to relax in your theme.
 
 ## Rules
 
@@ -258,16 +258,16 @@ upstream, not a test to relax in your set.
 
 ## Styling
 
-Tokens live in your set's `theme.css` (`src/storefront/<your-set>/theme.css`),
+Tokens live in your theme's `tokens.css` (`src/themes/<your-theme>/theme.css`),
 in a Tailwind v4 `@theme` block, and become utilities automatically —
 `--color-brand` gives you `bg-brand`, `text-brand`, and so on. Structure is
 expressed with Tailwind utilities in your own markup.
 
-`src/styles/theme.css` is a different, later layer: ordinary custom-property
-overrides applied AFTER your set's tokens. Its normal state is empty. Use it
-for values you want to survive switching sets, or when adopting a design
-system's variables wholesale; everything that defines your set's look belongs
-in the set's own `theme.css`.
+`src/styles/overrides.css` is a different, later layer: ordinary custom-property
+overrides applied AFTER your theme's tokens. Its normal state is empty. Use it
+for values you want to survive switching themes, or when adopting a design
+system's variables wholesale; everything that defines your theme's look belongs
+in the theme's own `tokens.css`.
 
 Two token families behave differently when omitted, and the difference
 matters:
@@ -276,20 +276,20 @@ matters:
   CSS through `var()` with literal fallbacks. Omit one and that rule renders
   exactly as the default does.
 - The **semantic `@theme` tokens** (`--color-*`, `--font-*`, `--radius-*`)
-  have NO fallback: they are what generates the utilities. A set that omits
+  have NO fallback: they are what generates the utilities. A theme that omits
   `--color-brand` doesn't get the default brand — `bg-brand` simply stops
   being generated. Every set must therefore declare the complete semantic
-  surface; the contract suite enforces the required names for every set in
+  surface; the contract suite enforces the required names for every theme in
   the tree.
 
-Only your active set's directory is scanned for utilities (inactive sets are
+Only your active set's directory is scanned for utilities (inactive themes are
 excluded per build, and generated files under `src/styles/storefront/` wire
-that up — never edit or commit them). Classes you add in your set are
+that up — never edit or commit them). Classes you add in your theme are
 generated without touching any config file.
 
 Admin is deliberately NOT part of any of this: it compiles its own stylesheet
 (`src/styles/admin.css`) with a frozen palette, so authenticated Admin pages
-look the same in every store, under any set, including dark ones.
+look the same in every store, under any theme, including dark ones.
 
 Upstream controls keep the functional styling they need — state, accessibility,
 and layout classes stay inside them. Each accepts a root `class` you can merge.
@@ -301,7 +301,7 @@ supported in this release.
 ## After you change something
 
 ```bash
-npm run storefront:check && npm run test:storefront-contract
+npm run theme:check && npm run test:storefront-contract
 ```
 
 The first enforces the import and request-context boundary, following each file
@@ -333,9 +333,9 @@ matches the *default* design byte-for-byte. It exists for upstream extraction
 work. If you have customized anything, it is supposed to fail, and it is not
 part of `npm run verify`.
 
-## Your set, and upstream's
+## Your theme, and upstream's
 
-`src/storefront/default/` belongs to upstream and receives improvements. Your
+`src/themes/default/` belongs to upstream and receives improvements. Your
 set is a copy of it, created and selected when your store was scaffolded, and
 upstream never writes there.
 
@@ -355,14 +355,14 @@ directly — a store that selects `studio` is editing an upstream directory agai
 with all the collision it was scaffolded to avoid:
 
 ```bash
-rm -rf src/storefront/your-store
-cp -R src/storefront/studio src/storefront/your-store
+rm -rf src/themes/your-store
+cp -R src/themes/studio src/themes/your-store
 ```
 
-Leave `storefront.config.json` naming `your-store`. Then run the gates:
+Leave `theme.config.json` naming `your-store`. Then run the gates:
 
 ```bash
-npm run storefront:check
+npm run theme:check
 npm run test:storefront-contract
 npm run verify
 ```
@@ -370,7 +370,7 @@ npm run verify
 Provenance: `default`, `studio`, and `market` are original designs written for
 this repository. They embed no third-party assets — every font stack resolves
 to system faces, and Studio's grain texture is an inline SVG authored here — so
-copying one into your set carries no license or attribution obligation.
+copying one into your theme carries no license or attribution obligation.
 
 Which set is active is one value:
 
@@ -378,18 +378,18 @@ Which set is active is one value:
 { "set": "your-store" }
 ```
 
-in `storefront.config.json`. Change it and rebuild to try another set;
-`STOREFRONT=<id> npm run dev` does the same thing for one command.
+in `theme.config.json`. Change it and rebuild to try another set;
+`THEME=<id> npm run dev` does the same thing for one command.
 
 ## Resetting a file
 
 Your templates are ordinary tracked files, so git is the undo:
 
 ```bash
-git checkout HEAD -- src/storefront/acme/ProductCard.astro
+git checkout HEAD -- src/themes/acme/ProductCard.astro
 ```
 
-(Replace `acme` with your set id.) Work on a branch when making large changes,
+(Replace `acme` with your theme id.) Work on a branch when making large changes,
 so the default is always one command away.
 
 ## Caching

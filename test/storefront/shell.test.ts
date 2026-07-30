@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { experimental_AstroContainer as AstroContainer } from 'astro/container';
-import Header from '#storefront/Header.astro';
-import Footer from '#storefront/Footer.astro';
+import Header from '#theme/Header.astro';
+import Footer from '#theme/Footer.astro';
 import AltHeader from './fixtures/shell/AltHeader.astro';
 import StoreNav from '../../src/features/storefront/controls/StoreNav.astro';
 import { buildShellModel, type ShellInput } from '../../src/features/storefront/shell';

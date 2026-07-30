@@ -49,51 +49,51 @@ jobs:
       - name: Run complete verification
         run: npm run verify
 
-  # Which sets exist is a property of the TREE, not of this file: a generated
-  # store carries its merchant-owned set plus whatever shipped sets it kept,
+  # Which themes exist is a property of the TREE, not of this file: a generated
+  # store carries its merchant-owned theme plus whatever shipped themes it kept,
   # and a hardcoded list here would silently stop covering them. Discovery
   # asks the same resolver the build uses.
   discover:
-    name: Discover storefront sets
+    name: Discover themes
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      sets: ${{ steps.discover.outputs.sets }}
+      themes: ${{ steps.discover.outputs.themes }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
 
-      - name: List sets not covered by the main job
+      - name: List themes not covered by the main job
         id: discover
         run: |
-          sets=$(node --input-type=module -e "
-            import { discoverSetIds, resolveConfiguredSet } from './scripts/storefront-set.mjs';
-            const configured = resolveConfiguredSet().id;
-            console.log(JSON.stringify(discoverSetIds().filter((id) => id !== configured)));
+          themes=$(node --input-type=module -e "
+            import { discoverThemeIds, resolveConfiguredTheme } from './scripts/themes.mjs';
+            const configured = resolveConfiguredTheme().id;
+            console.log(JSON.stringify(discoverThemeIds().filter((id) => id !== configured)));
           ")
-          echo "discovered: $sets"
-          echo "sets=$sets" >> "$GITHUB_OUTPUT"
+          echo "discovered: $themes"
+          echo "themes=$themes" >> "$GITHUB_OUTPUT"
 
-  # The main job verifies whichever set storefront.config.json names. The
+  # The main job verifies whichever theme theme.config.json names. The
   # contract suite exists precisely to hold for ANY design — so run it against
-  # every other set in the tree. Not the full `verify`: the parts this omits
+  # every other theme in the tree. Not the full `verify`: the parts this omits
   # (integration, MCP, scaffold, Stripe country data) are set-independent and
   # would only multiply the bill.
   sets:
-    name: Verify set (${{ matrix.set }})
+    name: Verify theme (${{ matrix.theme }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: discover
-    if: needs.discover.outputs.sets != '[]'
+    if: needs.discover.outputs.themes != '[]'
 
     strategy:
       fail-fast: false
       matrix:
-        set: ${{ fromJSON(needs.discover.outputs.sets) }}
+        theme: ${{ fromJSON(needs.discover.outputs.themes) }}
 
     env:
-      STOREFRONT: ${{ matrix.set }}
+      THEME: ${{ matrix.theme }}
 
     steps:
       - name: Check out repository
@@ -118,5 +118,5 @@ jobs:
             -e 's/__BUCKET__/minshop-check-images/g' \
             wrangler.template.jsonc > wrangler.jsonc
 
-      - name: Verify the set builds and honours the contract
-        run: npm run verify:set
+      - name: Verify the theme builds and honours the contract
+        run: npm run verify:theme

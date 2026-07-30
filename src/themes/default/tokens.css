@@ -12,7 +12,7 @@
   --color-brand: #111827;        /* swap for your brand color */
   --color-brand-hover: #374151;  /* hover shade of the above */
 
-  /* Body text. Tokenized alongside --color-paper: a set that changes the page
+  /* Body text. Tokenized alongside --color-paper: a theme that changes the page
      colour must be able to change the text colour with it, and a hardcoded
      utility on <body> beats anything a set declares in the base layer. */
   --color-ink: #111827;

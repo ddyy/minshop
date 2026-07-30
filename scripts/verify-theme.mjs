@@ -1,28 +1,28 @@
 #!/usr/bin/env node
 /**
- * Per-set verification: sync, contract suite, type check, build — for the set
- * this process resolves (usually `STOREFRONT=<id> npm run verify:set`).
+ * Per-theme verification: sync, contract suite, type check, build — for the theme
+ * this process resolves (usually `THEME=<id> npm run verify:set`).
  *
  * A script rather than an npm `&&` chain for one reason: `astro check` must be
- * told which set to type-check. Its default tsconfig follows
- * storefront.config.json — deliberately, so an env-selected process never
- * rewrites the shared file (see scripts/storefront-css.mjs) — which means the
+ * told which theme to type-check. Its default tsconfig follows
+ * theme.config.json — deliberately, so an env-selected process never
+ * rewrites the shared file (see scripts/theme-css.mjs) — which means the
  * env-selected check has to pass its per-set tsconfig explicitly, and npm
  * scripts cannot interpolate the resolved id portably.
  *
  * Deliberately narrower than `npm run verify`: what it omits (integration,
  * MCP, scaffold, Stripe country data) is set-independent, and re-running it
- * per set would triple the bill to re-prove the same thing.
+ * per theme would triple the bill to re-prove the same thing.
  */
 import { spawnSync } from 'node:child_process';
 import { relative } from 'node:path';
-import { resolveStorefrontSet } from './storefront-set.mjs';
-import { setTsconfigPath, writeStorefrontArtifacts } from './storefront-css.mjs';
+import { resolveTheme } from './themes.mjs';
+import { themeTsconfigPath, writeThemeArtifacts } from './theme-css.mjs';
 
-writeStorefrontArtifacts();
-const { id, source } = resolveStorefrontSet();
-const tsconfig = relative(process.cwd(), setTsconfigPath(id));
-console.log(`verify:set — ${id} (from ${source})`);
+writeThemeArtifacts();
+const { id, source } = resolveTheme();
+const tsconfig = relative(process.cwd(), themeTsconfigPath(id));
+console.log(`verify:theme — ${id} (from ${source})`);
 
 const steps = [
   ['npx', ['vitest', 'run', 'test/storefront']],

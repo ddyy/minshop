@@ -6,27 +6,27 @@
  * markup-equivalence baselines never look at compiled CSS and a build that
  * violates both still exits 0:
  *
- *  1. Set scoping — the active set's utilities are present and every inactive
- *     set's are absent. This is what the generated `@source not` exclusions
+ *  1. Set scoping — the active theme's utilities are present and every inactive
+ *     theme's are absent. This is what the generated `@source not` exclusions
  *     and `source(none)` scoping exist to guarantee; break either and the
- *     stylesheet silently bloats with (or leaks styling from) sets the build
+ *     stylesheet silently bloats with (or leaks styling from) themes the build
  *     did not select. Found the hard way: Tailwind's default project-wide
- *     scan was re-acquiring the default set's classes from the rendered HTML
+ *     scan was re-acquiring the default theme's classes from the rendered HTML
  *     in test/baselines/*.txt.
  *
  *  2. Admin isolation — the Admin entry keeps its own stable palette and
- *     carries no set's utilities and no set's paper colour. Admin must stay
- *     readable under ANY storefront design (a dark set once themed
+ *     carries no theme's utilities and no theme's paper colour. Admin must stay
+ *     readable under ANY theme (a dark one once restyled
  *     authenticated Admin to ~1.1:1).
  *
- * Sentinels are DERIVED, not hardcoded: for each set, the class names that
- * appear in that set's templates and nowhere else (not in core, not in a
- * sibling set). Derivation keeps the check honest for a generated store's
- * merchant-owned set, which upstream cannot know a sentinel for.
+ * Sentinels are DERIVED, not hardcoded: for each theme, the class names that
+ * appear in that theme's templates and nowhere else (not in core, not in a
+ * sibling theme). Derivation keeps the check honest for a generated store's
+ * merchant-owned theme, which upstream cannot know a sentinel for.
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
-import { SETS_DIR, discoverSetIds, resolveStorefrontSet } from './storefront-set.mjs';
+import { THEMES_DIR, discoverThemeIds, resolveTheme } from './themes.mjs';
 
 const root = process.cwd();
 
@@ -67,7 +67,7 @@ function classesUnder(dir) {
 
 /** Every byte under dir (skipping other-set dirs when asked), for raw
  *  substring tests. Tailwind's scanner reads WHOLE files, not just class
- *  attributes — a token counts as "unique to a set" only if it appears
+ *  attributes — a token counts as "unique to a theme" only if it appears
  *  nowhere else in src in any form, or the compiled output will legitimately
  *  contain it in every build and the check cries wolf. */
 function rawContentUnder(dir, { skipDirs = [] } = {}) {
@@ -97,14 +97,14 @@ function cssEscaped(name) {
 // ---------------------------------------------------------------------------
 // Derive per-set sentinel candidates.
 
-const ids = discoverSetIds(root);
-const active = resolveStorefrontSet(root);
-const setClasses = new Map(ids.map((id) => [id, classesUnder(resolve(root, SETS_DIR, id))]));
-// One haystack per set: all of src EXCEPT that set's own directory.
+const ids = discoverThemeIds(root);
+const active = resolveTheme(root);
+const setClasses = new Map(ids.map((id) => [id, classesUnder(resolve(root, THEMES_DIR, id))]));
+// One haystack per theme: all of src EXCEPT that theme's own directory.
 const srcExceptSet = new Map(
   ids.map((id) => [
     id,
-    rawContentUnder(resolve(root, 'src'), { skipDirs: [resolve(root, SETS_DIR, id)] }),
+    rawContentUnder(resolve(root, 'src'), { skipDirs: [resolve(root, THEMES_DIR, id)] }),
   ]),
 );
 
@@ -140,7 +140,7 @@ const failures = [];
 
 // 0. Classify each stylesheet by its ENTRY MARKER, never by the content under
 //    test. Classifying by sentinel utilities has a hole exactly where the
-//    check matters most: active-set CSS leaking into the Admin sheet would
+//    check matters most: active-theme CSS leaking into the Admin sheet would
 //    make it look like a storefront sheet and be skipped by the isolation
 //    assertions. The markers are emitted by the entries themselves
 //    (src/styles/global.css and admin.css).
@@ -170,7 +170,7 @@ if (storefrontFiles.length === 0) {
   failures.push('no built stylesheet carries the storefront entry marker — global.css lost it, or the entry was dropped.');
 }
 
-// 1a. The active set is actually in the storefront output.
+// 1a. The active theme is actually in the storefront output.
 const activeCandidates = uniqueTo(active.id);
 const activeHits = activeCandidates.filter((c) =>
   storefrontFiles.some((f) => css.get(f).includes(cssEscaped(c))),
@@ -180,45 +180,45 @@ if (activeCandidates.length === 0) {
   // sentinel-checked, and pretending otherwise would report coverage that
   // does not exist.
   console.log(
-    `check-built-css: NOTE — set "${active.id}" has no unique class; presence not verifiable.`,
+    `check-built-css: NOTE — theme "${active.id}" has no unique class; presence not verifiable.`,
   );
 } else if (activeHits.length === 0 && storefrontFiles.length > 0) {
   failures.push(
-    `active set "${active.id}": none of its ${activeCandidates.length} unique utilities appear in the storefront stylesheet — its templates are not being scanned.`,
+    `active theme "${active.id}": none of its ${activeCandidates.length} unique utilities appear in the storefront stylesheet — its templates are not being scanned.`,
   );
 }
 
-// 1b. No inactive set leaks in, anywhere.
+// 1b. No inactive theme leaks in, anywhere.
 for (const id of ids) {
   if (id === active.id) continue;
   for (const c of uniqueTo(id)) {
     for (const f of cssFiles) {
       if (css.get(f).includes(cssEscaped(c))) {
         failures.push(
-          `inactive set "${id}": utility "${c}" leaked into ${relative(root, f)} — its exclusion is broken.`,
+          `inactive theme "${id}": utility "${c}" leaked into ${relative(root, f)} — its exclusion is broken.`,
         );
       }
     }
   }
 }
 
-// 1c. The ACTIVE set stays out of Admin too — this is the case that entry
-//     markers exist for. The Admin entry excludes every set, active included.
+// 1c. The ACTIVE theme stays out of Admin too — this is the case that entry
+//     markers exist for. The Admin entry excludes every theme, active included.
 for (const c of activeCandidates) {
   for (const f of adminFiles) {
     if (css.get(f).includes(cssEscaped(c))) {
       failures.push(
-        `active set "${active.id}": utility "${c}" leaked into the Admin stylesheet ${relative(root, f)}.`,
+        `active theme "${active.id}": utility "${c}" leaked into the Admin stylesheet ${relative(root, f)}.`,
       );
     }
   }
 }
 
 // 2. Admin palette: every Admin-marked stylesheet must keep Admin's own paper
-//    and reject the active set's.
+//    and reject the active theme's.
 const adminSource = readFileSync(resolve(root, 'src/styles/admin.css'), 'utf8');
 const adminPaper = adminSource.match(/--color-paper:\s*([^;]+);/)?.[1].trim();
-const activeTheme = readFileSync(resolve(root, SETS_DIR, active.id, 'theme.css'), 'utf8');
+const activeTheme = readFileSync(resolve(root, THEMES_DIR, active.id, 'tokens.css'), 'utf8');
 const activePaper = activeTheme.match(/--color-paper:\s*([^;]+);/)?.[1].trim();
 if (!adminPaper) failures.push('src/styles/admin.css declares no --color-paper.');
 for (const f of adminFiles) {
@@ -228,17 +228,17 @@ for (const f of adminFiles) {
   }
   if (activePaper && activePaper !== adminPaper && body.includes(`--color-paper:${activePaper}`)) {
     failures.push(
-      `${relative(root, f)}: carries the active set's paper (${activePaper}) — the set theme reached Admin.`,
+      `${relative(root, f)}: carries the active theme's paper (${activePaper}) — the theme reached Admin.`,
     );
   }
 }
 
 if (failures.length > 0) {
-  console.error(`check-built-css: FAILED for active set "${active.id}"\n`);
+  console.error(`check-built-css: FAILED for active theme "${active.id}"\n`);
   for (const failure of failures) console.error(`  ✗ ${failure}`);
   process.exit(1);
 }
 console.log(
   `check-built-css: ok — active "${active.id}" present (${activeHits.length} sentinel${activeHits.length === 1 ? '' : 's'}), ` +
-    `${ids.length - 1} inactive set${ids.length === 2 ? '' : 's'} excluded, Admin isolated, across ${cssFiles.length} stylesheet${cssFiles.length === 1 ? '' : 's'}.`,
+    `${ids.length - 1} inactive theme${ids.length === 2 ? '' : 's'} excluded, Admin isolated, across ${cssFiles.length} stylesheet${cssFiles.length === 1 ? '' : 's'}.`,
 );

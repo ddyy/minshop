@@ -509,11 +509,11 @@ to someone who hit the URL beforehand.
 ## Theming
 
 > **Customizing the storefront:** see [CUSTOMIZING.md](CUSTOMIZING.md) for the
-> full store-owned surface — your storefront set, its templates and tokens, the
+> full store-owned surface — your theme, its templates and tokens, the
 > controls to keep, and the checks to run.
 
 
-Brand color, accent, font, and corner radius are **design tokens** in your storefront set's `theme.css` (`src/storefront/<your-set>/theme.css`, a Tailwind v4 `@theme` block) — rebrand a clone by editing a few values, no component changes:
+Minshop ships selectable **themes** — as on other platforms, except a theme here is compiled source selected at build time, not a package installed at runtime. Brand color, accent, font, and corner radius are **design tokens** in your theme's `tokens.css` (`src/themes/<your-theme>/theme.css`, a Tailwind v4 `@theme` block) — rebrand a clone by editing a few values, no component changes:
 
 ```css
 @theme {
@@ -524,7 +524,7 @@ Brand color, accent, font, and corner radius are **design tokens** in your store
 }
 ```
 
-These generate the `bg-brand` / `border-brand` / `text-accent` utilities used across the UI, so changing one value re-skins every button and link at once. (`src/styles/theme.css` is a later, normally empty override layer applied after your set's tokens.) There is no runtime templating or theme engine: the components are the template, and tokens are the knobs.
+These generate the `bg-brand` / `border-brand` / `text-accent` utilities used across the UI, so changing one value re-skins every button and link at once. (`src/styles/overrides.css` is a later, normally empty override layer applied after your theme's tokens.) There is no runtime templating or theme engine: the components are the template, and tokens are the knobs.
 
 ## Gotchas
 

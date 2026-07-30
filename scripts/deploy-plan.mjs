@@ -29,26 +29,26 @@ export function validateStamp({ raw, expectedSet, skipBuild = false }) {
   if (raw == null) {
     throw new Error(
       skipBuild
-        ? 'dist/ carries no storefront-set stamp. Rebuild (omit --skip-build) so the artifact records which set it contains.'
-        : 'The build finished but wrote no storefront-set stamp — the storefront-stamp integration is missing from astro.config.mjs.',
+        ? 'dist/ carries no theme stamp. Rebuild (omit --skip-build) so the artifact records which theme it contains.'
+        : 'The build finished but wrote no theme stamp — the theme-stamp integration is missing from astro.config.mjs.',
     );
   }
   let stamped;
   try {
-    stamped = JSON.parse(raw)?.set;
+    stamped = JSON.parse(raw)?.theme;
   } catch {
     throw new Error(
-      'dist/storefront-set.json is not valid JSON. Rebuild (omit --skip-build) to regenerate the stamp.',
+      'dist/theme.json is not valid JSON. Rebuild (omit --skip-build) to regenerate the stamp.',
     );
   }
   if (typeof stamped !== 'string' || stamped.length === 0) {
     throw new Error(
-      'dist/storefront-set.json has no "set" string. Rebuild (omit --skip-build) to regenerate the stamp.',
+      'dist/theme.json has no "theme" string. Rebuild (omit --skip-build) to regenerate the stamp.',
     );
   }
   if (stamped !== expectedSet) {
     throw new Error(
-      `dist/ was built for storefront set "${stamped}", but the current selection is "${expectedSet}". ` +
+      `dist/ was built for theme "${stamped}", but the current selection is "${expectedSet}". ` +
         'Rebuild (omit --skip-build), or change the selection back before deploying.',
     );
   }

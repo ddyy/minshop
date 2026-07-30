@@ -15,11 +15,11 @@
 @import "tailwindcss" source(none);
 @source "../../src";
 
-/* Exclude every storefront set from THIS compilation's source scan (generated;
+/* Exclude every theme from THIS compilation's source scan (generated;
    covers all sets, unlike the per-set files which keep their own). Set
    templates never render inside Admin, so their utilities would be dead
    weight here — and no set may restyle Admin by accident. */
-@import "./storefront/_admin.css";
+@import "./themes/_admin.css";
 
 /* Admin's own tokens: the upstream light palette, frozen. These match the
    default set's values today, but they are Admin's, not the default set's —

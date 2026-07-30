@@ -9,21 +9,21 @@ import { readFileSync } from 'node:fs';
 // equivalence gate passes whether the rules read a token, read the wrong token,
 // or lost their fallback.
 
-import { discoverSetIds, SETS_DIR } from '../../scripts/storefront-set.mjs';
+import { discoverThemeIds, THEMES_DIR } from '../../scripts/themes.mjs';
 
 const global = readFileSync('src/styles/global.css', 'utf8');
 // Structural rules moved to base.css so the Admin entry can share them without
 // inheriting the set import. Tests that assert on rules read the structural
 // file; tests about IMPORT ORDER still read the entry point.
 const structural = readFileSync('src/styles/base.css', 'utf8');
-const override = readFileSync('src/styles/theme.css', 'utf8');
+const override = readFileSync('src/styles/overrides.css', 'utf8');
 
-// Every SHIPPED set must declare the tokens the core prose rules read. The
+// Every SHIPPED theme must declare the tokens the core prose rules read. The
 // override file is checked for the opposite property: that it is allowed to
-// declare nothing. Tokens moved into the sets so selecting one brings its
+// declare nothing. Tokens moved into the themes so selecting one brings its
 // design with it; requiring them here too would forbid an empty override.
-const sets = discoverSetIds();
-const setThemes = sets.map((id) => [id, readFileSync(`${SETS_DIR}/${id}/theme.css`, 'utf8')]);
+const themes = discoverThemeIds();
+const themeTokens = themes.map((id) => [id, readFileSync(`${THEMES_DIR}/${id}/tokens.css`, 'utf8')]);
 
 /** property → [token, today's literal] */
 const PROSE_RULES = [
@@ -47,13 +47,13 @@ describe('the content-page prose scale', () => {
     expect(structural).toContain(`var(${token}, ${literal})`);
   });
 
-  it('ships at least one set to validate', () => {
-    expect(sets.length).toBeGreaterThan(0);
+  it('ships at least one theme to validate', () => {
+    expect(themes.length).toBeGreaterThan(0);
   });
 
-  it.each(PROSE_RULES)('every shipped set declares %s → %s', (_property, token) => {
-    for (const [id, css] of setThemes) {
-      expect(css, `set "${id}" is missing ${token}`).toContain(`${token}:`);
+  it.each(PROSE_RULES)('every shipped theme declares %s → %s', (_property, token) => {
+    for (const [id, css] of themeTokens) {
+      expect(css, `theme "${id}" is missing ${token}`).toContain(`${token}:`);
     }
   });
 
@@ -68,8 +68,8 @@ describe('the content-page prose scale', () => {
   it('applies the merchant override after the active set', () => {
     // Order is the whole contract: the set supplies the design, the store's own
     // values win over it.
-    expect(global.indexOf('#storefront-css')).toBeLessThan(
-      global.indexOf('./theme.css'),
+    expect(global.indexOf('#theme-css')).toBeLessThan(
+      global.indexOf('./overrides.css'),
     );
   });
 
@@ -80,10 +80,10 @@ describe('the content-page prose scale', () => {
     expect(structural).toContain('max-width: var(--page-measure, var(--prose-measure, 48rem));');
   });
 
-  it.each(sets)('keeps %s prose tokens outside @theme', (id) => {
+  it.each(themes)('keeps %s prose tokens outside @theme', (id) => {
     // They are consumed directly by core CSS and define no Tailwind utility
     // namespace; inside @theme they would imply a utility-token role.
-    const css = readFileSync(`${SETS_DIR}/${id}/theme.css`, 'utf8');
+    const css = readFileSync(`${THEMES_DIR}/${id}/tokens.css`, 'utf8');
     const block = css.slice(css.indexOf('@theme'), css.indexOf('}', css.indexOf('@theme')));
 
     expect(block).not.toContain('--prose-');
@@ -147,14 +147,14 @@ function themeBlockDeclarations(css) {
 }
 
 describe('the semantic @theme token surface', () => {
-  it.each(sets)('%s declares every required token INSIDE @theme', (id) => {
+  it.each(themes)('%s declares every required token INSIDE @theme', (id) => {
     // Only an @theme declaration generates utilities. The same token in :root
     // (or quoted in a comment) leaves bg-brand and friends unemitted, which is
     // exactly the silent failure this contract exists to prevent — so the
     // search is scoped to the parsed block, not the file.
-    const declarations = themeBlockDeclarations(readFileSync(`${SETS_DIR}/${id}/theme.css`, 'utf8'));
+    const declarations = themeBlockDeclarations(readFileSync(`${THEMES_DIR}/${id}/tokens.css`, 'utf8'));
     for (const token of REQUIRED_THEME_TOKENS) {
-      expect(declarations, `set "${id}" does not declare ${token} inside @theme`).toContain(
+      expect(declarations, `theme "${id}" does not declare ${token} inside @theme`).toContain(
         `${token}:`,
       );
     }
@@ -183,17 +183,17 @@ const CONTAINER_RULES = [
 
 describe('the page container', () => {
   it.each(CONTAINER_RULES)('reads %s from %s with a literal fallback', (property, token, literal) => {
-    // Same contract as the prose scale: a set that declares none of these
+    // Same contract as the prose scale: a theme that declares none of these
     // renders exactly as the default did, and one that declares some inherits
     // the rest. Without the fallbacks, dropping a token would collapse the
     // page to zero width or lose its padding entirely.
     expect(structural).toContain(`${property}: var(${token}, ${literal})`);
   });
 
-  it.each(sets)('%s declares the container tokens it wants', (id) => {
+  it.each(themes)('%s declares the container tokens it wants', (id) => {
     // Not required to declare all three — the fallbacks cover omissions — but a
     // set that declares none is relying on defaults, which is worth seeing.
-    const css = readFileSync(`${SETS_DIR}/${id}/theme.css`, 'utf8');
+    const css = readFileSync(`${THEMES_DIR}/${id}/tokens.css`, 'utf8');
     const declared = CONTAINER_RULES.filter(([, token]) => css.includes(`${token}:`));
 
     expect(declared.length).toBeGreaterThan(0);

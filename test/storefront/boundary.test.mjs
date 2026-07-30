@@ -11,7 +11,7 @@ const run = promisify(execFile);
 
 async function check(...paths) {
   try {
-    const { stdout } = await run('node', ['scripts/check-storefront.mjs', ...paths]);
+    const { stdout } = await run('node', ['scripts/check-themes.mjs', ...paths]);
     return { ok: true, output: stdout };
   } catch (error) {
     const failure = error;
@@ -112,9 +112,9 @@ describe('storefront boundary check', () => {
     // If the checker followed the active selection, an invalid set could sit in
     // the tree unexamined until some later run happened to select it.
     const withDefault = await check();
-    process.env.STOREFRONT = 'default';
+    process.env.THEME = 'default';
     const withExplicit = await check();
-    delete process.env.STOREFRONT;
+    delete process.env.THEME;
 
     expect(withDefault.output).toBe(withExplicit.output);
     expect(withDefault.ok).toBe(true);

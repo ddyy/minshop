@@ -3,13 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
-  RESERVED_SET_IDS,
-  discoverSetIds,
-  isValidSetId,
-  normalizeSetId,
-  resolveStorefrontSet,
-  setPath,
-} from '../../scripts/storefront-set.mjs';
+  RESERVED_THEME_IDS,
+  discoverThemeIds,
+  isValidThemeId,
+  normalizeThemeId,
+  resolveTheme,
+  themePath,
+} from '../../scripts/themes.mjs';
 
 // .mjs: reads the filesystem, and tsconfig.compilerOptions.types is pinned to
 // the Cloudflare types. Same reason as boundary.test.mjs.
@@ -18,19 +18,19 @@ const roots = [];
 function fixture(sets, config) {
   const root = mkdtempSync(join(tmpdir(), 'storefront-set-'));
   roots.push(root);
-  for (const id of sets) mkdirSync(join(root, 'src/storefront', id), { recursive: true });
-  if (config !== undefined) writeFileSync(join(root, 'storefront.config.json'), config);
+  for (const id of sets) mkdirSync(join(root, 'src/themes', id), { recursive: true });
+  if (config !== undefined) writeFileSync(join(root, 'theme.config.json'), config);
   return root;
 }
 
 afterEach(() => {
-  delete process.env.STOREFRONT;
+  delete process.env.THEME;
   while (roots.length) rmSync(roots.pop(), { recursive: true, force: true });
 });
 
 describe('set ids', () => {
   it.each(['default', 'studio', 'acme', 'acme-holiday', 'shop2'])('accepts %s', (id) => {
-    expect(isValidSetId(id)).toBe(true);
+    expect(isValidThemeId(id)).toBe(true);
   });
 
   it.each([
@@ -43,33 +43,33 @@ describe('set ids', () => {
     ['acme--x', 'doubled hyphen'],
     ['', 'empty'],
   ])('rejects %s (%s)', (id) => {
-    expect(isValidSetId(id)).toBe(false);
+    expect(isValidThemeId(id)).toBe(false);
   });
 
   it('normalizes a free-form store name into an id', () => {
-    expect(normalizeSetId('Acme Supply Co.')).toBe('acme-supply-co');
-    expect(normalizeSetId('  Bob & Sons  ')).toBe('bob-sons');
+    expect(normalizeThemeId('Acme Supply Co.')).toBe('acme-supply-co');
+    expect(normalizeThemeId('  Bob & Sons  ')).toBe('bob-sons');
   });
 
   it('returns null when nothing usable survives normalization', () => {
-    expect(normalizeSetId('!!!')).toBeNull();
-    expect(normalizeSetId('')).toBeNull();
+    expect(normalizeThemeId('!!!')).toBeNull();
+    expect(normalizeThemeId('')).toBeNull();
   });
 
   it('reserves the ids upstream ships or plans to ship', () => {
     // Frozen before the scaffolder can generate stores: if a merchant could
     // claim `studio`, the upstream Studio example would have nowhere to land.
-    expect(RESERVED_SET_IDS).toEqual(expect.arrayContaining(['default', 'studio', 'market']));
+    expect(RESERVED_THEME_IDS).toEqual(expect.arrayContaining(['default', 'studio', 'market']));
   });
 
   it('refuses to resolve a traversing id to a path', () => {
-    expect(() => setPath('../features', fixture(['default']))).toThrow(/not a valid storefront set id/);
+    expect(() => themePath('../features', fixture(['default']))).toThrow(/not a valid theme id/);
   });
 });
 
 describe('discovery', () => {
-  it('finds every set in the tree, selected or not', () => {
-    expect(discoverSetIds(fixture(['default', 'studio', 'acme']))).toEqual([
+  it('finds every theme in the tree, selected or not', () => {
+    expect(discoverThemeIds(fixture(['default', 'studio', 'acme']))).toEqual([
       'acme',
       'default',
       'studio',
@@ -77,39 +77,39 @@ describe('discovery', () => {
   });
 
   it('fails on a directory that is not a valid id, naming it', () => {
-    // A misnamed directory is an attempted set. Skipping it would silently
+    // A misnamed directory is an attempted theme. Skipping it would silently
     // drop it from the boundary checker, the generated artifacts, and the CI
     // matrix — every guard green on a set none of them saw.
     const root = fixture(['default']);
-    mkdirSync(join(root, 'src/storefront', 'My-Theme'), { recursive: true });
+    mkdirSync(join(root, 'src/themes', 'My-Theme'), { recursive: true });
 
-    expect(() => discoverSetIds(root)).toThrow(/My-Theme/);
-    expect(() => discoverSetIds(root)).toThrow(/lowercase/);
+    expect(() => discoverThemeIds(root)).toThrow(/My-Theme/);
+    expect(() => discoverThemeIds(root)).toThrow(/lowercase/);
   });
 
   it('still ignores hidden directories and plain files', () => {
-    // OS and editor droppings are not attempts at a set.
+    // OS and editor droppings are not attempts at a theme.
     const root = fixture(['default']);
-    mkdirSync(join(root, 'src/storefront', '.backup'), { recursive: true });
-    writeFileSync(join(root, 'src/storefront', '.DS_Store'), '');
-    writeFileSync(join(root, 'src/storefront', 'notes.txt'), '');
+    mkdirSync(join(root, 'src/themes', '.backup'), { recursive: true });
+    writeFileSync(join(root, 'src/themes', '.DS_Store'), '');
+    writeFileSync(join(root, 'src/themes', 'notes.txt'), '');
 
-    expect(discoverSetIds(root)).toEqual(['default']);
+    expect(discoverThemeIds(root)).toEqual(['default']);
   });
 });
 
-describe('resolveStorefrontSet', () => {
+describe('resolveTheme', () => {
   it('reads the committed configuration', () => {
-    const root = fixture(['default'], '{"set":"default"}');
+    const root = fixture(['default'], '{"theme":"default"}');
 
-    expect(resolveStorefrontSet(root).id).toBe('default');
+    expect(resolveTheme(root).id).toBe('default');
   });
 
   it('lets an explicit environment override win', () => {
-    process.env.STOREFRONT = 'acme';
-    const root = fixture(['default', 'acme'], '{"set":"default"}');
+    process.env.THEME = 'acme';
+    const root = fixture(['default', 'acme'], '{"theme":"default"}');
 
-    const resolved = resolveStorefrontSet(root);
+    const resolved = resolveTheme(root);
     expect(resolved.id).toBe('acme');
     expect(resolved.source).toMatch(/environment/);
   });
@@ -119,28 +119,28 @@ describe('resolveStorefrontSet', () => {
     // and deploy the upstream design in place of its own.
     const root = fixture(['default', 'acme']);
 
-    expect(() => resolveStorefrontSet(root)).toThrow(/Missing storefront\.config\.json/);
+    expect(() => resolveTheme(root)).toThrow(/Missing theme\.config\.json/);
   });
 
   it.each([
     ['{', /not valid JSON/],
-    ['{}', /no "set" string/],
-    ['{"set":""}', /no "set" string/],
-    ['{"set":"Acme"}', /not a valid set id/],
+    ['{}', /no "theme" string/],
+    ['{"theme":""}', /no "theme" string/],
+    ['{"theme":"Acme"}', /not a valid theme id/],
   ])('fails on malformed configuration %s', (body, expected) => {
-    expect(() => resolveStorefrontSet(fixture(['default'], body))).toThrow(expected);
+    expect(() => resolveTheme(fixture(['default'], body))).toThrow(expected);
   });
 
   it('fails when the named set does not exist', () => {
-    expect(() => resolveStorefrontSet(fixture(['default'], '{"set":"studio"}'))).toThrow(
+    expect(() => resolveTheme(fixture(['default'], '{"theme":"studio"}'))).toThrow(
       /does not exist/,
     );
   });
 
   it('lists the available sets when it fails', () => {
     // A typo should say what the choices are, not resolve to nothing.
-    expect(() => resolveStorefrontSet(fixture(['default', 'acme'], '{"set":"deafult"}'))).toThrow(
-      /Available sets: acme, default/,
+    expect(() => resolveTheme(fixture(['default', 'acme'], '{"theme":"deafult"}'))).toThrow(
+      /Available themes: acme, default/,
     );
   });
 });

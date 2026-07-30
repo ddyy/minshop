@@ -1,5 +1,5 @@
 /**
- * The one place that decides which storefront set is active.
+ * The one place that decides which theme is active.
  *
  * Imported by astro.config.mjs, vitest.config.ts, the generated-CSS step, the
  * boundary checker, and deploy validation. Nothing re-derives the id: two
@@ -12,60 +12,60 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-export const SETS_DIR = 'src/storefront';
-export const CONFIG_FILE = 'storefront.config.json';
+export const THEMES_DIR = 'src/themes';
+export const CONFIG_FILE = 'theme.config.json';
 
 /** Ids upstream owns. A store may not claim one, or a later upstream release
  *  would have nowhere to put the set the name was held for. `studio` and
  *  `market` are frozen here before the scaffolder can generate stores, even
  *  though those designs do not exist yet — reserving a string costs nothing;
  *  reclaiming one after stores exist costs a migration. */
-export const RESERVED_SET_IDS = ['default', 'studio', 'market'];
+export const RESERVED_THEME_IDS = ['default', 'studio', 'market'];
 
 /** Lowercase, digits, single inner hyphens. Deliberately narrow: this becomes a
  *  directory name, an import specifier, and a configuration value. */
-const SET_ID = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+const THEME_ID = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 
-export function isValidSetId(id) {
-  return typeof id === 'string' && id.length > 0 && id.length <= 40 && SET_ID.test(id);
+export function isValidThemeId(id) {
+  return typeof id === 'string' && id.length > 0 && id.length <= 40 && THEME_ID.test(id);
 }
 
 /** Turn a free-form name into a usable id, or null when nothing survives. */
-export function normalizeSetId(name) {
+export function normalizeThemeId(name) {
   const slug = String(name ?? '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 40)
     .replace(/-+$/, '');
-  return isValidSetId(slug) ? slug : null;
+  return isValidThemeId(slug) ? slug : null;
 }
 
 /** Every set present in the tree, sorted. Discovery is dynamic so a generated
  *  store's own set is covered without editing any list.
  *
  *  A DIRECTORY with an invalid name is an error, not something to skip: the
- *  developer who created src/storefront/My-Theme was clearly adding a set, and
+ *  developer who created src/themes/My-Theme was clearly adding a theme, and
  *  silently excluding it removes it from the boundary checker, the generated
  *  artifacts, and the CI matrix at once — every guard reports green on a set
  *  none of them saw. Dot-prefixed entries (editor and OS droppings) and plain
- *  files are still ignored; they are not attempts at a set. */
-export function discoverSetIds(root = process.cwd()) {
-  const dir = resolve(root, SETS_DIR);
+ *  files are still ignored; they are not attempts at a theme. */
+export function discoverThemeIds(root = process.cwd()) {
+  const dir = resolve(root, THEMES_DIR);
   if (!existsSync(dir)) return [];
   const ids = [];
   const invalid = [];
   for (const name of readdirSync(dir)) {
     if (name.startsWith('.')) continue;
     if (!statSync(join(dir, name)).isDirectory()) continue;
-    if (isValidSetId(name)) ids.push(name);
+    if (isValidThemeId(name)) ids.push(name);
     else invalid.push(name);
   }
   if (invalid.length > 0) {
     throw new Error(
       [
-        `Invalid storefront set director${invalid.length === 1 ? 'y' : 'ies'} under ${SETS_DIR}/: ${invalid.join(', ')}.`,
-        'Set ids use lowercase letters, digits, and single hyphens — at most 40 characters.',
+        `Invalid theme director${invalid.length === 1 ? 'y' : 'ies'} under ${THEMES_DIR}/: ${invalid.join(', ')}.`,
+        'Theme ids use lowercase letters, digits, and single hyphens — at most 40 characters.',
         'Rename the directory (e.g. "My-Theme" → "my-theme") or move it out of the sets directory.',
       ].join('\n'),
     );
@@ -73,88 +73,88 @@ export function discoverSetIds(root = process.cwd()) {
   return ids.sort();
 }
 
-export function setPath(id, root = process.cwd()) {
-  if (!isValidSetId(id)) throw new Error(storefrontError(`"${id}" is not a valid storefront set id.`, root));
+export function themePath(id, root = process.cwd()) {
+  if (!isValidThemeId(id)) throw new Error(themeError(`"${id}" is not a valid theme id.`, root));
   // Resolved and re-checked rather than concatenated: an id that escaped the
   // parent would be a path-traversal bug in a build script.
-  const dir = resolve(root, SETS_DIR, id);
-  const parent = resolve(root, SETS_DIR);
-  if (dir !== join(parent, id)) throw new Error(storefrontError(`"${id}" does not resolve inside ${SETS_DIR}/.`, root));
+  const dir = resolve(root, THEMES_DIR, id);
+  const parent = resolve(root, THEMES_DIR);
+  if (dir !== join(parent, id)) throw new Error(themeError(`"${id}" does not resolve inside ${THEMES_DIR}/.`, root));
   return dir;
 }
 
-function storefrontError(message, root) {
+function themeError(message, root) {
   // Discovery itself throws on misnamed set directories. Here it is only
   // decorating another error, so fall back to an empty list rather than
   // letting the decoration mask the actual failure.
   let available;
   try {
-    available = discoverSetIds(root);
+    available = discoverThemeIds(root);
   } catch {
     available = [];
   }
   return [
     message,
     available.length > 0
-      ? `Available sets: ${available.join(', ')}`
-      : `No sets found under ${SETS_DIR}/.`,
-    `Set one in ${CONFIG_FILE} ({ "set": "…" }) or via the STOREFRONT environment variable.`,
+      ? `Available themes: ${available.join(', ')}`
+      : `No themes found under ${THEMES_DIR}/.`,
+    `Set one in ${CONFIG_FILE} ({ "theme": "…" }) or via the THEME environment variable.`,
   ].join('\n');
 }
 
 /**
  * The active set id.
  *
- * Fails closed. An explicit STOREFRONT wins; otherwise the config file must
+ * Fails closed. An explicit THEME wins; otherwise the config file must
  * exist and name a valid, present set. There is no invented fallback to
  * `default`: once the scaffolder writes a store's own id into the config, a
  * store that lost the file would otherwise build and deploy the UPSTREAM design
  * in place of its own, passing every check on the way. A fresh clone builds
  * `default` because its committed config says so.
  */
-export function resolveStorefrontSet(root = process.cwd()) {
-  const override = process.env.STOREFRONT?.trim();
+export function resolveTheme(root = process.cwd()) {
+  const override = process.env.THEME?.trim();
   if (override) {
-    return validateSet(override, 'the STOREFRONT environment variable', root);
+    return validateSet(override, 'the THEME environment variable', root);
   }
-  return resolveConfiguredSet(root);
+  return resolveConfiguredTheme(root);
 }
 
 /**
- * The set named by the CONFIG FILE alone, ignoring any STOREFRONT override.
+ * The set named by the CONFIG FILE alone, ignoring any THEME override.
  *
  * This exists for the generated artifacts that are shared between processes
  * (the editor's tsconfig paths). Those must never follow a per-process
- * environment variable: a `STOREFRONT=x` build running beside a dev server
+ * environment variable: a `THEME=x` build running beside a dev server
  * would otherwise rewrite state the dev server watches, the dev server would
  * restart and write it back, and whichever process read the file second would
  * silently combine one set's templates with another's styling. Shared files
  * follow the durable selection; the override affects only in-process state
  * (the Vite alias, an explicit --tsconfig flag).
  */
-export function resolveConfiguredSet(root = process.cwd()) {
+export function resolveConfiguredTheme(root = process.cwd()) {
   const file = resolve(root, CONFIG_FILE);
   if (!existsSync(file)) {
-    throw new Error(storefrontError(`Missing ${CONFIG_FILE}.`, root));
+    throw new Error(themeError(`Missing ${CONFIG_FILE}.`, root));
   }
   let parsed;
   try {
     parsed = JSON.parse(readFileSync(file, 'utf8'));
   } catch (error) {
-    throw new Error(storefrontError(`${CONFIG_FILE} is not valid JSON: ${error.message}`, root));
+    throw new Error(themeError(`${CONFIG_FILE} is not valid JSON: ${error.message}`, root));
   }
-  const id = typeof parsed?.set === 'string' ? parsed.set.trim() : '';
-  if (!id) throw new Error(storefrontError(`${CONFIG_FILE} has no "set" string.`, root));
+  const id = typeof parsed?.theme === 'string' ? parsed.theme.trim() : '';
+  if (!id) throw new Error(themeError(`${CONFIG_FILE} has no "theme" string.`, root));
   return validateSet(id, CONFIG_FILE, root);
 }
 
 function validateSet(id, source, root) {
-  if (!isValidSetId(id)) {
-    throw new Error(storefrontError(`${source} names "${id}", which is not a valid set id.`, root));
+  if (!isValidThemeId(id)) {
+    throw new Error(themeError(`${source} names "${id}", which is not a valid theme id.`, root));
   }
-  const dir = setPath(id, root);
+  const dir = themePath(id, root);
   if (!existsSync(dir)) {
-    throw new Error(storefrontError(`${source} names "${id}", which does not exist.`, root));
+    throw new Error(themeError(`${source} names "${id}", which does not exist.`, root));
   }
   return { id, dir, source };
 }

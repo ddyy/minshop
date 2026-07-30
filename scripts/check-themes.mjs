@@ -25,19 +25,19 @@
  * reported error names the whole chain, because "this control is binding-aware"
  * is not actionable without knowing which hop introduced it.
  *
- * Usage: node scripts/check-storefront.mjs [dir...]
+ * Usage: node scripts/check-themes.mjs [dir...]
  */
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { dirname, join, normalize, relative } from 'node:path';
-import { SETS_DIR, discoverSetIds } from './storefront-set.mjs';
+import { THEMES_DIR, discoverThemeIds } from './themes.mjs';
 
 const CONTROLS_DIR = 'src/features/storefront/controls';
 const MODELS_MODULE = 'src/features/storefront/models.ts';
 
 /**
- * Every storefront set is its own root, whether it is the selected one or not.
+ * Every theme is its own root, whether it is the selected one or not.
  *
- * This deliberately does NOT call resolveStorefrontSet(): if the checker
+ * This deliberately does NOT call resolveTheme(): if the checker
  * followed the active selection, an invalid set could sit in the tree unexamined
  * until some later CI run happened to select it. It reuses the id and path
  * validation, never the answer.
@@ -48,7 +48,7 @@ const MODELS_MODULE = 'src/features/storefront/models.ts';
  */
 function defaultPaths() {
   return [
-    ...discoverSetIds().map((id) => `${SETS_DIR}/${id}`),
+    ...discoverThemeIds().map((id) => `${THEMES_DIR}/${id}`),
     'test/storefront/fixtures',
     CONTROLS_DIR,
   ];

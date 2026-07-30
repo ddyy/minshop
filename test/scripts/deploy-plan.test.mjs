@@ -63,18 +63,18 @@ describe('validateStamp', () => {
 
   it('rejects a malformed stamp', () => {
     expect(() => validateStamp({ raw: 'not json{', expectedSet })).toThrow(/not valid JSON/);
-    expect(() => validateStamp({ raw: '{}', expectedSet })).toThrow(/no "set" string/);
-    expect(() => validateStamp({ raw: '{"set":""}', expectedSet })).toThrow(/no "set" string/);
+    expect(() => validateStamp({ raw: '{}', expectedSet })).toThrow(/no "theme" string/);
+    expect(() => validateStamp({ raw: '{"theme":""}', expectedSet })).toThrow(/no "theme" string/);
   });
 
   it('rejects a mismatched stamp, naming both sets', () => {
-    expect(() => validateStamp({ raw: '{"set":"studio"}', expectedSet })).toThrow(
-      /built for storefront set "studio".*selection is "acme"/,
+    expect(() => validateStamp({ raw: '{"theme":"studio"}', expectedSet })).toThrow(
+      /built for theme "studio".*selection is "acme"/,
     );
   });
 
   it('accepts a matching stamp', () => {
-    expect(validateStamp({ raw: '{"set":"acme"}', expectedSet })).toBe('acme');
+    expect(validateStamp({ raw: '{"theme":"acme"}', expectedSet })).toBe('acme');
   });
 });
 
@@ -86,7 +86,7 @@ describe('validateStamp', () => {
 describe('executeDeployPlan side effects', () => {
   const spies = (overrides = {}) => ({
     expectedSet: 'acme',
-    readStamp: vi.fn(() => '{"set":"acme"}'),
+    readStamp: vi.fn(() => '{"theme":"acme"}'),
     build: vi.fn(),
     loadCacheConfig: vi.fn(() => ({ crossVersion: false })),
     migrate: vi.fn(),
@@ -99,7 +99,7 @@ describe('executeDeployPlan side effects', () => {
     ['missing', null],
     ['malformed', 'not json{'],
     ['empty-set', '{}'],
-    ['mismatched', '{"set":"studio"}'],
+    ['mismatched', '{"theme":"studio"}'],
   ])('a %s stamp prevents every remote mutation', async (_label, raw) => {
     const ops = spies({ readStamp: vi.fn(() => raw) });
     await expect(executeDeployPlan({ skipBuild: true }, ops)).rejects.toThrow();
@@ -120,7 +120,7 @@ describe('executeDeployPlan side effects', () => {
     const order = [];
     const named = (name, fn = () => {}) => vi.fn((...a) => { order.push(name); return fn(...a); });
     const ops = spies({
-      readStamp: named('validate', () => '{"set":"acme"}'),
+      readStamp: named('validate', () => '{"theme":"acme"}'),
       build: named('build'),
       loadCacheConfig: named('cache-config', () => ({ crossVersion: false })),
       migrate: named('migrate'),

@@ -12,9 +12,9 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import {
   assertSupportedNodeVersion,
-  normalizeSetId,
+  normalizeThemeId,
   parseArguments,
-  resolveSetId,
+  resolveThemeId,
   scaffoldMinshop,
 } from '../src/scaffold.js';
 
@@ -29,24 +29,24 @@ function createTemplateRepository(root) {
   mkdirSync(join(repository, '.github', 'workflows'), { recursive: true });
   mkdirSync(join(repository, 'mcp'), { recursive: true });
   mkdirSync(join(repository, 'scripts'), { recursive: true });
-  mkdirSync(join(repository, 'src', 'storefront', 'default'), { recursive: true });
+  mkdirSync(join(repository, 'src', 'themes', 'default'), { recursive: true });
   // The REAL resolver and CI workflow, not stand-ins: the generated-store
   // matrix test below proves the actual discovery command covers the actual
-  // sets a generated repository carries.
+  // themes a generated repository carries.
   writeFileSync(
-    join(repository, 'scripts', 'storefront-set.mjs'),
-    readFileSync(new URL('../../scripts/storefront-set.mjs', import.meta.url), 'utf8'),
+    join(repository, 'scripts', 'themes.mjs'),
+    readFileSync(new URL('../../scripts/themes.mjs', import.meta.url), 'utf8'),
   );
   writeFileSync(
     join(repository, '.github', 'workflows', 'verify.yml'),
     readFileSync(new URL('../../.github/workflows/verify.yml', import.meta.url), 'utf8'),
   );
   writeFileSync(
-    join(repository, 'src', 'storefront', 'default', 'ProductCard.astro'),
+    join(repository, 'src', 'themes', 'default', 'ProductCard.astro'),
     '<li>card</li>\n',
   );
-  writeFileSync(join(repository, 'src', 'storefront', 'default', 'theme.css'), ':root{}\n');
-  writeFileSync(join(repository, 'storefront.config.json'), '{\n  "set": "default"\n}\n');
+  writeFileSync(join(repository, 'src', 'themes', 'default', 'tokens.css'), ':root{}\n');
+  writeFileSync(join(repository, 'theme.config.json'), '{\n  "theme": "default"\n}\n');
   writeFileSync(join(repository, 'package.json'), '{"name":"minshop","private":true}\n');
   writeFileSync(join(repository, 'store.txt'), 'storefront\n');
   writeFileSync(join(repository, 'create-minshop', 'package.json'), '{}\n');
@@ -77,7 +77,7 @@ test('parses the npm create options', () => {
     directory: 'my-store',
     install: false,
     ref: 'v1.2.3',
-    set: null,
+    theme: null,
     help: false,
     version: false,
   });
@@ -138,43 +138,43 @@ test('refuses to overwrite an existing target', () => {
   );
 });
 
-test('derives a storefront set id from the target directory', () => {
-  assert.equal(resolveSetId(null, '/tmp/Acme Supply Co.'), 'acme-supply-co');
-  assert.equal(resolveSetId(null, '/tmp/bob-and-sons'), 'bob-and-sons');
+test('derives a theme id from the target directory', () => {
+  assert.equal(resolveThemeId(null, '/tmp/Acme Supply Co.'), 'acme-supply-co');
+  assert.equal(resolveThemeId(null, '/tmp/bob-and-sons'), 'bob-and-sons');
 });
 
 test('suffixes rather than fails when the directory name is reserved', () => {
   // `minshop` is the documented default directory, and a store must not own the
-  // upstream `default` set — but the user did not choose that collision.
-  assert.equal(resolveSetId(null, '/tmp/default'), 'default-store');
+  // upstream `default` theme — but the user did not choose that collision.
+  assert.equal(resolveThemeId(null, '/tmp/default'), 'default-store');
 });
 
-test('rejects reserved and malformed storefront set ids', () => {
+test('rejects reserved and malformed theme ids', () => {
   // Reserved now, before any store exists: if a merchant could claim `studio`,
   // the upstream Studio example would have nowhere to land later.
   for (const reserved of ['default', 'studio', 'market']) {
-    assert.throws(() => resolveSetId(reserved, '/tmp/x'), /reserved/);
+    assert.throws(() => resolveThemeId(reserved, '/tmp/x'), /reserved/);
   }
   for (const bad of ['Acme', 'acme store', '-acme', 'acme-', '']) {
-    assert.throws(() => resolveSetId(bad, '/tmp/x'), /Invalid storefront set id/);
+    assert.throws(() => resolveThemeId(bad, '/tmp/x'), /Invalid theme id/);
   }
 });
 
 test('enforces the application resolver 40-character limit on explicit ids', () => {
-  // isValidSetId in scripts/storefront-set.mjs caps ids at 40 characters. An
-  // explicit --set that passes here but fails there scaffolds a store whose
+  // isValidThemeId in scripts/themes.mjs caps ids at 40 characters. An
+  // explicit --theme that passes here but fails there scaffolds a store whose
   // committed config the application refuses — it cannot build at all.
   const forty = `a${'b'.repeat(39)}`;
   assert.equal(forty.length, 40);
-  assert.equal(resolveSetId(forty, '/tmp/x'), forty);
-  assert.throws(() => resolveSetId(`${forty}c`, '/tmp/x'), /Invalid storefront set id/);
+  assert.equal(resolveThemeId(forty, '/tmp/x'), forty);
+  assert.throws(() => resolveThemeId(`${forty}c`, '/tmp/x'), /Invalid theme id/);
 });
 
-test('normalizeSetId returns null when nothing usable survives', () => {
-  assert.equal(normalizeSetId('!!!'), null);
+test('normalizeThemeId returns null when nothing usable survives', () => {
+  assert.equal(normalizeThemeId('!!!'), null);
 });
 
-test('gives the generated store its own storefront set, selected', () => {
+test('gives the generated store its own theme, selected', () => {
   const root = mkdtempSync(join(tmpdir(), 'create-minshop-'));
   const repository = createTemplateRepository(root);
 
@@ -186,18 +186,18 @@ test('gives the generated store its own storefront set, selected', () => {
     stdio: 'pipe',
   });
 
-  // The store owns a named set from its first commit, so it never has to edit
+  // The store owns a named theme from its first commit, so it never has to edit
   // the upstream default — the boundary that keeps later upstream changes from
   // colliding with a merchant's work.
-  assert.equal(existsSync(join(result.target, 'src/storefront/acme-supply/ProductCard.astro')), true);
-  assert.equal(existsSync(join(result.target, 'src/storefront/default/ProductCard.astro')), true);
+  assert.equal(existsSync(join(result.target, 'src/themes/acme-supply/ProductCard.astro')), true);
+  assert.equal(existsSync(join(result.target, 'src/themes/default/ProductCard.astro')), true);
   assert.equal(
-    JSON.parse(readFileSync(join(result.target, 'storefront.config.json'), 'utf8')).set,
+    JSON.parse(readFileSync(join(result.target, 'theme.config.json'), 'utf8')).theme,
     'acme-supply',
   );
 });
 
-test('the generated repository CI matrix discovers every set it carries', () => {
+test('the generated repository CI matrix discovers every theme it carries', () => {
   const root = mkdtempSync(join(tmpdir(), 'create-minshop-'));
   const repository = createTemplateRepository(root);
 
@@ -210,23 +210,23 @@ test('the generated repository CI matrix discovers every set it carries', () => 
   });
 
   // The workflow must derive its matrix, not enumerate upstream's sets: a
-  // hardcoded list can never contain a merchant's own set, so the store's
-  // retained shipped sets would break without CI noticing.
+  // hardcoded list can never contain a merchant's own theme, so the store's
+  // retained shipped themes would break without CI noticing.
   const workflow = readFileSync(join(result.target, '.github/workflows/verify.yml'), 'utf8');
-  assert.equal(workflow.includes('discoverSetIds'), true);
-  assert.equal(workflow.includes('set: [market, studio]'), false);
+  assert.equal(workflow.includes('discoverThemeIds'), true);
+  assert.equal(workflow.includes('theme: [market, studio]'), false);
 
   // Run THE SAME discovery command the workflow runs, inside the generated
-  // repository: the main job covers the merchant set (named by the config),
-  // so the matrix must be exactly the retained shipped sets.
+  // repository: the main job covers the merchant theme (named by the config),
+  // so the matrix must be exactly the retained shipped themes.
   const discovery = spawnSync(
     'node',
     [
       '--input-type=module',
       '-e',
-      `import { discoverSetIds, resolveConfiguredSet } from './scripts/storefront-set.mjs';
-       const configured = resolveConfiguredSet().id;
-       console.log(JSON.stringify(discoverSetIds().filter((id) => id !== configured)));`,
+      `import { discoverThemeIds, resolveConfiguredTheme } from './scripts/themes.mjs';
+       const configured = resolveConfiguredTheme().id;
+       console.log(JSON.stringify(discoverThemeIds().filter((id) => id !== configured)));`,
     ],
     { cwd: result.target, encoding: 'utf8' },
   );
@@ -234,27 +234,27 @@ test('the generated repository CI matrix discovers every set it carries', () => 
   assert.deepEqual(JSON.parse(discovery.stdout.trim()), ['default']);
 });
 
-test('honours an explicit --set id', () => {
+test('honours an explicit --theme id', () => {
   const root = mkdtempSync(join(tmpdir(), 'create-minshop-'));
   const repository = createTemplateRepository(root);
 
   const result = scaffoldMinshop({
     directory: 'new-store',
-    set: 'northwind',
+    theme: 'northwind',
     install: false,
     cwd: root,
     repository,
     stdio: 'pipe',
   });
 
-  assert.equal(existsSync(join(result.target, 'src/storefront/northwind')), true);
+  assert.equal(existsSync(join(result.target, 'src/themes/northwind')), true);
   assert.equal(
-    JSON.parse(readFileSync(join(result.target, 'storefront.config.json'), 'utf8')).set,
+    JSON.parse(readFileSync(join(result.target, 'theme.config.json'), 'utf8')).theme,
     'northwind',
   );
 });
 
-test('parses --set', () => {
-  assert.equal(parseArguments(['--set', 'northwind']).set, 'northwind');
-  assert.throws(() => parseArguments(['--set']), /requires a storefront set id/);
+test('parses --theme', () => {
+  assert.equal(parseArguments(['--theme', 'northwind']).theme, 'northwind');
+  assert.throws(() => parseArguments(['--theme']), /requires a theme id/);
 });

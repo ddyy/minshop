@@ -3,27 +3,27 @@ import { readFileSync } from 'node:fs';
 
 // Deliberately .mjs: reads source files, like boundary.test.mjs.
 //
-// Admin is upstream chrome and must stay readable under ANY storefront set.
+// Admin is upstream chrome and must stay readable under ANY theme.
 // It once shared global.css, so Studio's near-black paper and film-grain body
 // texture landed behind every authenticated Admin page while core Admin text
 // stayed hardcoded dark — about 1.1:1. These assertions pin the isolation:
-// the Admin stylesheet entry must never pull in the active set, and the
+// the Admin stylesheet entry must never pull in the active theme, and the
 // layout must use it. The compiled-CSS check (scripts/check-built-css.mjs)
 // verifies the same property in the built output.
 
-import { discoverSetIds } from '../../scripts/storefront-set.mjs';
-import { GENERATED_CSS_DIR, writeStorefrontArtifacts } from '../../scripts/storefront-css.mjs';
+import { discoverThemeIds } from '../../scripts/themes.mjs';
+import { GENERATED_CSS_DIR, writeThemeArtifacts } from '../../scripts/theme-css.mjs';
 
 const admin = readFileSync('src/styles/admin.css', 'utf8');
 const layout = readFileSync('src/layouts/AdminLayout.astro', 'utf8');
 
 describe('the Admin stylesheet entry', () => {
-  it('never imports the active set or the merchant override', () => {
-    // The set import is what themed Admin dark; the merchant override is
+  it('never imports the active theme or the merchant override', () => {
+    // The theme import is what turned Admin dark; the merchant override is
     // excluded on the same principle — rebranding changes the storefront,
     // Admin looks the same in every store.
-    expect(admin).not.toContain('#storefront-css');
-    expect(admin).not.toContain('./theme.css');
+    expect(admin).not.toContain('#theme-css');
+    expect(admin).not.toContain('./overrides.css');
   });
 
   it('declares its own stable tokens for everything Admin renders with', () => {
@@ -47,15 +47,15 @@ describe('the Admin stylesheet entry', () => {
     expect(admin).toContain('./base.css');
   });
 
-  it('excludes every discovered set from its Tailwind scan', () => {
+  it('excludes every discovered theme from its Tailwind scan', () => {
     // Deterministic and idempotent, so generating here is safe even while a
     // dev server runs — identical bytes produce no write at all.
-    writeStorefrontArtifacts();
+    writeThemeArtifacts();
     const exclusions = readFileSync(`${GENERATED_CSS_DIR}/_admin.css`, 'utf8');
-    for (const id of discoverSetIds()) {
-      expect(exclusions).toContain(`@source not "../../storefront/${id}";`);
+    for (const id of discoverThemeIds()) {
+      expect(exclusions).toContain(`@source not "../../themes/${id}";`);
     }
-    expect(admin).toContain('./storefront/_admin.css');
+    expect(admin).toContain('./themes/_admin.css');
   });
 });
 
@@ -77,12 +77,12 @@ describe('AdminLayout', () => {
 
 describe('standalone test commands', () => {
   it('vitest.config.ts generates the artifacts the root tsconfig extends', () => {
-    // tsconfig.json extends generated tsconfig.storefront.json. On a fresh
+    // tsconfig.json extends generated tsconfig.theme.json. On a fresh
     // archive, `npm run test:storefront-contract` dies collecting tests unless
     // the config itself generates the artifacts first.
     const config = readFileSync('vitest.config.ts', 'utf8');
-    expect(config.indexOf('writeStorefrontArtifacts()')).toBeGreaterThan(-1);
-    expect(config.indexOf('writeStorefrontArtifacts()')).toBeLessThan(
+    expect(config.indexOf('writeThemeArtifacts()')).toBeGreaterThan(-1);
+    expect(config.indexOf('writeThemeArtifacts()')).toBeLessThan(
       config.indexOf('getViteConfig('),
     );
   });

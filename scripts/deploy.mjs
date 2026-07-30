@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { signDeployPurgeAuthorization } from '../src/features/cache/deployPurgeAuth.ts';
-import { resolveStorefrontSet } from './storefront-set.mjs';
+import { resolveTheme } from './themes.mjs';
 import { executeDeployPlan } from './deploy-plan.mjs';
 
 const root = resolve(import.meta.dirname, '..');
@@ -12,13 +12,13 @@ const args = process.argv.slice(2);
 const skipBuild = args.includes('--skip-build');
 const preflightOnly = args.includes('--preflight-only');
 const generatedConfigPath = resolve(root, 'dist/server/wrangler.json');
-const stampPath = resolve(root, 'dist/storefront-set.json');
+const stampPath = resolve(root, 'dist/theme.json');
 
 // FIRST, before anything mutates remote state: fail on a broken or missing
-// storefront selection. resolveStorefrontSet only reads — a bad config used
+// theme selection. resolveTheme only reads — a bad config used
 // to surface after remote migrations had already been applied.
-const storefront = resolveStorefrontSet(root);
-console.log(`Deploying storefront set: ${storefront.id} (from ${storefront.source})`);
+const theme = resolveTheme(root);
+console.log(`Deploying theme: ${theme.id} (from ${theme.source})`);
 
 
 function run(command, args) {
@@ -144,7 +144,7 @@ async function purgeAfterDeploy(origin, secret) {
 // runs here. Defining an extra wrangler call in this file, outside `ops`,
 // is the regression that split exists to prevent.
 const ops = {
-  expectedSet: storefront.id,
+  expectedSet: theme.id,
   readStamp: () => (existsSync(stampPath) ? readFileSync(stampPath, 'utf8') : null),
   build: () => run('npx', ['astro', 'build']),
   loadCacheConfig: () => deploymentCacheConfig(),

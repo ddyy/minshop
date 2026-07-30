@@ -2,8 +2,8 @@
  * ── Merchant token overrides ─────────────────────────────────────────────
  * Intentionally empty.
  *
- * Design tokens now ship with the storefront set that uses them, in
- * src/storefront/<set>/theme.css, so selecting a set brings its palette,
+ * Design tokens now ship with the theme that uses them, in
+ * src/themes/<theme>/tokens.css, so selecting a theme brings its palette,
  * fonts, radii, and prose scale with it.
  *
  * This file is applied AFTER the active set, so anything declared here wins.

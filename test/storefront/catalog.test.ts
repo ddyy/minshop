@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { experimental_AstroContainer as AstroContainer } from 'astro/container';
-import Catalog from '#storefront/Catalog.astro';
+import Catalog from '#theme/Catalog.astro';
 import AltCatalog from './fixtures/catalog/AltCatalog.astro';
 import { buildPaginationModel, buildSortModel } from '../../src/features/storefront/catalog';
 import { buildProductCard } from '../../src/features/storefront/productCard';
