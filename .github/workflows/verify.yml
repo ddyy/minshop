@@ -48,3 +48,47 @@ jobs:
 
       - name: Run complete verification
         run: npm run verify
+
+  # The job above verifies whichever set storefront.config.json names. That is
+  # one design out of three, and the contract suite exists precisely to hold for
+  # any design — so run it against the sets the default selection does not cover.
+  # Not the full `verify`: the parts this omits (integration, MCP, scaffold,
+  # Stripe country data) are set-independent and would only triple the bill.
+  sets:
+    name: Verify set (${{ matrix.set }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        set: [market, studio]
+
+    env:
+      STOREFRONT: ${{ matrix.set }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install storefront dependencies
+        run: npm ci
+
+      - name: Create isolated Wrangler configuration
+        run: |
+          sed \
+            -e 's/__NAME__/minshop-check/g' \
+            -e 's/__DB_NAME__/minshop-check-db/g' \
+            -e 's/__DB_ID__/00000000-0000-0000-0000-000000000000/g' \
+            -e 's/__BUCKET__/minshop-check-images/g' \
+            wrangler.template.jsonc > wrangler.jsonc
+
+      - name: Verify the set builds and honours the contract
+        run: npm run verify:set
