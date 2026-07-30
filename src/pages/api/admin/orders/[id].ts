@@ -12,6 +12,7 @@ import { setSetting } from '../../../../features/settings/db';
 import {
   carrierCodeFor,
   fetchLabelRates,
+  findTransactionForRate,
   getShipmentRates,
   parseParcelForm,
   purchaseLabel,
@@ -20,6 +21,8 @@ import {
 import {
   claimPurchase,
   discardLabelAttempt,
+  getLabelRecord,
+  isPurchaseStale,
   markLabelFailed,
   markLabelUncertain,
   recordPurchased,
@@ -284,6 +287,25 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     return back;
   }
 
+  /** Attempt outbox delivery of the shipped notice; true iff an email will go. */
+  const queueShippedDelivery = async (orderId: number): Promise<boolean> => {
+    const settings = await getStoreSettings(env.DB);
+    const order = await getOrder(env.DB, orderId);
+    const willEmail =
+      !!order?.email &&
+      shouldSendCustomerOrderEmail(order.payment_method) &&
+      !!(await getEmailProvider(settings));
+    if (willEmail) {
+      try {
+        await deliverOrderNotifications(env.DB, orderId, new URL(request.url).origin, settings);
+      } catch (err) {
+        // Row stays queued; the piggyback sweep retries it.
+        console.error('Shipped-notification delivery failed:', err);
+      }
+    }
+    return willEmail;
+  };
+
   // ── Shipping labels ────────────────────────────────────────────────────────
   // Buying moves money on the merchant's Shippo account, so every step runs
   // through the shipping_labels state machine: one row per order, conditional
@@ -291,11 +313,76 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
   // is NEVER taken from the request — only from this order's own row.
 
   if (action === 'label_discard') {
-    // The merchant's explicit "I checked the Shippo dashboard" (or abandoning a
-    // quote). Cannot touch a purchased row.
+    // Quotes and definitively-failed attempts only. A SUBMITTED purchase may
+    // still be completing at Shippo — only reconciliation can settle those.
     return (await discardLabelAttempt(env.DB, id))
       ? notice('Label attempt discarded. You can fetch rates again.')
-      : fail('There is no label attempt to discard.');
+      : fail('There is no discardable label attempt — a submitted purchase must be reconciled with Shippo instead.');
+  }
+
+  // Ask Shippo what actually happened to a submitted-but-unsettled attempt.
+  // This is the ONLY path that reopens (proven no purchase → 'failed') or
+  // durably records (found a SUCCESS transaction → same guarded completion as
+  // a live purchase) an ambiguous attempt.
+  if (action === 'label_reconcile') {
+    const token = await getSecret(env.DB, 'shippo_api_key');
+    if (!token) return fail('Add a Shippo API token in Settings first.');
+    const record = await getLabelRecord(env.DB, id);
+    const settleable =
+      record &&
+      record.claim_token &&
+      record.rate_id &&
+      (record.status === 'uncertain' || (record.status === 'purchasing' && isPurchaseStale(record)));
+    if (!record || !settleable) {
+      return fail('There is no unsettled label attempt to reconcile.');
+    }
+
+    // Provider/service/amount come from the shipment's own rate list — the
+    // transaction record does not carry them.
+    const rates = await getShipmentRates(token, record.shipment_id);
+    const rate = rates.ok ? rates.value.find((r) => r.rateId === record.rate_id) : null;
+    const outcome = await findTransactionForRate(
+      token,
+      record.rate_id!,
+      existing.public_id,
+      rate?.provider ?? record.provider ?? 'Carrier',
+    );
+    if (!outcome.ok) return fail(`Could not reconcile with Shippo: ${outcome.error}`);
+
+    if (outcome.value.state === 'pending') {
+      return fail('Shippo is still processing that purchase — try reconciling again shortly.');
+    }
+    if (outcome.value.state === 'none') {
+      await markLabelFailed(
+        env.DB,
+        id,
+        record.claim_token!,
+        'Reconciled with Shippo: no label was purchased.',
+      );
+      return notice('Shippo confirms no label was purchased. You can fetch rates again.');
+    }
+    const found = outcome.value.label;
+    const recorded = await recordPurchased(env.DB, id, record.claim_token!, {
+      transactionId: found.transactionId,
+      provider: found.provider,
+      service: rate?.service ?? record.service ?? '',
+      amountCents: rate?.amountCents ?? record.amount_cents ?? 0,
+      trackingNumber: found.trackingNumber,
+      labelUrl: found.labelUrl,
+      carrierCode: carrierCodeFor(found.provider),
+    });
+    if (!recorded.recorded) {
+      return fail('The attempt changed state while reconciling — reload and check again.');
+    }
+    if (!recorded.orderFulfilled) {
+      return notice(
+        `Label ${found.trackingNumber} recovered from Shippo and recorded — but the order refused fulfillment (refunded or already fulfilled). Reconcile the shipment by hand.`,
+      );
+    }
+    await queueShippedDelivery(id);
+    return notice(
+      `Label ${found.trackingNumber} recovered from Shippo, recorded, and the order fulfilled.`,
+    );
   }
 
   if (action === 'label_rates' || action === 'buy_label') {
@@ -415,7 +502,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
         // order id via metadata) before they explicitly discard.
         await markLabelUncertain(env.DB, id, claim.claimToken, bought.error);
         return fail(
-          `Shippo’s answer was lost mid-purchase (${bought.error}) — the label MAY have been bought. Check your Shippo dashboard for order ${existing.public_id}, then discard the attempt if no label exists.`,
+          `Shippo’s answer was lost mid-purchase (${bought.error}) — the label MAY have been bought. Use “Reconcile with Shippo” on this order to settle it either way.`,
         );
       }
       await markLabelFailed(env.DB, id, claim.claimToken, bought.error);
@@ -451,20 +538,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
         `Label ${bought.value.trackingNumber} was purchased and saved, but the order could not be marked fulfilled with it — it changed state meanwhile (refunded?). No customer email was sent. Reconcile by hand.`,
       );
     }
-    const settings = await getStoreSettings(env.DB);
-    const order = await getOrder(env.DB, id);
-    const willEmail =
-      !!order?.email &&
-      shouldSendCustomerOrderEmail(order.payment_method) &&
-      !!(await getEmailProvider(settings));
-    if (willEmail) {
-      try {
-        await deliverOrderNotifications(env.DB, id, new URL(request.url).origin, settings);
-      } catch (err) {
-        // Row stays queued; the piggyback sweep retries it.
-        console.error('Shipped-notification delivery failed:', err);
-      }
-    }
+    const willEmail = await queueShippedDelivery(id);
     return notice(
       `Label purchased (${rate.provider} ${rate.service}). Tracking ${bought.value.trackingNumber} recorded. ${
         willEmail

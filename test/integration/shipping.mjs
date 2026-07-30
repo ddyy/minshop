@@ -287,21 +287,23 @@ await check('exactly one concurrent purchase claim wins', async () => {
   assert.equal([a, b].filter(Boolean).length, 1, 'one claim exactly');
 });
 
-await check('a live purchasing claim cannot be discarded or replaced', async () => {
+await check('a submitted claim can never be discarded or replaced — at any age', async () => {
   const db = await freshDb();
   await addOrder(db, 1);
   await recordQuote(db, 1, 'shp_a');
   await claimPurchase(db, 1, 'rate_1');
-  // Fresh claim (updated_at = now): inside the lease, untouchable — discarding
-  // here would let a second purchase start while Shippo processes the first.
   assert.equal(await discardLabelAttempt(db, 1), false, 'live claim must not discard');
   assert.equal(await recordQuote(db, 1, 'shp_b'), false, 'live claim must not be replaced');
-  // Backdate past the lease: now it is a crashed attempt and discardable.
+  // Even far past the lease: the request may STILL complete at Shippo, and
+  // reopening locally is how two real charges happen. Only provider
+  // reconciliation (→ purchased or failed) settles it.
   await db
     .prepare(`UPDATE shipping_labels SET updated_at = datetime('now', '-' || ? || ' seconds') WHERE order_id = 1`)
-    .bind(PURCHASE_LEASE_SECONDS + 5)
+    .bind(PURCHASE_LEASE_SECONDS * 10)
     .run();
-  assert.equal(await discardLabelAttempt(db, 1), true, 'stale claim is reconcilable');
+  assert.equal(await discardLabelAttempt(db, 1), false, 'stale claim still must not discard');
+  assert.equal(await recordQuote(db, 1, 'shp_b'), false, 'stale claim still must not be replaced');
+  assert.equal(await claimPurchase(db, 1, 'rate_2'), null, 'no second claim while unsettled');
 });
 
 await check('manual fulfillment loses to an in-flight purchase, and vice versa', async () => {
@@ -347,22 +349,18 @@ await check('a forced fulfillment mid-purchase surfaces as a reconciliation stat
   assert.equal(note, null, 'no shipped email for a tracking number that did not land');
 });
 
-await check('a superseded attempt cannot write into a newer claim', async () => {
+await check('a late completion of a stale submitted claim records durably', async () => {
   const db = await freshDb();
   await addOrder(db, 1);
   await recordQuote(db, 1, 'shp_a');
   const attemptA = await claimPurchase(db, 1, 'rate_a');
-  // A outlives its lease and the merchant discards it…
+  // A outlives its lease. Nothing can supersede it (previous test), so when its
+  // provider call finally lands, the success is recorded like any other — the
+  // paid label ends up durable in D1, not stranded in a redirect message.
   await db
     .prepare(`UPDATE shipping_labels SET updated_at = datetime('now', '-' || ? || ' seconds') WHERE order_id = 1`)
-    .bind(PURCHASE_LEASE_SECONDS + 5)
+    .bind(PURCHASE_LEASE_SECONDS * 10)
     .run();
-  assert.equal(await discardLabelAttempt(db, 1), true);
-  // …then quotes and claims attempt B.
-  await recordQuote(db, 1, 'shp_b');
-  const attemptB = await claimPurchase(db, 1, 'rate_b');
-  assert.notEqual(attemptA.claimToken, attemptB.claimToken);
-  // A's provider call finally completes. It must find nothing to write.
   const late = await recordPurchased(db, 1, attemptA.claimToken, {
     transactionId: 'txn_A',
     provider: 'USPS',
@@ -372,29 +370,44 @@ await check('a superseded attempt cannot write into a newer claim', async () => 
     labelUrl: 'https://labels.example/a.pdf',
     carrierCode: 'usps',
   });
-  assert.equal(late.recorded, false, "A's completion is superseded");
-  assert.equal(late.orderFulfilled, false, 'A must not fulfil the order');
-  const row = await getLabelRecord(db, 1);
-  assert.equal(row.status, 'purchasing', "B's claim is untouched");
-  assert.equal(row.rate_id, 'rate_b');
-  const order = await db.prepare('SELECT fulfillment_status FROM orders WHERE id = 1').first();
-  assert.equal(order.fulfillment_status, 'unfulfilled');
-  // A's stale error paths are equally fenced.
-  await markLabelFailed(db, 1, attemptA.claimToken, 'stale');
-  await markLabelUncertain(db, 1, attemptA.claimToken, 'stale');
-  assert.equal((await getLabelRecord(db, 1)).status, 'purchasing');
-  // And B still completes normally.
-  const bDone = await recordPurchased(db, 1, attemptB.claimToken, {
-    transactionId: 'txn_B',
+  assert.equal(late.recorded, true);
+  assert.equal(late.orderFulfilled, true);
+  assert.equal((await getLabelRecord(db, 1)).status, 'purchased');
+});
+
+await check('reconciliation settles an uncertain attempt either way', async () => {
+  const db = await freshDb();
+  // Found at Shippo → recorded via the same guarded completion.
+  await addOrder(db, 1);
+  await recordQuote(db, 1, 'shp_a');
+  const a = await claimPurchase(db, 1, 'rate_1');
+  await markLabelUncertain(db, 1, a.claimToken, 'network lost');
+  const recovered = await recordPurchased(db, 1, a.claimToken, {
+    transactionId: 'txn_rec',
     provider: 'USPS',
-    service: 'Ground Advantage',
-    amountCents: 500,
-    trackingNumber: '9400-B',
-    labelUrl: 'https://labels.example/b.pdf',
+    service: 'Priority Mail',
+    amountCents: 733,
+    trackingNumber: '9400rec',
+    labelUrl: 'https://labels.example/rec.pdf',
     carrierCode: 'usps',
   });
-  assert.equal(bDone.recorded, true);
-  assert.equal(bDone.orderFulfilled, true);
+  assert.equal(recovered.recorded, true, 'an uncertain row accepts its own late success');
+  assert.equal(recovered.orderFulfilled, true);
+  // Proven no-purchase → failed → the order reopens.
+  await addOrder(db, 2);
+  await recordQuote(db, 2, 'shp_b');
+  const b = await claimPurchase(db, 2, 'rate_2');
+  await markLabelUncertain(db, 2, b.claimToken, 'network lost');
+  await markLabelFailed(db, 2, b.claimToken, 'Reconciled: no label was purchased.');
+  assert.equal((await getLabelRecord(db, 2)).status, 'failed');
+  assert.equal(await recordQuote(db, 2, 'shp_c'), true, 'a proven no-purchase reopens quoting');
+  // A stale token cannot settle anything (fencing still applies).
+  await addOrder(db, 3);
+  await recordQuote(db, 3, 'shp_d');
+  const c = await claimPurchase(db, 3, 'rate_3');
+  await markLabelFailed(db, 3, 'not-the-token', 'spoof');
+  assert.equal((await getLabelRecord(db, 3)).status, 'purchasing');
+  assert.ok(c.claimToken);
 });
 
 await check('a refund during the provider call blocks fulfillment and the email', async () => {
@@ -428,7 +441,7 @@ await check('a refund during the provider call blocks fulfillment and the email'
   assert.equal(row.status, 'purchased', 'label record survives for reconciliation');
 });
 
-await check('an uncertain outcome blocks re-quoting until discarded', async () => {
+await check('an uncertain outcome blocks everything except reconciliation', async () => {
   const db = await freshDb();
   await addOrder(db, 1);
   await recordQuote(db, 1, 'shp_a');
@@ -436,8 +449,11 @@ await check('an uncertain outcome blocks re-quoting until discarded', async () =
   await markLabelUncertain(db, 1, claim.claimToken, 'network lost');
   assert.equal(await recordQuote(db, 1, 'shp_b'), false, 'uncertain must refuse a new quote');
   assert.equal(await claimPurchase(db, 1, 'rate_1'), null, 'no second purchase');
-  assert.equal(await discardLabelAttempt(db, 1), true);
-  assert.equal(await recordQuote(db, 1, 'shp_b'), true, 'discard reopens the order');
+  // Discard cannot touch it — the charge may exist. Only reconciliation's
+  // proven no-purchase (markLabelFailed with the row's token) reopens it.
+  assert.equal(await discardLabelAttempt(db, 1), false, 'uncertain is not discardable');
+  await markLabelFailed(db, 1, claim.claimToken, 'Reconciled: no label was purchased.');
+  assert.equal(await recordQuote(db, 1, 'shp_b'), true, 'a proven no-purchase reopens the order');
 });
 
 await check('recordPurchased lands label, fulfillment, and the shipped email in one batch', async () => {

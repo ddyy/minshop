@@ -281,12 +281,12 @@ const willEmailCustomer =
           <p>
             A label purchase for this order did not complete cleanly
             {labelRecord.error && <> ({labelRecord.error})</>} — it <strong>may</strong> have been
-            charged. Check your Shippo dashboard for <code class="text-xs">{order.public_id}</code>.
+            charged (Shippo order reference <code class="text-xs">{order.public_id}</code>).
           </p>
           <form method="POST" action={`/api/admin/orders/${order.public_id}`}>
-            <input type="hidden" name="_action" value="label_discard" />
-            <button type="submit" class="rounded-md border border-amber-400 px-4 py-2 text-xs font-medium uppercase tracking-wider hover:bg-amber-100">
-              No label exists — discard the attempt
+            <input type="hidden" name="_action" value="label_reconcile" />
+            <button type="submit" class="rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover">
+              Reconcile with Shippo
             </button>
           </form>
         </div>
@@ -340,13 +340,13 @@ const willEmailCustomer =
                   <p class="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900">
                     A label purchase for this order did not complete cleanly
                     {labelRecord?.error && <> ({labelRecord.error})</>} — it <strong>may</strong> have
-                    been charged. Check your Shippo dashboard for
-                    <code class="text-xs"> {order.public_id}</code> before doing anything else.
+                    been charged. Reconciling asks Shippo directly: a found label is recorded here
+                    and the order fulfilled; a confirmed no-purchase reopens rate fetching.
                   </p>
                   <form method="POST" action={`/api/admin/orders/${order.public_id}`}>
-                    <input type="hidden" name="_action" value="label_discard" />
-                    <button type="submit" class="rounded-md border border-amber-400 px-4 py-2 text-xs font-medium uppercase tracking-wider text-amber-900 hover:bg-amber-100">
-                      No label exists — discard the attempt
+                    <input type="hidden" name="_action" value="label_reconcile" />
+                    <button type="submit" class="rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover">
+                      Reconcile with Shippo
                     </button>
                   </form>
                 </div>

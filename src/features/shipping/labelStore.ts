@@ -18,14 +18,15 @@ export type LabelStatus = 'quoted' | 'purchasing' | 'purchased' | 'failed' | 'un
 
 /**
  * How long a 'purchasing' row is presumed to have a live request behind it.
- * Within the lease it is untouchable — discarding it would let a second
- * purchase start while Shippo is still processing the first, exactly the
- * double-buy the claim exists to prevent. Past the lease it is treated as a
- * crashed attempt: same reconciliation path as 'uncertain'.
+ * This is a UI signal ONLY — "show progress" vs "offer reconciliation". It
+ * never reopens the order: a submitted purchase may still complete at Shippo
+ * long after any local timeout, so the only thing that can settle it is
+ * Shippo's own answer (reconcileWithProvider in the route), not a lease.
  */
 export const PURCHASE_LEASE_SECONDS = 120;
 
-/** A purchasing row whose lease has expired — crashed, not in flight. */
+/** A purchasing row whose lease has expired — probably crashed, POSSIBLY still
+ *  completing. Reconcile against the provider; never assume. */
 export function isPurchaseStale(record: Pick<LabelRecord, 'status' | 'updated_at'>): boolean {
   if (record.status !== 'purchasing') return false;
   const updated = Date.parse(`${record.updated_at.replace(' ', 'T')}Z`);
@@ -132,6 +133,10 @@ export interface PurchasedRecord {
  * a concurrent manual fulfil cannot be overwritten), the label URL, and the
  * shipped-notification outbox row all commit in one batch, so a crash after the
  * charge can no longer leave a paid label unrecorded.
+ *
+ * Accepts 'uncertain' as well as 'purchasing': provider reconciliation settles
+ * a parked attempt with the same fencing (its stored claim token) — which is
+ * how a LATE success becomes durable instead of living only in the dashboard.
  */
 export async function recordPurchased(
   db: D1Database,
@@ -148,7 +153,7 @@ export async function recordPurchased(
             SET status = 'purchased', transaction_id = ?2, provider = ?3, service = ?4,
                 amount_cents = ?5, tracking_number = ?6, label_url = ?7, error = NULL,
                 updated_at = datetime('now')
-          WHERE order_id = ?1 AND status = 'purchasing' AND claim_token = ?8`,
+          WHERE order_id = ?1 AND status IN ('purchasing', 'uncertain') AND claim_token = ?8`,
       )
       .bind(orderId, p.transactionId, p.provider, p.service, p.amountCents, p.trackingNumber, p.labelUrl, claimToken),
     // Fulfillment repeats the FULL eligibility, not just 'unfulfilled': the
@@ -197,6 +202,11 @@ export async function recordPurchased(
 }
 
 /** Shippo said no. Safe to quote again. */
+/**
+ * Shippo said no — either to the live request, or to a reconciliation query
+ * that proved the submitted attempt never bought anything. Only THEN does the
+ * order reopen for quoting.
+ */
 export async function markLabelFailed(
   db: D1Database,
   orderId: number,
@@ -207,7 +217,7 @@ export async function markLabelFailed(
     .prepare(
       `UPDATE shipping_labels
           SET status = 'failed', error = ?2, updated_at = datetime('now')
-        WHERE order_id = ?1 AND status = 'purchasing' AND claim_token = ?3`,
+        WHERE order_id = ?1 AND status IN ('purchasing', 'uncertain') AND claim_token = ?3`,
     )
     .bind(orderId, error, claimToken)
     .run();
@@ -231,21 +241,21 @@ export async function markLabelUncertain(
 }
 
 /**
- * The merchant's explicit "I checked the dashboard, no label exists" (or
- * abandoning a quote). Cannot touch a purchased row, and cannot touch a
- * purchasing row inside its lease — that request may still be in flight, and
- * discarding it would reopen the order for a concurrent second purchase.
+ * Abandon a quote or a definitively-failed attempt. NOTHING ELSE: a purchase
+ * that was submitted ('purchasing', however old) or answered ambiguously
+ * ('uncertain') may still have moved money, and locally deleting it would let
+ * a second real purchase start while the first completes — the double-charge
+ * the whole machine exists to prevent. Those states are settled exclusively by
+ * asking Shippo (reconciliation), which either records the late success
+ * durably or proves no purchase happened and marks the row failed.
  */
 export async function discardLabelAttempt(db: D1Database, orderId: number): Promise<boolean> {
   const result = await db
     .prepare(
       `DELETE FROM shipping_labels
-        WHERE order_id = ?1
-          AND (status IN ('quoted', 'failed', 'uncertain')
-               OR (status = 'purchasing'
-                   AND updated_at <= datetime('now', '-' || ?2 || ' seconds')))`,
+        WHERE order_id = ?1 AND status IN ('quoted', 'failed')`,
     )
-    .bind(orderId, PURCHASE_LEASE_SECONDS)
+    .bind(orderId)
     .run();
   return (result.meta?.changes ?? 0) > 0;
 }

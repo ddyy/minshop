@@ -339,3 +339,64 @@ export async function purchaseLabel(
     },
   };
 }
+
+/** What Shippo's records say happened to an attempt we lost track of. */
+export type ReconcileOutcome =
+  | { state: 'purchased'; label: PurchasedLabel }
+  | { state: 'pending' }
+  | { state: 'none' };
+
+interface ShippoTransactionListItem {
+  object_id?: string;
+  status?: string;
+  rate?: string | { object_id?: string };
+  metadata?: string;
+  tracking_number?: string;
+  tracking_url_provider?: string;
+  label_url?: string;
+}
+
+/**
+ * Ask Shippo whether a transaction exists for this rate — the AUTHORITATIVE
+ * answer for a submitted purchase whose response was lost. Matches on the rate
+ * id (and accepts the order-metadata match as a belt), because a rate can be
+ * bought at most once per transaction attempt in this flow.
+ */
+export async function findTransactionForRate(
+  token: string,
+  rateId: string,
+  orderPublicId: string | null,
+  provider: string,
+): Promise<LabelResult<ReconcileOutcome>> {
+  // Server-side filter where supported; the client-side match below is what we
+  // actually trust.
+  const result = await shippo(token, `/transactions/?rate=${encodeURIComponent(rateId)}&results=25`);
+  if (!result.ok) return result;
+  const list = (result.value as { results?: ShippoTransactionListItem[] }).results ?? [];
+  const matches = list.filter((tx) => {
+    const txRate = typeof tx.rate === 'string' ? tx.rate : tx.rate?.object_id;
+    if (txRate === rateId) return true;
+    return !!orderPublicId && tx.metadata === `order ${orderPublicId}`;
+  });
+  if (matches.length === 0) return { ok: true, value: { state: 'none' } };
+  const success = matches.find((tx) => tx.status === 'SUCCESS');
+  if (success && success.object_id && success.tracking_number && success.label_url) {
+    return {
+      ok: true,
+      value: {
+        state: 'purchased',
+        label: {
+          transactionId: success.object_id,
+          trackingNumber: success.tracking_number,
+          trackingUrl: success.tracking_url_provider ?? null,
+          labelUrl: success.label_url,
+          provider,
+        },
+      },
+    };
+  }
+  // Transactions exist but none succeeded: ERROR means the attempt terminated
+  // without purchasing; anything still QUEUED/WAITING is not settled yet.
+  const stillRunning = matches.some((tx) => tx.status === 'QUEUED' || tx.status === 'WAITING');
+  return { ok: true, value: { state: stillRunning ? 'pending' : 'none' } };
+}
