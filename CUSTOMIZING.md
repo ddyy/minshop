@@ -269,9 +269,18 @@ for values you want to survive switching sets, or when adopting a design
 system's variables wholesale; everything that defines your set's look belongs
 in the set's own `theme.css`.
 
-The core reads every token through `var()` with a literal fallback, so a set
-that omits a token renders exactly as the default does — omission degrades to
-the current design, never to unstyled markup.
+Two token families behave differently when omitted, and the difference
+matters:
+
+- The **page and prose properties** (`--page-*`, `--prose-*`) are read by core
+  CSS through `var()` with literal fallbacks. Omit one and that rule renders
+  exactly as the default does.
+- The **semantic `@theme` tokens** (`--color-*`, `--font-*`, `--radius-*`)
+  have NO fallback: they are what generates the utilities. A set that omits
+  `--color-brand` doesn't get the default brand — `bg-brand` simply stops
+  being generated. Every set must therefore declare the complete semantic
+  surface; the contract suite enforces the required names for every set in
+  the tree.
 
 Only your active set's directory is scanned for utilities (inactive sets are
 excluded per build, and generated files under `src/styles/storefront/` wire
@@ -377,11 +386,11 @@ in `storefront.config.json`. Change it and rebuild to try another set;
 Your templates are ordinary tracked files, so git is the undo:
 
 ```bash
-git checkout HEAD -- src/storefront/<your-set>/ProductCard.astro
+git checkout HEAD -- src/storefront/acme/ProductCard.astro
 ```
 
-Work on a branch when making large changes, so the default is always one command
-away.
+(Replace `acme` with your set id.) Work on a branch when making large changes,
+so the default is always one command away.
 
 ## Caching
 

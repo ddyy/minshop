@@ -46,3 +46,8 @@
 }
 
 @import "./base.css";
+
+/* Entry marker — see the note in global.css. */
+:root {
+  --minshop-css-entry: admin;
+}

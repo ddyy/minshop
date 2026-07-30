@@ -138,10 +138,42 @@ const css = new Map(cssFiles.map((f) => [f, readFileSync(f, 'utf8')]));
 
 const failures = [];
 
-// 1a. The active set is actually in the output.
+// 0. Classify each stylesheet by its ENTRY MARKER, never by the content under
+//    test. Classifying by sentinel utilities has a hole exactly where the
+//    check matters most: active-set CSS leaking into the Admin sheet would
+//    make it look like a storefront sheet and be skipped by the isolation
+//    assertions. The markers are emitted by the entries themselves
+//    (src/styles/global.css and admin.css).
+const entryOf = (body) => {
+  const admin = body.includes('--minshop-css-entry:admin');
+  const storefront = body.includes('--minshop-css-entry:storefront');
+  if (admin && storefront) return 'both';
+  if (admin) return 'admin';
+  if (storefront) return 'storefront';
+  return 'unmarked'; // e.g. a component-scoped chunk
+};
+const adminFiles = [];
+const storefrontFiles = [];
+for (const f of cssFiles) {
+  const entry = entryOf(css.get(f));
+  if (entry === 'both') {
+    failures.push(
+      `${relative(root, f)}: carries BOTH entry markers — the Admin and storefront entries were merged into one stylesheet, so Admin cannot be isolated.`,
+    );
+  } else if (entry === 'admin') adminFiles.push(f);
+  else if (entry === 'storefront') storefrontFiles.push(f);
+}
+if (adminFiles.length === 0) {
+  failures.push('no built stylesheet carries the Admin entry marker — admin.css lost it, or the entry was dropped.');
+}
+if (storefrontFiles.length === 0) {
+  failures.push('no built stylesheet carries the storefront entry marker — global.css lost it, or the entry was dropped.');
+}
+
+// 1a. The active set is actually in the storefront output.
 const activeCandidates = uniqueTo(active.id);
 const activeHits = activeCandidates.filter((c) =>
-  cssFiles.some((f) => css.get(f).includes(cssEscaped(c))),
+  storefrontFiles.some((f) => css.get(f).includes(cssEscaped(c))),
 );
 if (activeCandidates.length === 0) {
   // No silent caps: a set whose every class overlaps its siblings cannot be
@@ -150,18 +182,13 @@ if (activeCandidates.length === 0) {
   console.log(
     `check-built-css: NOTE — set "${active.id}" has no unique class; presence not verifiable.`,
   );
-} else if (activeHits.length === 0) {
+} else if (activeHits.length === 0 && storefrontFiles.length > 0) {
   failures.push(
-    `active set "${active.id}": none of its ${activeCandidates.length} unique utilities appear in any built stylesheet — its templates are not being scanned.`,
+    `active set "${active.id}": none of its ${activeCandidates.length} unique utilities appear in the storefront stylesheet — its templates are not being scanned.`,
   );
 }
 
-// 1b. No inactive set leaks in.
-const storefrontFiles = new Set(
-  activeHits.length > 0
-    ? cssFiles.filter((f) => activeHits.some((c) => css.get(f).includes(cssEscaped(c))))
-    : [],
-);
+// 1b. No inactive set leaks in, anywhere.
 for (const id of ids) {
   if (id === active.id) continue;
   for (const c of uniqueTo(id)) {
@@ -175,17 +202,27 @@ for (const id of ids) {
   }
 }
 
-// 2. Admin isolation: every stylesheet that is not the storefront entry's must
-//    keep Admin's own paper and reject the active set's.
+// 1c. The ACTIVE set stays out of Admin too — this is the case that entry
+//     markers exist for. The Admin entry excludes every set, active included.
+for (const c of activeCandidates) {
+  for (const f of adminFiles) {
+    if (css.get(f).includes(cssEscaped(c))) {
+      failures.push(
+        `active set "${active.id}": utility "${c}" leaked into the Admin stylesheet ${relative(root, f)}.`,
+      );
+    }
+  }
+}
+
+// 2. Admin palette: every Admin-marked stylesheet must keep Admin's own paper
+//    and reject the active set's.
 const adminSource = readFileSync(resolve(root, 'src/styles/admin.css'), 'utf8');
 const adminPaper = adminSource.match(/--color-paper:\s*([^;]+);/)?.[1].trim();
 const activeTheme = readFileSync(resolve(root, SETS_DIR, active.id, 'theme.css'), 'utf8');
 const activePaper = activeTheme.match(/--color-paper:\s*([^;]+);/)?.[1].trim();
 if (!adminPaper) failures.push('src/styles/admin.css declares no --color-paper.');
-for (const f of cssFiles) {
-  if (storefrontFiles.has(f)) continue;
+for (const f of adminFiles) {
   const body = css.get(f);
-  if (!body.includes('--color-paper:')) continue; // not a page-level entry
   if (adminPaper && !body.includes(`--color-paper:${adminPaper}`)) {
     failures.push(`${relative(root, f)}: Admin entry lost its own paper (${adminPaper}).`);
   }

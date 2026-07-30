@@ -99,6 +99,36 @@ describe('the content-page prose scale', () => {
   });
 });
 
+// The semantic @theme surface has NO fallback story: these tokens GENERATE the
+// utilities, so omitting one doesn't degrade to the default design — it stops
+// `bg-brand` (etc.) from being emitted at all, silently. Unlike the prose and
+// container properties above, completeness is the contract.
+const REQUIRED_THEME_TOKENS = [
+  '--color-brand',
+  '--color-brand-hover',
+  '--color-ink',
+  '--color-accent',
+  '--color-paper',
+  '--color-line',
+  '--color-surface',
+  '--color-muted',
+  '--color-faint',
+  '--color-on-brand',
+  '--font-sans',
+  '--font-serif',
+  '--radius-md',
+  '--radius-lg',
+];
+
+describe('the semantic @theme token surface', () => {
+  it.each(sets)('%s declares every required token', (id) => {
+    const css = readFileSync(`${SETS_DIR}/${id}/theme.css`, 'utf8');
+    for (const token of REQUIRED_THEME_TOKENS) {
+      expect(css, `set "${id}" is missing ${token}`).toContain(`${token}:`);
+    }
+  });
+});
+
 /** property → [token, today's literal] for the page container. */
 const CONTAINER_RULES = [
   ['max-width', '--page-max', '72rem'],

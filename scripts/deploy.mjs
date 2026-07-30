@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { signDeployPurgeAuthorization } from '../src/features/cache/deployPurgeAuth.ts';
 import { resolveStorefrontSet } from './storefront-set.mjs';
+import { deployPlan, validateStamp } from './deploy-plan.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const args = process.argv.slice(2);
@@ -19,24 +20,14 @@ const stampPath = resolve(root, 'dist/storefront-set.json');
 const storefront = resolveStorefrontSet(root);
 console.log(`Deploying storefront set: ${storefront.id} (from ${storefront.source})`);
 
-/** The artifact must have been built FOR the current selection. Every build
- *  stamps dist/ with its set; an unstamped dist predates the stamp (or was
- *  tampered with) and cannot be trusted under --skip-build. */
+/** The artifact must have been built FOR the current selection. The gate
+ *  itself lives in deploy-plan.mjs, where the tests can reach it. */
 function assertArtifactMatchesSelection() {
-  if (!existsSync(stampPath)) {
-    throw new Error(
-      skipBuild
-        ? 'dist/ carries no storefront-set stamp. Rebuild (omit --skip-build) so the artifact records which set it contains.'
-        : 'The build finished but wrote no storefront-set stamp — the storefront-stamp integration is missing from astro.config.mjs.',
-    );
-  }
-  const stamped = JSON.parse(readFileSync(stampPath, 'utf8'))?.set;
-  if (stamped !== storefront.id) {
-    throw new Error(
-      `dist/ was built for storefront set "${stamped}", but the current selection is "${storefront.id}". ` +
-        'Rebuild (omit --skip-build), or change the selection back before deploying.',
-    );
-  }
+  validateStamp({
+    raw: existsSync(stampPath) ? readFileSync(stampPath, 'utf8') : null,
+    expectedSet: storefront.id,
+    skipBuild,
+  });
 }
 
 function run(command, args) {
@@ -155,41 +146,49 @@ async function purgeAfterDeploy(origin, secret) {
   );
 }
 
-// Build (and validate the artifact) BEFORE remote migrations: a failed or
-// mis-selected build must leave the remote database untouched.
-if (!skipBuild) run('npx', ['astro', 'build']);
-try {
-  assertArtifactMatchesSelection();
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-}
-
+// Execute the plan and NOTHING outside it. The ordering — build and validate
+// before any remote mutation — is pinned by test/scripts/deploy-plan.test.mjs;
+// adding a wrangler call here directly, outside a plan step, is the regression
+// that split exists to prevent.
 let cacheConfig;
-try {
-  cacheConfig = deploymentCacheConfig();
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-}
+const handlers = {
+  build: () => run('npx', ['astro', 'build']),
+  'validate-stamp': () => {
+    try {
+      assertArtifactMatchesSelection();
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
+  },
+  'cache-config': () => {
+    try {
+      cacheConfig = deploymentCacheConfig();
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
+    if (preflightOnly) {
+      console.log(
+        cacheConfig.crossVersion
+          ? '✓ Cross-version cache deployment preflight passed.'
+          : '✓ Deployment preflight passed; cross-version caching is disabled.',
+      );
+    }
+  },
+  migrate: () => run('npx', ['wrangler', 'd1', 'migrations', 'apply', 'DB', '--remote']),
+  deploy: () => run('npx', ['wrangler', 'deploy']),
+  'purge-if-cross-version': async () => {
+    if (!cacheConfig.crossVersion) return;
+    try {
+      await purgeAfterDeploy(cacheConfig.origin, cacheConfig.secret);
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
+  },
+};
 
-if (preflightOnly) {
-  console.log(
-    cacheConfig.crossVersion
-      ? '✓ Cross-version cache deployment preflight passed.'
-      : '✓ Deployment preflight passed; cross-version caching is disabled.',
-  );
-  process.exit(0);
-}
-
-run('npx', ['wrangler', 'd1', 'migrations', 'apply', 'DB', '--remote']);
-run('npx', ['wrangler', 'deploy']);
-
-if (cacheConfig.crossVersion) {
-  try {
-    await purgeAfterDeploy(cacheConfig.origin, cacheConfig.secret);
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
-  }
+for (const step of deployPlan({ skipBuild, preflightOnly })) {
+  await handlers[step]();
 }
