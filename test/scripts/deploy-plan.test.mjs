@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { deployPlan, validateStamp } from '../../scripts/deploy-plan.mjs';
+import { deployPlan, executeDeployPlan, validateStamp } from '../../scripts/deploy-plan.mjs';
 
 // The deploy ordering is a safety property: a failed or mis-selected build
 // must leave remote state untouched. deploy.mjs executes exactly what
@@ -78,16 +78,100 @@ describe('validateStamp', () => {
   });
 });
 
-describe('deploy.mjs stays on the plan', () => {
-  it('routes every wrangler invocation through a plan step', () => {
-    // The executor may only reach wrangler from inside a handler the plan
-    // ordered. A bare run('npx', ['wrangler', ...]) added outside `handlers`
-    // would bypass the ordering this suite pins.
+// Ordering strings alone cannot prove safety: a refactor could run the
+// migration inside the validate handler and every string would still be in
+// order. These tests execute the REAL step→operation mapping
+// (executeDeployPlan — the same function deploy.mjs runs) with spies, and
+// assert on what was actually invoked.
+describe('executeDeployPlan side effects', () => {
+  const spies = (overrides = {}) => ({
+    expectedSet: 'acme',
+    readStamp: vi.fn(() => '{"set":"acme"}'),
+    build: vi.fn(),
+    loadCacheConfig: vi.fn(() => ({ crossVersion: false })),
+    migrate: vi.fn(),
+    deploy: vi.fn(),
+    purge: vi.fn(),
+    ...overrides,
+  });
+
+  it.each([
+    ['missing', null],
+    ['malformed', 'not json{'],
+    ['empty-set', '{}'],
+    ['mismatched', '{"set":"studio"}'],
+  ])('a %s stamp prevents every remote mutation', async (_label, raw) => {
+    const ops = spies({ readStamp: vi.fn(() => raw) });
+    await expect(executeDeployPlan({ skipBuild: true }, ops)).rejects.toThrow();
+    expect(ops.migrate).not.toHaveBeenCalled();
+    expect(ops.deploy).not.toHaveBeenCalled();
+    expect(ops.purge).not.toHaveBeenCalled();
+  });
+
+  it('a failed build prevents everything after it', async () => {
+    const ops = spies({ build: vi.fn(() => { throw new Error('compile error'); }) });
+    await expect(executeDeployPlan({}, ops)).rejects.toThrow('compile error');
+    expect(ops.readStamp).not.toHaveBeenCalled();
+    expect(ops.migrate).not.toHaveBeenCalled();
+    expect(ops.deploy).not.toHaveBeenCalled();
+  });
+
+  it('a successful deploy runs the operations in the safe order', async () => {
+    const order = [];
+    const named = (name, fn = () => {}) => vi.fn((...a) => { order.push(name); return fn(...a); });
+    const ops = spies({
+      readStamp: named('validate', () => '{"set":"acme"}'),
+      build: named('build'),
+      loadCacheConfig: named('cache-config', () => ({ crossVersion: false })),
+      migrate: named('migrate'),
+      deploy: named('deploy'),
+      purge: named('purge'),
+    });
+    await executeDeployPlan({}, ops);
+    expect(order).toEqual(['build', 'validate', 'cache-config', 'migrate', 'deploy']);
+  });
+
+  it('a preflight invokes no remote mutation even with a valid stamp', async () => {
+    const ops = spies();
+    await executeDeployPlan({ skipBuild: true, preflightOnly: true }, ops);
+    expect(ops.readStamp).toHaveBeenCalled();
+    expect(ops.loadCacheConfig).toHaveBeenCalled();
+    expect(ops.migrate).not.toHaveBeenCalled();
+    expect(ops.deploy).not.toHaveBeenCalled();
+    expect(ops.purge).not.toHaveBeenCalled();
+  });
+
+  it('purges only under cross-version caching, and after deploy', async () => {
+    const order = [];
+    const named = (name, fn = () => {}) => vi.fn((...a) => { order.push(name); return fn(...a); });
+    const crossVersion = spies({
+      loadCacheConfig: () => ({ crossVersion: true, origin: 'https://x', secret: 's' }),
+      deploy: named('deploy'),
+      purge: named('purge'),
+    });
+    await executeDeployPlan({ skipBuild: true }, crossVersion);
+    expect(order).toEqual(['deploy', 'purge']);
+
+    const plain = spies();
+    await executeDeployPlan({ skipBuild: true }, plain);
+    expect(plain.purge).not.toHaveBeenCalled();
+  });
+});
+
+describe('deploy.mjs stays on the executor', () => {
+  it('supplies operations to executeDeployPlan and calls wrangler only inside them', () => {
+    // The spy tests above prove the mapping; this pins that deploy.mjs
+    // actually uses it. Every wrangler invocation must live inside the `ops`
+    // object handed to the shared executor — a bare call added elsewhere
+    // would bypass the mapping the spies verify.
     const source = readFileSync('scripts/deploy.mjs', 'utf8');
-    expect(source).toContain("for (const step of deployPlan({ skipBuild, preflightOnly }))");
-    const handlersBlock = source.slice(source.indexOf('const handlers'), source.indexOf('for (const step'));
+    expect(source).toContain('executeDeployPlan({ skipBuild, preflightOnly }, ops)');
+    const opsStart = source.indexOf('const ops = {');
+    expect(opsStart).toBeGreaterThan(-1);
+    const opsBlock = source.slice(opsStart, source.indexOf('executeDeployPlan(', opsStart));
     const wranglerCalls = source.match(/'wrangler'/g) ?? [];
-    const inHandlers = handlersBlock.match(/'wrangler'/g) ?? [];
-    expect(wranglerCalls.length).toBe(inHandlers.length);
+    const inOps = opsBlock.match(/'wrangler'/g) ?? [];
+    expect(wranglerCalls.length).toBeGreaterThan(0);
+    expect(wranglerCalls.length).toBe(inOps.length);
   });
 });

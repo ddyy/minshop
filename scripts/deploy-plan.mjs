@@ -54,3 +54,45 @@ export function validateStamp({ raw, expectedSet, skipBuild = false }) {
   }
   return stamped;
 }
+
+/**
+ * Execute the plan against injected operations. This IS the step→side-effect
+ * mapping — deploy.mjs supplies the real operations and adds nothing else, so
+ * a test can run this exact function with spies and assert that a failing
+ * stamp leaves the migration and deploy operations uncalled. Testing only the
+ * plan's step ORDER cannot prove that: a refactor could run the migration
+ * inside the validate handler and every string would still be in order.
+ *
+ * ops: {
+ *   expectedSet          the resolved set id
+ *   readStamp()          stamp file content, or null when absent
+ *   build()              compile the artifact
+ *   loadCacheConfig()    parse dist config → { crossVersion, origin?, secret? }
+ *   migrate()            REMOTE mutation: apply D1 migrations
+ *   deploy()             REMOTE mutation: ship the Worker
+ *   purge(cacheConfig)   post-deploy cache purge
+ * }
+ *
+ * Throws (rather than exiting) on a failed gate; the caller decides how to
+ * report. Steps after a throw never run.
+ */
+export async function executeDeployPlan({ skipBuild = false, preflightOnly = false } = {}, ops) {
+  let cacheConfig;
+  const handlers = {
+    build: () => ops.build(),
+    'validate-stamp': () =>
+      validateStamp({ raw: ops.readStamp(), expectedSet: ops.expectedSet, skipBuild }),
+    'cache-config': () => {
+      cacheConfig = ops.loadCacheConfig();
+    },
+    migrate: () => ops.migrate(),
+    deploy: () => ops.deploy(),
+    'purge-if-cross-version': async () => {
+      if (cacheConfig?.crossVersion) await ops.purge(cacheConfig);
+    },
+  };
+  for (const step of deployPlan({ skipBuild, preflightOnly })) {
+    await handlers[step]();
+  }
+  return { cacheConfig };
+}

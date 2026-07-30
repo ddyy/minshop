@@ -120,12 +120,57 @@ const REQUIRED_THEME_TOKENS = [
   '--radius-lg',
 ];
 
-describe('the semantic @theme token surface', () => {
-  it.each(sets)('%s declares every required token', (id) => {
-    const css = readFileSync(`${SETS_DIR}/${id}/theme.css`, 'utf8');
-    for (const token of REQUIRED_THEME_TOKENS) {
-      expect(css, `set "${id}" is missing ${token}`).toContain(`${token}:`);
+/** The concatenated contents of every @theme block, comments stripped FIRST —
+ *  a token named in a comment, or declared in :root, generates nothing, so it
+ *  must not satisfy the contract. Brace-matched rather than regexed to the
+ *  first `}` so a nested block cannot truncate the scan. */
+function themeBlockDeclarations(css) {
+  const noComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  let out = '';
+  let from = 0;
+  for (;;) {
+    const at = noComments.indexOf('@theme', from);
+    if (at === -1) break;
+    const open = noComments.indexOf('{', at);
+    if (open === -1) break;
+    let depth = 1;
+    let end = open + 1;
+    while (end < noComments.length && depth > 0) {
+      if (noComments[end] === '{') depth += 1;
+      else if (noComments[end] === '}') depth -= 1;
+      end += 1;
     }
+    out += noComments.slice(open + 1, end - 1);
+    from = end;
+  }
+  return out;
+}
+
+describe('the semantic @theme token surface', () => {
+  it.each(sets)('%s declares every required token INSIDE @theme', (id) => {
+    // Only an @theme declaration generates utilities. The same token in :root
+    // (or quoted in a comment) leaves bg-brand and friends unemitted, which is
+    // exactly the silent failure this contract exists to prevent — so the
+    // search is scoped to the parsed block, not the file.
+    const declarations = themeBlockDeclarations(readFileSync(`${SETS_DIR}/${id}/theme.css`, 'utf8'));
+    for (const token of REQUIRED_THEME_TOKENS) {
+      expect(declarations, `set "${id}" does not declare ${token} inside @theme`).toContain(
+        `${token}:`,
+      );
+    }
+  });
+
+  it('rejects a token that is present but outside @theme', () => {
+    // The parser's own contract: :root declarations and comment mentions must
+    // not count.
+    const fixture = `
+      /* --color-brand: #fff is documented here */
+      :root { --color-brand: #abc; }
+      @theme { --color-ink: #000; }
+    `;
+    const declarations = themeBlockDeclarations(fixture);
+    expect(declarations).toContain('--color-ink:');
+    expect(declarations).not.toContain('--color-brand');
   });
 });
 

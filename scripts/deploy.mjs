@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { signDeployPurgeAuthorization } from '../src/features/cache/deployPurgeAuth.ts';
 import { resolveStorefrontSet } from './storefront-set.mjs';
-import { deployPlan, validateStamp } from './deploy-plan.mjs';
+import { executeDeployPlan } from './deploy-plan.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const args = process.argv.slice(2);
@@ -20,15 +20,6 @@ const stampPath = resolve(root, 'dist/storefront-set.json');
 const storefront = resolveStorefrontSet(root);
 console.log(`Deploying storefront set: ${storefront.id} (from ${storefront.source})`);
 
-/** The artifact must have been built FOR the current selection. The gate
- *  itself lives in deploy-plan.mjs, where the tests can reach it. */
-function assertArtifactMatchesSelection() {
-  validateStamp({
-    raw: existsSync(stampPath) ? readFileSync(stampPath, 'utf8') : null,
-    expectedSet: storefront.id,
-    skipBuild,
-  });
-}
 
 function run(command, args) {
   const result = spawnSync(command, args, {
@@ -146,49 +137,32 @@ async function purgeAfterDeploy(origin, secret) {
   );
 }
 
-// Execute the plan and NOTHING outside it. The ordering — build and validate
-// before any remote mutation — is pinned by test/scripts/deploy-plan.test.mjs;
-// adding a wrangler call here directly, outside a plan step, is the regression
-// that split exists to prevent.
-let cacheConfig;
-const handlers = {
+// The real operations, and NOTHING outside them. Which step invokes which
+// operation is decided by executeDeployPlan — the shared, spy-testable
+// mapping in deploy-plan.mjs — so test/scripts/deploy-plan.test.mjs proves a
+// failing stamp leaves migrate/deploy uncalled against the SAME code that
+// runs here. Defining an extra wrangler call in this file, outside `ops`,
+// is the regression that split exists to prevent.
+const ops = {
+  expectedSet: storefront.id,
+  readStamp: () => (existsSync(stampPath) ? readFileSync(stampPath, 'utf8') : null),
   build: () => run('npx', ['astro', 'build']),
-  'validate-stamp': () => {
-    try {
-      assertArtifactMatchesSelection();
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
-      process.exit(1);
-    }
-  },
-  'cache-config': () => {
-    try {
-      cacheConfig = deploymentCacheConfig();
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
-      process.exit(1);
-    }
-    if (preflightOnly) {
-      console.log(
-        cacheConfig.crossVersion
-          ? '✓ Cross-version cache deployment preflight passed.'
-          : '✓ Deployment preflight passed; cross-version caching is disabled.',
-      );
-    }
-  },
+  loadCacheConfig: () => deploymentCacheConfig(),
   migrate: () => run('npx', ['wrangler', 'd1', 'migrations', 'apply', 'DB', '--remote']),
   deploy: () => run('npx', ['wrangler', 'deploy']),
-  'purge-if-cross-version': async () => {
-    if (!cacheConfig.crossVersion) return;
-    try {
-      await purgeAfterDeploy(cacheConfig.origin, cacheConfig.secret);
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
-      process.exit(1);
-    }
-  },
+  purge: (cacheConfig) => purgeAfterDeploy(cacheConfig.origin, cacheConfig.secret),
 };
 
-for (const step of deployPlan({ skipBuild, preflightOnly })) {
-  await handlers[step]();
+try {
+  const { cacheConfig } = await executeDeployPlan({ skipBuild, preflightOnly }, ops);
+  if (preflightOnly) {
+    console.log(
+      cacheConfig.crossVersion
+        ? '✓ Cross-version cache deployment preflight passed.'
+        : '✓ Deployment preflight passed; cross-version caching is disabled.',
+    );
+  }
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
 }
