@@ -28,6 +28,7 @@ const order = (overrides: Partial<Order> = {}): Order =>
     tracking_carrier: null,
     tracking_number: null,
     fulfilled_at: null,
+    label_url: null,
     ship_address: null,
     created_at: '2026-07-28 00:00:00',
     ...overrides,

@@ -16,6 +16,7 @@ export type SecretName =
   | 'stripe_secret_key'
   | 'stripe_webhook_secret'
   | 'opennode_api_key'
+  | 'shippo_api_key'
   | 'resend_api_key'
   | 'turnstile_secret_key'
   | 'lnbits_api_key'
@@ -25,6 +26,7 @@ export const SECRET_NAMES: readonly SecretName[] = [
   'stripe_secret_key',
   'stripe_webhook_secret',
   'opennode_api_key',
+  'shippo_api_key',
   'resend_api_key',
   'turnstile_secret_key',
   'lnbits_api_key',

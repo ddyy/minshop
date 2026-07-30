@@ -295,6 +295,8 @@ if (Astro.request.method === 'POST') {
         await applySecrets([secretName]);
       }
     }
+  } else if (action === 'save_shippo') {
+    await applySecrets(['shippo_api_key']);
   } else if (action === 'save_opennode') {
     await setSetting(env.DB, 'opennode_api_url', String(form.get('opennode_api_url') ?? '').trim() || null);
     await applySecrets(['opennode_api_key']);
@@ -778,6 +780,27 @@ const sections = [
         >
           Save
         </button>
+      </form>
+    </div>
+
+    {/* Shipping labels are optional infrastructure like the payment rails: the
+        card is one token field, and nothing label-related renders anywhere else
+        until the token exists. */}
+    <div class="mb-4 rounded-lg border border-gray-200 bg-white px-4 py-4">
+      <p class="font-medium">Shipping labels (Shippo)</p>
+      <p class="mt-1 text-xs text-gray-500">
+        Buy carrier labels from the order page using the recorded address and weight — tracking
+        is filled in and the shipped email sent automatically. A
+        <code class="text-[11px]">shippo_test_…</code> token buys fake labels for trying it out.
+      </p>
+      <form method="POST" class="mt-3 space-y-3">
+        <input type="hidden" name="_action" value="save_shippo" />
+        <SecretField name="shippo_api_key" label="API token" hint="shippo_live_… or shippo_test_…" storedInD1={inD1('shippo_api_key')} vault={vault} />
+        {vault && (
+          <button type="submit" class="mt-1 rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover">
+            Save
+          </button>
+        )}
       </form>
     </div>
 

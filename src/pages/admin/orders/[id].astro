@@ -5,6 +5,15 @@ import { formatPrice, formatDate, getConfig } from '../../../config';
 import { getOrderByPublicId, listOrderItemsWithImages } from '../../../features/orders/db';
 import { orderReference } from '../../../features/orders/number';
 import { CARRIERS, carrierName, trackingUrl } from '../../../features/orders/tracking';
+import { getSecret } from '../../../features/secrets/store';
+import { getSetting } from '../../../features/settings/db';
+import { formatWeightValue } from '../../../features/shipping/weight';
+import {
+  distanceUnitFor,
+  getShipmentRates,
+  type LabelRate,
+  type ShipFrom,
+} from '../../../features/shipping/labels.ts';
 import { shouldSendCustomerOrderEmail } from '../../../features/email/orderPolicy';
 import RefundPanel from '../../../features/refunds/RefundPanel.astro';
 import { formatWeight } from '../../../features/shipping/weight';
@@ -34,6 +43,34 @@ const paymentLabel = order.payment_method
 const timeZone = Astro.locals.settings?.timeZone ?? getConfig().timeZone;
 const items = await listOrderItemsWithImages(env.DB, order.id);
 const fulfilled = order.fulfillment_status === 'fulfilled';
+const weightUnit = Astro.locals.settings?.weightUnit ?? 'g';
+
+// ── Shipping label (Shippo) ──────────────────────────────────────────────────
+// The whole card is gated on the token: stores that never configure Shippo see
+// nothing. Rates render on a plain GET (?shipment=…) so the flow needs no JS.
+const shippoToken = await getSecret(env.DB, 'shippo_api_key');
+const canLabel = !!shippoToken && !!order.ship_address && !fulfilled && order.status === 'paid';
+let labelRates: LabelRate[] = [];
+let labelRatesError: string | null = null;
+const shipmentId = Astro.url.searchParams.get('shipment');
+if (canLabel && shipmentId && shippoToken) {
+  const rates = await getShipmentRates(shippoToken, shipmentId);
+  if (rates.ok) labelRates = rates.value;
+  else labelRatesError = rates.error;
+}
+let shipFrom: Partial<ShipFrom> = {};
+let parcelDefault: Partial<{ length: number; width: number; height: number }> = {};
+if (canLabel) {
+  try {
+    shipFrom = JSON.parse((await getSetting(env.DB, 'ship_from')) ?? '{}');
+  } catch {}
+  try {
+    parcelDefault = JSON.parse((await getSetting(env.DB, 'parcel_default')) ?? '{}');
+  } catch {}
+}
+const dimUnit = distanceUnitFor(weightUnit);
+const parcelWeightValue =
+  order.shipping_weight_grams != null ? formatWeightValue(order.shipping_weight_grams, weightUnit) : '';
 const trackUrl = trackingUrl(order.tracking_carrier, order.tracking_number);
 const error = Astro.url.searchParams.get('error');
 const noticeMsg = Astro.url.searchParams.get('notice');
@@ -62,7 +99,6 @@ const ship = order.ship_address
       country: string | null;
     })
   : null;
-const weightUnit = Astro.locals.settings?.weightUnit ?? 'g';
 ---
 
 <AdminLayout title={`Order #${num}`} active="orders">
@@ -191,6 +227,13 @@ const weightUnit = Astro.locals.settings?.weightUnit ?? 'g';
               )}
             </p>
           )}
+          {order.label_url && (
+            <p>
+              <a href={order.label_url} target="_blank" rel="noopener" class="text-accent hover:underline">
+                Shipping label (PDF)
+              </a>
+            </p>
+          )}
           <form method="POST" action={`/api/admin/orders/${order.public_id}`}>
             <input type="hidden" name="_action" value="unfulfill" />
             <button type="submit" class="text-xs uppercase tracking-widest text-gray-400 hover:text-red-600">
@@ -199,6 +242,105 @@ const weightUnit = Astro.locals.settings?.weightUnit ?? 'g';
           </form>
         </div>
       ) : (
+        <div class="space-y-6">
+          {canLabel && (
+            <div class="rounded-md border border-line bg-white/60 p-4 text-sm">
+              <p class="mb-3 text-xs uppercase tracking-widest text-gray-400">Buy shipping label</p>
+              {labelRatesError && <p class="mb-3 text-red-700">{labelRatesError}</p>}
+              {labelRates.length > 0 ? (
+                <form method="POST" action={`/api/admin/orders/${order.public_id}`} class="space-y-2">
+                  <input type="hidden" name="_action" value="buy_label" />
+                  <input type="hidden" name="shipment" value={shipmentId} />
+                  {labelRates.map((r, i) => (
+                    <label class="flex items-center gap-3">
+                      <input type="radio" name="rate" value={r.rateId} checked={i === 0} class="size-4" />
+                      <span class="flex-1">
+                        {r.provider} {r.service}
+                        {r.estimatedDays != null && (
+                          <span class="text-gray-500"> · ~{r.estimatedDays}d</span>
+                        )}
+                      </span>
+                      <span class="tabular-nums">{formatPrice(r.amountCents, r.currency)}</span>
+                    </label>
+                  ))}
+                  <div class="flex items-center gap-4 pt-2">
+                    <button
+                      type="submit"
+                      class="rounded-md bg-brand px-5 py-2 font-medium text-white hover:bg-brand-hover"
+                    >
+                      Buy label
+                    </button>
+                    <a
+                      href={`/admin/orders/${order.public_id}`}
+                      class="text-xs uppercase tracking-widest text-gray-400 hover:text-brand"
+                    >
+                      Start over
+                    </a>
+                  </div>
+                  <p class="text-xs text-gray-500">
+                    Buying charges your Shippo account, records the tracking number, marks the
+                    order fulfilled, and emails the customer.
+                  </p>
+                </form>
+              ) : (
+                <form method="POST" action={`/api/admin/orders/${order.public_id}`} class="space-y-3">
+                  <input type="hidden" name="_action" value="label_rates" />
+                  <div class="grid gap-3 sm:grid-cols-3">
+                    <label class="block sm:col-span-3">
+                      <span class="block text-xs uppercase tracking-widest text-gray-400">Ship from — name</span>
+                      <input name="from_name" value={shipFrom.name ?? ''} required class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                    </label>
+                    <label class="block sm:col-span-3">
+                      <span class="block text-xs uppercase tracking-widest text-gray-400">Street</span>
+                      <input name="from_street1" value={shipFrom.street1 ?? ''} required class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                    </label>
+                    <label class="block">
+                      <span class="block text-xs uppercase tracking-widest text-gray-400">City</span>
+                      <input name="from_city" value={shipFrom.city ?? ''} required class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                    </label>
+                    <label class="block">
+                      <span class="block text-xs uppercase tracking-widest text-gray-400">State</span>
+                      <input name="from_state" value={shipFrom.state ?? ''} class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                    </label>
+                    <label class="block">
+                      <span class="block text-xs uppercase tracking-widest text-gray-400">Postal code</span>
+                      <input name="from_zip" value={shipFrom.zip ?? ''} required class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                    </label>
+                    <label class="block">
+                      <span class="block text-xs uppercase tracking-widest text-gray-400">Country</span>
+                      <input name="from_country" value={shipFrom.country ?? 'US'} required maxlength="2" class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2 uppercase" />
+                    </label>
+                    <label class="block">
+                      <span class="block text-xs uppercase tracking-widest text-gray-400">Length ({dimUnit})</span>
+                      <input name="parcel_length" value={parcelDefault.length ?? ''} required inputmode="decimal" class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                    </label>
+                    <label class="block">
+                      <span class="block text-xs uppercase tracking-widest text-gray-400">Width ({dimUnit})</span>
+                      <input name="parcel_width" value={parcelDefault.width ?? ''} required inputmode="decimal" class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                    </label>
+                    <label class="block">
+                      <span class="block text-xs uppercase tracking-widest text-gray-400">Height ({dimUnit})</span>
+                      <input name="parcel_height" value={parcelDefault.height ?? ''} required inputmode="decimal" class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                    </label>
+                    <label class="block">
+                      <span class="block text-xs uppercase tracking-widest text-gray-400">Packed weight ({weightUnit})</span>
+                      <input name="parcel_weight" value={parcelWeightValue} required inputmode="decimal" class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                    </label>
+                  </div>
+                  <button
+                    type="submit"
+                    class="rounded-md bg-brand px-5 py-2 font-medium text-white hover:bg-brand-hover"
+                  >
+                    Get rates
+                  </button>
+                  <p class="text-xs text-gray-500">
+                    Address and box size are remembered for the next label. Weight is prefilled
+                    from the order’s recorded shipment weight when there is one.
+                  </p>
+                </form>
+              )}
+            </div>
+          )}
         <form
           method="POST"
           action={`/api/admin/orders/${order.public_id}`}
@@ -228,6 +370,7 @@ const weightUnit = Astro.locals.settings?.weightUnit ?? 'g';
             Mark as fulfilled
           </button>
         </form>
+        </div>
       )
     }
   </div>

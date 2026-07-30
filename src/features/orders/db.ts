@@ -39,6 +39,8 @@ export interface Order {
   tracking_carrier: string | null;
   tracking_number: string | null;
   fulfilled_at: string | null;
+  /** Purchased label PDF (Shippo), or null for manual fulfillment. */
+  label_url: string | null;
   ship_address: string | null; // JSON snapshot (ShippingAddress) or null
   created_at: string;
 }
@@ -276,6 +278,11 @@ export async function fulfillOrder(
 }
 
 /** Revert an order to unfulfilled, clearing tracking. */
+/** Attach a purchased label's document URL (fulfillOrder records the tracking). */
+export async function setOrderLabelUrl(db: D1Database, id: number, url: string): Promise<void> {
+  await db.prepare('UPDATE orders SET label_url = ? WHERE id = ?').bind(url, id).run();
+}
+
 export async function unfulfillOrder(db: D1Database, id: number): Promise<void> {
   await db
     .prepare(

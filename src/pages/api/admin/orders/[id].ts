@@ -5,7 +5,19 @@ import {
   getOrderByPublicId,
   fulfillOrder,
   unfulfillOrder,
+  setOrderLabelUrl,
+  type ShippingAddress,
 } from '../../../../features/orders/db';
+import { getSecret } from '../../../../features/secrets/store';
+import { setSetting } from '../../../../features/settings/db';
+import {
+  carrierCodeFor,
+  fetchLabelRates,
+  getShipmentRates,
+  parseParcelForm,
+  purchaseLabel,
+  type ShipFrom,
+} from '../../../../features/shipping/labels.ts';
 import {
   recordExternalRefund,
   syncProviderRefund,
@@ -264,6 +276,116 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
   if (action === 'review_refund') {
     await acknowledgeRefundReview(env.DB, id, admin);
     return back;
+  }
+
+  // Fetch carrier rates for a label (no money moves yet). Saves the ship-from
+  // and parcel defaults first, so an abandoned purchase still remembers them.
+  if (action === 'label_rates' || action === 'buy_label') {
+    const token = await getSecret(env.DB, 'shippo_api_key');
+    if (!token) return fail('Add a Shippo API token in Settings first.');
+    if (!existing.ship_address) return fail('This order has no shipping address.');
+    let raw: ShippingAddress;
+    try {
+      raw = JSON.parse(existing.ship_address) as ShippingAddress;
+    } catch {
+      return fail('This order’s shipping address could not be read.');
+    }
+    // The snapshot's fields are nullable (Stripe's collected shapes vary); a
+    // label needs the essentials filled in, so refuse with the gap named.
+    if (!raw.name || !raw.line1 || !raw.city || !raw.postal || !raw.country) {
+      return fail('This order’s shipping address is incomplete — a label needs name, street, city, postal code, and country.');
+    }
+    const shipTo = {
+      name: raw.name,
+      line1: raw.line1,
+      line2: raw.line2,
+      city: raw.city,
+      state: raw.state,
+      postal: raw.postal,
+      country: raw.country,
+      email: existing.email,
+    };
+
+    if (action === 'label_rates') {
+      const from: ShipFrom = {
+        name: String(form.get('from_name') ?? '').trim(),
+        street1: String(form.get('from_street1') ?? '').trim(),
+        city: String(form.get('from_city') ?? '').trim(),
+        state: String(form.get('from_state') ?? '').trim(),
+        zip: String(form.get('from_zip') ?? '').trim(),
+        country: String(form.get('from_country') ?? '').trim().toUpperCase(),
+      };
+      if (!from.name || !from.street1 || !from.city || !from.zip || from.country.length !== 2) {
+        return fail('Fill in the complete ship-from address (2-letter country).');
+      }
+      const settings = await getStoreSettings(env.DB);
+      const parsed = parseParcelForm(
+        {
+          length: String(form.get('parcel_length') ?? ''),
+          width: String(form.get('parcel_width') ?? ''),
+          height: String(form.get('parcel_height') ?? ''),
+          weight: String(form.get('parcel_weight') ?? ''),
+        },
+        settings.weightUnit,
+      );
+      if (!parsed.parcel) return fail(parsed.error ?? 'Check the parcel fields.');
+
+      // Remember for next time regardless of whether a label gets bought.
+      await setSetting(env.DB, 'ship_from', JSON.stringify(from));
+      await setSetting(
+        env.DB,
+        'parcel_default',
+        JSON.stringify({
+          length: parsed.parcel.length,
+          width: parsed.parcel.width,
+          height: parsed.parcel.height,
+        }),
+      );
+
+      const rates = await fetchLabelRates(token, from, shipTo, parsed.parcel, settings.weightUnit);
+      if (!rates.ok) return fail(rates.error);
+      return redirect(
+        `/admin/orders/${publicId}?shipment=${encodeURIComponent(rates.value.shipmentId)}`,
+        303,
+      );
+    }
+
+    // buy_label — MOVES MONEY on the merchant's Shippo account. The rate is
+    // re-read from the shipment (never trusted from the form beyond its id),
+    // and success flows straight into the normal fulfillment path so tracking
+    // and the shipped email behave exactly as a manual fulfillment would.
+    const shipmentId = String(form.get('shipment') ?? '').trim();
+    const rateId = String(form.get('rate') ?? '').trim();
+    if (!shipmentId || !rateId) return fail('Pick a rate first.');
+    const rates = await getShipmentRates(token, shipmentId);
+    if (!rates.ok) return fail(rates.error);
+    const rate = rates.value.find((r) => r.rateId === rateId);
+    if (!rate) return fail('That rate is no longer offered. Fetch rates again.');
+
+    const bought = await purchaseLabel(token, rate.rateId, rate.provider);
+    if (!bought.ok) return fail(bought.error);
+
+    await fulfillOrder(env.DB, id, carrierCodeFor(bought.value.provider), bought.value.trackingNumber);
+    await setOrderLabelUrl(env.DB, id, bought.value.labelUrl);
+
+    const order = await getOrder(env.DB, id);
+    if (order?.email && shouldSendCustomerOrderEmail(order.payment_method)) {
+      const emailer = await getEmailProvider();
+      if (emailer) {
+        try {
+          const storeName = (await getSetting(env.DB, 'store_name')) || getConfig().storeName;
+          const shipOrigin = new URL(request.url).origin;
+          await emailer.send(
+            orderShippedEmail(order, storeName, await guestOrderUrl(env.DB, order.public_id, shipOrigin)),
+          );
+        } catch (err) {
+          console.error('Shipping email failed:', err);
+        }
+      }
+    }
+    return notice(
+      `Label purchased (${rate.provider} ${rate.service}). Tracking ${bought.value.trackingNumber} recorded and the customer notified.`,
+    );
   }
 
   // Fulfill
