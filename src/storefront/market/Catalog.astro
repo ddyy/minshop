@@ -1,0 +1,69 @@
+---
+import type { CatalogPageModel } from '../../features/storefront/models';
+import ProductCard from './ProductCard.astro';
+import CatalogSort from '../../features/storefront/controls/CatalogSort.astro';
+import CatalogPagination from '../../features/storefront/controls/CatalogPagination.astro';
+
+/**
+ * Market — the catalogue as a working surface.
+ *
+ * Categories are a chip rail and sort is a segmented control, both on one
+ * toolbar strip, so the whole filter state is legible in a single glance
+ * without scrolling past a masthead. The grid runs five across on 1px
+ * hairlines rather than gutters: the tiles read as one continuous table.
+ *
+ * <CatalogSort> and <CatalogPagination> are restyled through `class` only. The
+ * hrefs they carry encode the catalogue's query semantics — which pages exist,
+ * which URL is canonical — and rebuilding them here would fork that.
+ */
+interface Props {
+  model: CatalogPageModel;
+}
+
+const { model } = Astro.props;
+const chip =
+  'border border-line bg-paper px-2.5 py-1 text-[11px] font-semibold text-[color:var(--market-muted)] hover:border-gray-900 hover:text-gray-900';
+---
+
+<div
+  class="-mx-6 flex flex-wrap items-center gap-2 border-y border-line bg-[color:var(--market-surface)] px-6 py-2"
+>
+  {model.categories.map((category) => <a href={category.href} class={chip}>{category.text}</a>)}
+  <CatalogSort
+    model={model.sort}
+    class="ml-auto flex items-center gap-3 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--market-muted)]"
+  />
+</div>
+
+<div class="flex flex-wrap items-baseline gap-3 py-4">
+  <h1 class="text-[22px] font-extrabold tracking-tight">{model.heading}</h1>
+  <p class="font-serif text-xs text-[color:var(--market-muted)]">
+    {model.products.length} shown
+    {model.pagination.totalPages > 1 && ` · page ${model.pagination.page}/${model.pagination.totalPages}`}
+  </p>
+</div>
+
+{
+  /* role="status" is the contract, not the wording: an empty catalogue must
+     announce itself rather than rendering a blank grid. */
+  model.products.length === 0 && (
+    <p role="status" class="border border-line bg-[color:var(--market-surface)] p-6 text-sm">
+      Nothing here yet. Check back shortly.
+    </p>
+  )
+}
+
+{
+  model.products.length > 0 && (
+    <ul class="-mx-6 grid grid-cols-2 gap-px border-y border-line bg-line sm:grid-cols-3 lg:grid-cols-5">
+      {model.products.map((card, i) => (
+        <ProductCard card={card} index={i} />
+      ))}
+    </ul>
+  )
+}
+
+<CatalogPagination
+  model={model.pagination}
+  class="mt-6 flex items-center justify-center gap-1 font-serif text-xs"
+/>

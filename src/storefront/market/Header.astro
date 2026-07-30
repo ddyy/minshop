@@ -1,0 +1,81 @@
+---
+import type { StorefrontShellModel } from '../../features/storefront/models';
+import StoreNav from '../../features/storefront/controls/StoreNav.astro';
+import StoreSearch from '../../features/storefront/controls/StoreSearch.astro';
+import StoreCartControl from '../../features/storefront/controls/StoreCartControl.astro';
+import StoreAccountControl from '../../features/storefront/controls/StoreAccountControl.astro';
+
+/**
+ * Market — a compact toolbar, not a masthead.
+ *
+ * Search is always visible rather than hidden behind a breakpoint: on a store
+ * with real depth it is the primary navigation, and a shopper should never have
+ * to go looking for it. The row stays near 48px so the catalogue starts above
+ * the fold.
+ *
+ * This renders on every page including checkout, the pay page, and Admin login,
+ * so the controls below stay as they are — a header that breaks is a checkout
+ * that breaks.
+ */
+interface Props {
+  model: StorefrontShellModel;
+}
+
+const { model } = Astro.props;
+const link = 'text-xs font-semibold text-[color:var(--market-muted)] hover:text-gray-900';
+---
+
+{
+  model.announcement && (
+    <div class="bg-gray-900 px-4 py-1.5 text-center text-[11px] font-medium text-white">
+      {model.announcement.href ? (
+        <a href={model.announcement.href} class="underline-offset-2 hover:underline">
+          {model.announcement.text}
+        </a>
+      ) : (
+        model.announcement.text
+      )}
+    </div>
+  )
+}
+
+<header class="sticky top-0 z-20 border-b-2 border-gray-900 bg-paper">
+  <div class="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-2">
+    <a href="/" aria-label={model.storeName} class="shrink-0">
+      {
+        model.logo ? (
+          <img src={model.logo.src} alt={model.logo.alt} class="h-7 max-w-40 object-contain" />
+        ) : (
+          <span class="text-[17px] font-extrabold uppercase tracking-tight">{model.storeName}</span>
+        )
+      }
+    </a>
+
+    <StoreSearch
+      action={model.search.action}
+      query={model.search.query}
+      class="order-3 flex w-full min-w-0 border border-line bg-[color:var(--market-surface)] focus-within:border-brand sm:order-none sm:w-auto sm:max-w-md sm:flex-1"
+    />
+
+    <nav
+      aria-label="Store"
+      class="ml-auto flex min-w-0 items-center gap-3 text-xs font-semibold text-[color:var(--market-muted)] sm:gap-4"
+    >
+      <StoreNav
+        links={model.headerLinks}
+        class="hidden min-w-0 items-center gap-4 lg:flex"
+        disclosureClass="relative order-last lg:hidden"
+      />
+      {model.blog.enabled && <a href={model.blog.href} class={link}>Blog</a>}
+      {model.account.enabled && <StoreAccountControl href={model.account.href} class={link} />}
+      {
+        model.cart.enabled && (
+          <StoreCartControl
+            href={model.cart.href}
+            class="inline-flex items-center border border-gray-900 px-2.5 py-1.5 font-serif text-xs font-bold uppercase text-gray-900 hover:bg-gray-900 hover:text-white"
+          />
+        )
+      }
+    </nav>
+  </div>
+</header>

@@ -1,0 +1,39 @@
+---
+import type { ContentPageModel } from '../../features/storefront/models';
+
+/**
+ * Market — a compact document frame.
+ *
+ * The frame around a merchant's Markdown page. It does NOT parse Markdown,
+ * sanitize, or choose a layout — all of that happened upstream, and `model.html`
+ * arrives already rendered and safe.
+ *
+ * Two things to keep:
+ *
+ *   `class="markdown-content"` is the hook the prose styles are scoped to.
+ *   Remove it and every heading, list, and link in every merchant page loses
+ *   its typography at once.
+ *
+ *   `style={model.layoutStyle}` carries the merchant's layout preset — the
+ *   measure and title alignment they picked in Admin. Drop it and every page
+ *   silently reverts to the default width.
+ *
+ * The prose scale itself is yours: the --prose-* tokens in theme.css.
+ *
+ * See CUSTOMIZING.md for the full contract.
+ */
+interface Props {
+  model: ContentPageModel;
+}
+
+const { model } = Astro.props;
+---
+
+<article
+  class="markdown-content py-6"
+  data-page-layout={model.layout}
+  style={model.layoutStyle}
+>
+  <h1>{model.title}</h1>
+  <Fragment set:html={model.html} />
+</article>

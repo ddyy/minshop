@@ -1,0 +1,59 @@
+---
+import type { ProductCardModel } from '../../features/storefront/models';
+import StoreImage from '../../features/storefront/controls/StoreImage.astro';
+
+/**
+ * Market — a dense catalogue tile.
+ *
+ * Availability is stated on every card, not only on sold-out ones: in a
+ * five-across grid the shopper is comparing, and "in stock" is information they
+ * would otherwise have to open a page to get. `inStock` is the only signal the
+ * model exposes, deliberately — exact counts stay private.
+ *
+ * No reveal animation here. This design is a working tool, and staggered
+ * entrances would fight the scan.
+ */
+interface Props {
+  card: ProductCardModel;
+  /** Accepted for contract parity with the default; this design does not
+   *  stagger, so it is unused. */
+  index?: number;
+  headingLevel?: 'h2' | 'h3';
+}
+
+const { card, headingLevel = 'h2' } = Astro.props;
+const Heading = headingLevel;
+---
+
+<li class="flex flex-col gap-2 bg-paper p-2.5 pb-3">
+  <a href={card.href} class="group block">
+    <div class="relative aspect-square overflow-hidden bg-[color:var(--market-surface)]">
+      <StoreImage
+        image={card.image}
+        fade
+        class={`aspect-square w-full object-cover${card.inStock ? '' : ' opacity-50'}`}
+      />
+      {
+        !card.inStock && (
+          <span class="absolute left-1.5 top-1.5 bg-gray-900 px-1.5 py-1 text-[9px] font-bold uppercase tracking-wider text-white">
+            Sold out
+          </span>
+        )
+      }
+    </div>
+  </a>
+
+  <Heading class="line-clamp-2 text-[13px] font-semibold leading-snug">
+    <a href={card.href} class="hover:text-brand">{card.name}</a>
+  </Heading>
+
+  <div class="mt-auto flex items-center justify-between gap-2">
+    <span class="font-serif text-[15px] font-bold tabular-nums">{card.formattedPrice}</span>
+    <span
+      class="text-[10px] font-bold uppercase tracking-wide"
+      style={`color:${card.inStock ? 'var(--market-stock-in)' : 'var(--market-muted)'}`}
+    >
+      {card.inStock ? 'In stock' : 'Out'}
+    </span>
+  </div>
+</li>

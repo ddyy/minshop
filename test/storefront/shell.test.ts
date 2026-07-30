@@ -204,8 +204,15 @@ describe('the store-owned header', () => {
       ),
     );
 
-    for (const href of ['/account', '/blog', '/cart', '/search', '/pages/about']) {
+    for (const href of ['/account', '/blog', '/cart', '/pages/about']) {
       expect(html).toContain(`href="${href}"`);
+    }
+    // Search is REACHABLE, not necessarily a link. The default hides its input
+    // below `sm` and adds a link for small screens; a design with an
+    // always-visible field satisfies the same contract through the form action
+    // alone. Asserting the link would have pinned the default's composition.
+    expect(html).toMatch(/(href|action)="\/search"/);
+    {
     }
   });
 

@@ -1,0 +1,134 @@
+---
+import type { ProductDetailModel, ProductPurchaseModel } from '../../features/storefront/models';
+import ProductCard from './ProductCard.astro';
+import ProductGallery from '../../features/storefront/controls/ProductGallery.astro';
+import ProductPurchaseForm from '../../features/storefront/controls/ProductPurchaseForm.astro';
+
+/**
+ * Market — purchase hierarchy first.
+ *
+ * The right column is `position: sticky`, CSS only: price, availability,
+ * options, and the buttons stay on screen while a long description or a tall
+ * gallery scrolls past. No script is involved, so it survives with JavaScript
+ * off — the column simply stops following.
+ *
+ * <ProductGallery> and <ProductPurchaseForm> are composed, not rebuilt. The
+ * gallery owns the anchors the variant selector scrolls to and the LCP
+ * treatment on the first frame; the form owns the field names, the sold-out
+ * states, and `data-fullpage`, without which Buy now is captured by the cart
+ * drawer instead of navigating.
+ */
+interface Props {
+  model: ProductDetailModel;
+  purchase: ProductPurchaseModel;
+}
+
+const { model, purchase } = Astro.props;
+---
+
+<nav aria-label="Breadcrumb" class="py-3 font-serif text-[11px] text-[color:var(--market-muted)]">
+  <a href={model.backHref} class="hover:text-brand">Shop</a>
+  {model.categories.map((category) => (
+    <>
+      <span aria-hidden="true"> / </span>
+      <a href={category.href} class="hover:text-brand">{category.text}</a>
+    </>
+  ))}
+</nav>
+
+{
+  model.error && (
+    <p role="alert" class="mb-3 border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+      {model.error}
+    </p>
+  )
+}
+
+<div class="grid items-start gap-6 lg:grid-cols-[1fr_340px]">
+  <ProductGallery
+    images={model.images}
+    hero={model.heroImage}
+    soldOut={model.soldOut}
+    class="border border-line"
+  />
+
+  <aside class="border border-line p-4 lg:sticky lg:top-16">
+    <h1 class="text-[19px] font-extrabold leading-snug tracking-tight">{model.name}</h1>
+    <p class="mt-1 font-serif text-[11px] uppercase text-[color:var(--market-muted)]">
+      {model.id}
+    </p>
+
+    <p
+      class="mt-3 font-serif text-[30px] font-bold tracking-tight tabular-nums"
+      data-price-display
+      data-base={model.priceCents}
+      data-currency={model.currency}
+    >
+      {model.priceVaries && <span class="text-sm font-normal">from </span>}
+      {model.formattedPrice}
+    </p>
+
+    {
+      model.lowStock && (
+        <p
+          data-low-stock
+          class="mt-2 inline-block px-2 py-1 text-[11px] font-bold uppercase tracking-wide"
+          style="background:#fdf1e0;color:var(--market-stock-low)"
+        >
+          Low stock
+        </p>
+      )
+    }
+    {
+      !model.lowStock && !model.soldOut && (
+        <p
+          class="mt-2 inline-block px-2 py-1 text-[11px] font-bold uppercase tracking-wide"
+          style="background:#e6f4ea;color:var(--market-stock-in)"
+        >
+          In stock
+        </p>
+      )
+    }
+
+    <ProductPurchaseForm model={purchase} />
+
+    <button
+      type="button"
+      data-share
+      data-share-title={model.name}
+      class="mt-4 hidden w-fit items-center gap-1.5 text-[11px] font-semibold text-[color:var(--market-muted)] hover:text-brand"
+    >
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+        <line x1="8.6" y1="13.5" x2="15.4" y2="17.5" /><line x1="15.4" y1="6.5" x2="8.6" y2="10.5" />
+      </svg>
+      <span data-share-label>Share</span>
+    </button>
+  </aside>
+</div>
+
+{
+  model.description && (
+    <section class="mt-8 border-t border-line pt-6">
+      <h2 class="mb-2 text-xs font-bold uppercase tracking-wider text-[color:var(--market-muted)]">
+        Details
+      </h2>
+      <p class="max-w-prose text-sm leading-relaxed">{model.description}</p>
+    </section>
+  )
+}
+
+{
+  model.related.length > 0 && (
+    <section class="mt-8 border-t border-line pt-6">
+      <h2 class="mb-3 text-xs font-bold uppercase tracking-wider text-[color:var(--market-muted)]">
+        Related
+      </h2>
+      <ul class="-mx-6 grid grid-cols-2 gap-px border-y border-line bg-line sm:grid-cols-4">
+        {model.related.map((card, i) => (
+          <ProductCard card={card} index={i} headingLevel="h3" />
+        ))}
+      </ul>
+    </section>
+  )
+}

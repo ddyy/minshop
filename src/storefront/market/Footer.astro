@@ -1,0 +1,34 @@
+---
+import type { StorefrontShellModel } from '../../features/storefront/models';
+
+/**
+ * Market — a compact footer strip.
+ *
+ * Utility links, not a sitemap. Kept to one line at desktop so it reads as the
+ * end of a tool rather than a second navigation surface.
+ */
+interface Props {
+  model: StorefrontShellModel;
+}
+
+const { model } = Astro.props;
+---
+
+<footer class="mt-10 border-t-2 border-gray-900 bg-[color:var(--market-surface)]">
+  <div
+    class="mx-auto flex max-w-7xl flex-wrap items-center gap-x-5 gap-y-2 px-4 py-4 text-[11px] font-semibold text-[color:var(--market-muted)]"
+  >
+    <span class="font-serif uppercase tracking-wide text-gray-900">&copy; {model.storeName}</span>
+    {
+      model.footerLinks.length > 0 && (
+        <nav aria-label="Footer" class="flex flex-wrap items-center gap-x-5 gap-y-2">
+          {model.footerLinks.map((link) => (
+            <a href={link.href} class="hover:text-gray-900">
+              {link.text}
+            </a>
+          ))}
+        </nav>
+      )
+    }
+  </div>
+</footer>
