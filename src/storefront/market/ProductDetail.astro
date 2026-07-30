@@ -44,15 +44,24 @@ const { model, purchase } = Astro.props;
   )
 }
 
-<div class="grid items-start gap-6 lg:grid-cols-[1fr_340px]">
+<!-- Three columns at desktop: media, details, purchase. The media column is
+     CAPPED rather than fluid — ProductGallery applies aspect-square to the
+     image itself, so a full-width column renders a 1000px-tall hero, which is
+     absurd for a design about density. Capping the column is the template-side
+     fix; changing the ratio would need a prop the control does not expose.
+     DOM order puts the purchase panel before the description so it comes
+     second on a phone; `order` restores the visual arrangement at lg. -->
+<div
+  class="grid items-start gap-5 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)_340px]"
+>
   <ProductGallery
     images={model.images}
     hero={model.heroImage}
     soldOut={model.soldOut}
-    class="border border-line"
+    class="border border-line lg:order-1"
   />
 
-  <aside class="border border-line p-4 lg:sticky lg:top-16">
+  <aside class="border border-line p-4 lg:order-3 lg:sticky lg:top-16">
     <h1 class="text-[19px] font-extrabold leading-snug tracking-tight">{model.name}</h1>
     <p class="mt-1 font-serif text-[11px] uppercase text-[color:var(--market-muted)]">
       {model.id}
@@ -105,18 +114,20 @@ const { model, purchase } = Astro.props;
       <span data-share-label>Share</span>
     </button>
   </aside>
+
+  {
+    model.description && (
+      <section class="lg:order-2">
+        <h2 class="mb-2 text-xs font-bold uppercase tracking-wider text-[color:var(--market-muted)]">
+          Details
+        </h2>
+        <p class="text-sm leading-relaxed">{model.description}</p>
+      </section>
+    )
+  }
 </div>
 
-{
-  model.description && (
-    <section class="mt-8 border-t border-line pt-6">
-      <h2 class="mb-2 text-xs font-bold uppercase tracking-wider text-[color:var(--market-muted)]">
-        Details
-      </h2>
-      <p class="max-w-prose text-sm leading-relaxed">{model.description}</p>
-    </section>
-  )
-}
+
 
 {
   model.related.length > 0 && (
@@ -124,7 +135,7 @@ const { model, purchase } = Astro.props;
       <h2 class="mb-3 text-xs font-bold uppercase tracking-wider text-[color:var(--market-muted)]">
         Related
       </h2>
-      <ul class="-mx-6 grid grid-cols-2 gap-px border-y border-line bg-line sm:grid-cols-4">
+      <ul class="-mx-4 grid grid-cols-2 gap-px border-y border-line bg-line sm:grid-cols-4">
         {model.related.map((card, i) => (
           <ProductCard card={card} index={i} headingLevel="h3" />
         ))}

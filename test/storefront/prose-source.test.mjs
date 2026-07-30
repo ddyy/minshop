@@ -94,3 +94,37 @@ describe('the content-page prose scale', () => {
     expect(global).toContain('[data-gallery]');
   });
 });
+
+/** property → [token, today's literal] for the page container. */
+const CONTAINER_RULES = [
+  ['max-width', '--page-max', '72rem'],
+  ['padding-inline', '--page-pad-x', '1.5rem'],
+  ['padding-block', '--page-pad-y', '3rem'],
+];
+
+describe('the page container', () => {
+  it.each(CONTAINER_RULES)('reads %s from %s with a literal fallback', (property, token, literal) => {
+    // Same contract as the prose scale: a set that declares none of these
+    // renders exactly as the default did, and one that declares some inherits
+    // the rest. Without the fallbacks, dropping a token would collapse the
+    // page to zero width or lose its padding entirely.
+    expect(global).toContain(`${property}: var(${token}, ${literal})`);
+  });
+
+  it.each(sets)('%s declares the container tokens it wants', (id) => {
+    // Not required to declare all three — the fallbacks cover omissions — but a
+    // set that declares none is relying on defaults, which is worth seeing.
+    const css = readFileSync(`${SETS_DIR}/${id}/theme.css`, 'utf8');
+    const declared = CONTAINER_RULES.filter(([, token]) => css.includes(`${token}:`));
+
+    expect(declared.length).toBeGreaterThan(0);
+  });
+
+  it('applies the container through one core rule, not per-template classes', () => {
+    // If a template hardcoded its own width the tokens would be decorative.
+    const layout = readFileSync('src/layouts/Layout.astro', 'utf8');
+
+    expect(layout).toContain('<main class="page-shell">');
+    expect(global).toContain('.page-shell {');
+  });
+});

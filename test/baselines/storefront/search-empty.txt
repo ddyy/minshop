@@ -54,7 +54,7 @@ cache-tag: catalog,shell
 </nav>
 </div>
 </header>
-<main class="mx-auto w-full max-w-6xl flex-1 px-6 py-12">
+<main class="page-shell">
 <div class="mb-8">
 <p class="text-xs uppercase tracking-[0.25em] text-gray-500">Search</p>
 <h1 class="mt-2 font-serif text-4xl tracking-tight sm:text-5xl">zzzznomatch</h1>

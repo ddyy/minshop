@@ -53,7 +53,7 @@ cache-control: private, no-store
 </nav>
 </div>
 </header>
-<main class="mx-auto w-full max-w-6xl flex-1 px-6 py-12">
+<main class="page-shell">
 <section class="reveal mx-auto max-w-xl py-16 text-center sm:py-24">
 <p class="text-xs uppercase tracking-[0.25em] text-gray-500">Error 404</p>
 <h1 class="mt-3 font-serif text-5xl tracking-tight sm:text-6xl">Page not found</h1>

@@ -53,7 +53,7 @@ cache-control: private, no-store
 </nav>
 </div>
 </header>
-<main class="mx-auto w-full max-w-6xl flex-1 px-6 py-12">
+<main class="page-shell">
 <div class="mx-auto max-w-xl py-8">
 <a href="/cart" class="text-xs uppercase tracking-widest text-gray-400 hover:text-brand">&larr; Back to cart</a>
 <h1 class="mt-4 font-serif text-3xl tracking-tight">Set up payments</h1>

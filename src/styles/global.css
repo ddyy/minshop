@@ -13,6 +13,19 @@
    interactive controls (buttons, ARIA buttons, clickable labels, disclosures)
    so anything clickable reads as clickable — links already get it natively.
    Disabled controls opt out. */
+/* Page container. Width and padding are store-owned tokens so a set can be
+   wide-and-dense or narrow-and-editorial without the layout having an opinion.
+   The literals are today's values, so a set that declares none renders exactly
+   as before — and a set that declares only some inherits the rest. */
+.page-shell {
+  margin-inline: auto;
+  width: 100%;
+  flex: 1 1 0%;
+  max-width: var(--page-max, 72rem);
+  padding-inline: var(--page-pad-x, 1.5rem);
+  padding-block: var(--page-pad-y, 3rem);
+}
+
 @layer base {
   button:not(:disabled),
   [role='button']:not([aria-disabled='true']),

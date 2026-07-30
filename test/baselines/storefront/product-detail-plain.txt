@@ -56,7 +56,7 @@ cache-tag: catalog,product:prod_<id>,product:prod_<id>,product:prod_<id>,product
 </nav>
 </div>
 </header>
-<main class="mx-auto w-full max-w-6xl flex-1 px-6 py-12">
+<main class="page-shell">
 <a href="/" class="text-xs uppercase tracking-widest text-gray-400 hover:text-brand">&larr; Back to shop</a>
 <div class="mt-6 grid gap-10 md:grid-cols-2 md:gap-16">
 <div class="reveal relative overflow-hidden rounded-lg bg-gray-100">

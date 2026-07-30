@@ -53,7 +53,7 @@ cache-control: private, no-store
 </nav>
 </div>
 </header>
-<main class="mx-auto w-full max-w-6xl flex-1 px-6 py-12">
+<main class="page-shell">
 <h1 class="mb-10 font-serif text-4xl tracking-tight">Your cart</h1>
 <ul class="border-t border-line">
 <li class="flex flex-wrap items-center gap-x-4 gap-y-3 border-b border-line py-4">

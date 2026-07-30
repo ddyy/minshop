@@ -54,7 +54,7 @@ cache-tag: catalog,shell
 </nav>
 </div>
 </header>
-<main class="mx-auto w-full max-w-6xl flex-1 px-6 py-12">
+<main class="page-shell">
 <article class="markdown-content" data-page-layout="standard" style="--page-measure:48rem;--page-title-align:left">
 <h1>About</h1>
 <h1>About us</h1>

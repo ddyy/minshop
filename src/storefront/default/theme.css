@@ -42,6 +42,13 @@
  * so deleting a line here — or replacing this whole file with a design system's
  * tokens — degrades to the current design rather than to browser defaults.
  */
+/* Page container. The default is a centred editorial column. */
+:root {
+  --page-max: 72rem;
+  --page-pad-x: 1.5rem;
+  --page-pad-y: 3rem;
+}
+
 :root {
   --prose-measure: 48rem;
   --prose-leading: 1.75;

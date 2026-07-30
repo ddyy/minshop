@@ -202,6 +202,25 @@ A merchant's per-page layout preset still wins over `--prose-measure`. That is
 intentional: their explicit choice of a wide or centred page outranks a theme
 default.
 
+## Page container
+
+The width and padding of the page are yours, via tokens the layout reads:
+
+```css
+:root {
+  --page-max:   72rem;    /* content column width */
+  --page-pad-x: 1.5rem;   /* horizontal padding */
+  --page-pad-y: 3rem;     /* vertical padding */
+}
+```
+
+Declare them in your set's `theme.css`. Omit any and it falls back to the value
+above, so a set that says nothing renders like the default. A dense design can
+widen and tighten; an editorial one can narrow.
+
+To run an element full-bleed to the container edge, use a negative margin equal
+to your own `--page-pad-x`.
+
 ## Markers to keep
 
 A few attributes are contract rather than styling. Reword and restyle what is

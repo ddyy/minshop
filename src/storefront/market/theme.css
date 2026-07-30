@@ -37,6 +37,15 @@
   --radius-lg: 2px;
 }
 
+/* Page container. Wider and tighter than the default: at 1440 a 72rem column
+   leaves gutters this design has no use for, and 3rem of vertical padding
+   pushes the toolbar away from the header it belongs to. */
+:root {
+  --page-max: 90rem;
+  --page-pad-x: 1rem;
+  --page-pad-y: 0.75rem;
+}
+
 /*
  * Content-page prose scale. Compact but legible: a utilitarian store's pages
  * are policies and specifications, read for retrieval rather than for
