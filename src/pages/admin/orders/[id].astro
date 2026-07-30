@@ -55,6 +55,11 @@ const weightUnit = Astro.locals.settings?.weightUnit ?? 'g';
 // reads a shipment id from the URL, so another order's quote cannot be spliced
 // in. Rates render on a plain GET, so the flow needs no JS.
 const shippoToken = await getSecret(env.DB, 'shippo_api_key');
+// canLabel gates QUOTING AND BUYING only. The label record itself is loaded
+// unconditionally: a purchased label whose order refused fulfillment (refund
+// mid-purchase, forced manual fulfil) is money already spent, and it must stay
+// visible on fulfilled/refunded orders — even if the Shippo token was removed.
+const labelRecord = await getLabelRecord(env.DB, order.id);
 const canLabel =
   !!shippoToken &&
   !!order.ship_address &&
@@ -64,7 +69,6 @@ const canLabel =
   // settlement that lost the rate lookup) must be reconciled, not guessed at.
   // 0036 backfilled legacy physical orders, so NULL here really means unknown.
   order.delivery_method === 'shipping';
-const labelRecord = canLabel ? await getLabelRecord(env.DB, order.id) : null;
 let labelRates: LabelRate[] = [];
 let labelRatesError: string | null = null;
 if (canLabel && labelRecord?.status === 'quoted' && shippoToken) {
@@ -76,6 +80,12 @@ if (canLabel && labelRecord?.status === 'quoted' && shippoToken) {
 // allow nothing. Past the lease it is a crash mid-flight — same reconciliation
 // as an ambiguous outcome: human checks the dashboard, then discards.
 const labelInFlight = labelRecord?.status === 'purchasing' && !isPurchaseStale(labelRecord);
+// Paid for but not what the order shows: the order refused fulfillment (refund
+// mid-purchase) or was fulfilled another way. Rendered persistently — this must
+// survive the transient redirect notice.
+const labelUnreconciled =
+  labelRecord?.status === 'purchased' &&
+  (order.tracking_number !== labelRecord.tracking_number || order.label_url !== labelRecord.label_url);
 const labelUncertain =
   labelRecord?.status === 'uncertain' ||
   (labelRecord?.status === 'purchasing' && isPurchaseStale(labelRecord));
@@ -242,6 +252,46 @@ const willEmailCustomer =
 
   <div class="mb-8 rounded-lg border border-line p-5">
     <h2 class="mb-3 text-xs uppercase tracking-widest text-gray-400">Fulfillment</h2>
+    {
+      labelUnreconciled && labelRecord && (
+        <div class="mb-4 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <p class="mb-2 font-medium">A purchased label is not reflected on this order</p>
+          <p class="mb-2">
+            {labelRecord.provider} {labelRecord.service}
+            {labelRecord.amount_cents != null && <> · {formatPrice(labelRecord.amount_cents)}</>}
+            {' '}· tracking <span class="tabular-nums">{labelRecord.tracking_number}</span>
+            {' '}· Shippo transaction <code class="text-xs">{labelRecord.transaction_id}</code>
+          </p>
+          <p class="mb-2">
+            The order changed state (refunded or fulfilled another way) while this label was being
+            bought, so its tracking was not applied. The charge is real — void the label in Shippo
+            if it won’t be used.
+          </p>
+          {labelRecord.label_url && (
+            <a href={labelRecord.label_url} target="_blank" rel="noopener" class="font-medium underline">
+              Label PDF
+            </a>
+          )}
+        </div>
+      )
+    }
+    {
+      !canLabel && labelUncertain && labelRecord && (
+        <div class="mb-4 space-y-3 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <p>
+            A label purchase for this order did not complete cleanly
+            {labelRecord.error && <> ({labelRecord.error})</>} — it <strong>may</strong> have been
+            charged. Check your Shippo dashboard for <code class="text-xs">{order.public_id}</code>.
+          </p>
+          <form method="POST" action={`/api/admin/orders/${order.public_id}`}>
+            <input type="hidden" name="_action" value="label_discard" />
+            <button type="submit" class="rounded-md border border-amber-400 px-4 py-2 text-xs font-medium uppercase tracking-wider hover:bg-amber-100">
+              No label exists — discard the attempt
+            </button>
+          </form>
+        </div>
+      )
+    }
     {
       fulfilled ? (
         <div class="space-y-2 text-sm">

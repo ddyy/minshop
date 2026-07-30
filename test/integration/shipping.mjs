@@ -13,6 +13,7 @@ import { countProductsMissingWeight } from '../../src/features/shipping/sellabil
 import {
   PURCHASE_LEASE_SECONDS,
   claimPurchase,
+  markLabelFailed,
   discardLabelAttempt,
   getLabelRecord,
   markLabelUncertain,
@@ -71,6 +72,7 @@ const SCHEMA = `
                                 rate_id TEXT, transaction_id TEXT, provider TEXT,
                                 service TEXT, amount_cents INTEGER,
                                 tracking_number TEXT, label_url TEXT, error TEXT,
+                                claim_token TEXT,
                                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                                 updated_at TEXT NOT NULL DEFAULT (datetime('now')));
   CREATE TABLE order_notifications (order_id INTEGER NOT NULL, kind TEXT NOT NULL,
@@ -271,6 +273,7 @@ await check('a foreign shipment id can never be bought from', async () => {
   // The claim returns the ORDER'S OWN shipment — whatever the form said.
   const claim = await claimPurchase(db, 1, 'rate_x');
   assert.equal(claim.shipmentId, 'shp_mine');
+  assert.ok(claim.claimToken, 'every claim carries its own token');
 });
 
 await check('exactly one concurrent purchase claim wins', async () => {
@@ -320,13 +323,13 @@ await check('a forced fulfillment mid-purchase surfaces as a reconciliation stat
   const db = await freshDb();
   await addOrder(db, 1);
   await recordQuote(db, 1, 'shp_a');
-  await claimPurchase(db, 1, 'rate_1');
+  const raceClaim = await claimPurchase(db, 1, 'rate_1');
   // Simulate the guard being bypassed (e.g. a pre-guard deploy still running):
   // force-fulfil directly, then let the provider success land.
   await db
     .prepare(`UPDATE orders SET fulfillment_status = 'fulfilled', tracking_number = 'MANUAL-X' WHERE id = 1`)
     .run();
-  const result = await recordPurchased(db, 1, {
+  const result = await recordPurchased(db, 1, raceClaim.claimToken, {
     transactionId: 'txn_race',
     provider: 'USPS',
     service: 'Priority Mail',
@@ -344,12 +347,93 @@ await check('a forced fulfillment mid-purchase surfaces as a reconciliation stat
   assert.equal(note, null, 'no shipped email for a tracking number that did not land');
 });
 
+await check('a superseded attempt cannot write into a newer claim', async () => {
+  const db = await freshDb();
+  await addOrder(db, 1);
+  await recordQuote(db, 1, 'shp_a');
+  const attemptA = await claimPurchase(db, 1, 'rate_a');
+  // A outlives its lease and the merchant discards it…
+  await db
+    .prepare(`UPDATE shipping_labels SET updated_at = datetime('now', '-' || ? || ' seconds') WHERE order_id = 1`)
+    .bind(PURCHASE_LEASE_SECONDS + 5)
+    .run();
+  assert.equal(await discardLabelAttempt(db, 1), true);
+  // …then quotes and claims attempt B.
+  await recordQuote(db, 1, 'shp_b');
+  const attemptB = await claimPurchase(db, 1, 'rate_b');
+  assert.notEqual(attemptA.claimToken, attemptB.claimToken);
+  // A's provider call finally completes. It must find nothing to write.
+  const late = await recordPurchased(db, 1, attemptA.claimToken, {
+    transactionId: 'txn_A',
+    provider: 'USPS',
+    service: 'Priority Mail',
+    amountCents: 733,
+    trackingNumber: '9400-A',
+    labelUrl: 'https://labels.example/a.pdf',
+    carrierCode: 'usps',
+  });
+  assert.equal(late.recorded, false, "A's completion is superseded");
+  assert.equal(late.orderFulfilled, false, 'A must not fulfil the order');
+  const row = await getLabelRecord(db, 1);
+  assert.equal(row.status, 'purchasing', "B's claim is untouched");
+  assert.equal(row.rate_id, 'rate_b');
+  const order = await db.prepare('SELECT fulfillment_status FROM orders WHERE id = 1').first();
+  assert.equal(order.fulfillment_status, 'unfulfilled');
+  // A's stale error paths are equally fenced.
+  await markLabelFailed(db, 1, attemptA.claimToken, 'stale');
+  await markLabelUncertain(db, 1, attemptA.claimToken, 'stale');
+  assert.equal((await getLabelRecord(db, 1)).status, 'purchasing');
+  // And B still completes normally.
+  const bDone = await recordPurchased(db, 1, attemptB.claimToken, {
+    transactionId: 'txn_B',
+    provider: 'USPS',
+    service: 'Ground Advantage',
+    amountCents: 500,
+    trackingNumber: '9400-B',
+    labelUrl: 'https://labels.example/b.pdf',
+    carrierCode: 'usps',
+  });
+  assert.equal(bDone.recorded, true);
+  assert.equal(bDone.orderFulfilled, true);
+});
+
+await check('a refund during the provider call blocks fulfillment and the email', async () => {
+  const db = await freshDb();
+  await addOrder(db, 1);
+  await recordQuote(db, 1, 'shp_a');
+  const claim = await claimPurchase(db, 1, 'rate_1');
+  // The order is refunded while Shippo processes the purchase.
+  await db.prepare(`UPDATE orders SET status = 'refunded' WHERE id = 1`).run();
+  const result = await recordPurchased(db, 1, claim.claimToken, {
+    transactionId: 'txn_refund',
+    provider: 'USPS',
+    service: 'Priority Mail',
+    amountCents: 733,
+    trackingNumber: '9400refund',
+    labelUrl: 'https://labels.example/r.pdf',
+    carrierCode: 'usps',
+  });
+  // The paid label is preserved for reconciliation; the refunded order is not
+  // marked shipped and the customer is not told their refund is on its way.
+  assert.equal(result.recorded, true);
+  assert.equal(result.orderFulfilled, false);
+  const order = await db.prepare('SELECT fulfillment_status, tracking_number FROM orders WHERE id = 1').first();
+  assert.equal(order.fulfillment_status, 'unfulfilled');
+  assert.equal(order.tracking_number, null);
+  const note = await db
+    .prepare(`SELECT 1 FROM order_notifications WHERE order_id = 1 AND kind = 'order-shipped'`)
+    .first();
+  assert.equal(note, null, 'no shipped email for a refunded order');
+  const row = await getLabelRecord(db, 1);
+  assert.equal(row.status, 'purchased', 'label record survives for reconciliation');
+});
+
 await check('an uncertain outcome blocks re-quoting until discarded', async () => {
   const db = await freshDb();
   await addOrder(db, 1);
   await recordQuote(db, 1, 'shp_a');
-  await claimPurchase(db, 1, 'rate_1');
-  await markLabelUncertain(db, 1, 'network lost');
+  const claim = await claimPurchase(db, 1, 'rate_1');
+  await markLabelUncertain(db, 1, claim.claimToken, 'network lost');
   assert.equal(await recordQuote(db, 1, 'shp_b'), false, 'uncertain must refuse a new quote');
   assert.equal(await claimPurchase(db, 1, 'rate_1'), null, 'no second purchase');
   assert.equal(await discardLabelAttempt(db, 1), true);
@@ -360,8 +444,8 @@ await check('recordPurchased lands label, fulfillment, and the shipped email in 
   const db = await freshDb();
   await addOrder(db, 1);
   await recordQuote(db, 1, 'shp_a');
-  await claimPurchase(db, 1, 'rate_1');
-  await recordPurchased(db, 1, {
+  const okClaim = await claimPurchase(db, 1, 'rate_1');
+  await recordPurchased(db, 1, okClaim.claimToken, {
     transactionId: 'txn_1',
     provider: 'USPS',
     service: 'Priority Mail',

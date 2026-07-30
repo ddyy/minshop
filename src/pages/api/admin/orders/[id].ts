@@ -398,12 +398,12 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     }
     const rates = await getShipmentRates(token, claim.shipmentId);
     if (!rates.ok) {
-      await markLabelFailed(env.DB, id, rates.error);
+      await markLabelFailed(env.DB, id, claim.claimToken, rates.error);
       return fail(rates.error);
     }
     const rate = rates.value.find((r) => r.rateId === rateId);
     if (!rate) {
-      await markLabelFailed(env.DB, id, 'Selected rate no longer offered.');
+      await markLabelFailed(env.DB, id, claim.claimToken, 'Selected rate no longer offered.');
       return fail('That rate is no longer offered. Fetch rates again.');
     }
 
@@ -413,19 +413,19 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
         // The charge MAY have landed. Park it — never auto-retry a purchase —
         // and point the merchant at the dashboard record (tagged with the
         // order id via metadata) before they explicitly discard.
-        await markLabelUncertain(env.DB, id, bought.error);
+        await markLabelUncertain(env.DB, id, claim.claimToken, bought.error);
         return fail(
           `Shippo’s answer was lost mid-purchase (${bought.error}) — the label MAY have been bought. Check your Shippo dashboard for order ${existing.public_id}, then discard the attempt if no label exists.`,
         );
       }
-      await markLabelFailed(env.DB, id, bought.error);
+      await markLabelFailed(env.DB, id, claim.claimToken, bought.error);
       return fail(bought.error);
     }
 
     // One batch: label row, guarded fulfillment, label URL, and the durable
     // shipped-notification row. A crash after the charge can no longer leave a
     // paid label unrecorded, and the email survives via the outbox sweep.
-    const recorded = await recordPurchased(env.DB, id, {
+    const recorded = await recordPurchased(env.DB, id, claim.claimToken, {
       transactionId: bought.value.transactionId,
       provider: rate.provider,
       service: rate.service,
@@ -434,12 +434,21 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
       labelUrl: bought.value.labelUrl,
       carrierCode: carrierCodeFor(bought.value.provider),
     });
-    if (!recorded.orderFulfilled) {
-      // The charge is real but the order refused our tracking (fulfilled some
-      // other way despite the guards, or refunded mid-flight). Say so —
-      // pretending this succeeded is how paid labels get lost.
+    if (!recorded.recorded) {
+      // This attempt was superseded (its lease expired and it was discarded)
+      // while Shippo processed it — the label exists ONLY at Shippo. Nothing
+      // here was touched, by design; the charge still needs human eyes.
       return fail(
-        `Label ${bought.value.trackingNumber} was purchased and saved, but the order could not be marked fulfilled with it — it changed state meanwhile. Reconcile the tracking by hand.`,
+        `A label (${bought.value.trackingNumber}) was purchased by an attempt that had already been discarded — it is not recorded here. Reconcile it in your Shippo dashboard (order ${existing.public_id}).`,
+      );
+    }
+    if (!recorded.orderFulfilled) {
+      // The charge is real and saved, but the order refused fulfillment — it
+      // was refunded or otherwise changed state while the provider call was in
+      // flight. No shipped email was queued. Say so — pretending this
+      // succeeded is how paid labels get lost.
+      return fail(
+        `Label ${bought.value.trackingNumber} was purchased and saved, but the order could not be marked fulfilled with it — it changed state meanwhile (refunded?). No customer email was sent. Reconcile by hand.`,
       );
     }
     const settings = await getStoreSettings(env.DB);

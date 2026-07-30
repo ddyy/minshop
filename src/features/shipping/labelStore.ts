@@ -44,6 +44,7 @@ export interface LabelRecord {
   tracking_number: string | null;
   label_url: string | null;
   error: string | null;
+  claim_token: string | null;
   updated_at: string;
 }
 
@@ -98,17 +99,22 @@ export async function claimPurchase(
   db: D1Database,
   orderId: number,
   rateId: string,
-): Promise<{ shipmentId: string } | null> {
+): Promise<{ shipmentId: string; claimToken: string } | null> {
+  // A fresh random token per claim: status alone cannot fence attempts across
+  // time. A claim that outlives its lease, gets discarded, and completes late
+  // must find that its token no longer matches the (recreated) row — writing
+  // its label into a newer attempt's row would fulfil the order twice over.
+  const claimToken = crypto.randomUUID();
   const row = await db
     .prepare(
       `UPDATE shipping_labels
-          SET status = 'purchasing', rate_id = ?2, updated_at = datetime('now')
+          SET status = 'purchasing', rate_id = ?2, claim_token = ?3, updated_at = datetime('now')
         WHERE order_id = ?1 AND status = 'quoted' AND ${ORDER_ELIGIBLE}
         RETURNING shipment_id`,
     )
-    .bind(orderId, rateId)
+    .bind(orderId, rateId, claimToken)
     .first<{ shipment_id: string }>();
-  return row ? { shipmentId: row.shipment_id } : null;
+  return row ? { shipmentId: row.shipment_id, claimToken } : null;
 }
 
 export interface PurchasedRecord {
@@ -130,39 +136,60 @@ export interface PurchasedRecord {
 export async function recordPurchased(
   db: D1Database,
   orderId: number,
+  claimToken: string,
   p: PurchasedRecord,
 ): Promise<{ recorded: boolean; orderFulfilled: boolean }> {
   const results = await db.batch([
+    // Only THIS attempt's row: a claim that was discarded and superseded finds
+    // its token gone and writes nothing, anywhere.
     db
       .prepare(
         `UPDATE shipping_labels
             SET status = 'purchased', transaction_id = ?2, provider = ?3, service = ?4,
                 amount_cents = ?5, tracking_number = ?6, label_url = ?7, error = NULL,
                 updated_at = datetime('now')
-          WHERE order_id = ?1 AND status = 'purchasing'`,
+          WHERE order_id = ?1 AND status = 'purchasing' AND claim_token = ?8`,
       )
-      .bind(orderId, p.transactionId, p.provider, p.service, p.amountCents, p.trackingNumber, p.labelUrl),
+      .bind(orderId, p.transactionId, p.provider, p.service, p.amountCents, p.trackingNumber, p.labelUrl, claimToken),
+    // Fulfillment repeats the FULL eligibility, not just 'unfulfilled': the
+    // order may have been refunded while the provider call was in flight, and a
+    // refunded order must not become fulfilled-with-tracking. It is also
+    // conditional on statement 1 having recorded THIS attempt (same
+    // transaction, sequential), so a superseded attempt cannot fulfil.
     db
       .prepare(
         `UPDATE orders
             SET fulfillment_status = 'fulfilled', tracking_carrier = ?2, tracking_number = ?3,
                 fulfilled_at = datetime('now'), label_url = ?4
-          WHERE id = ?1 AND fulfillment_status = 'unfulfilled'`,
+          WHERE id = ?1 AND status = 'paid' AND fulfillment_status = 'unfulfilled'
+            AND delivery_method = 'shipping'
+            AND EXISTS (
+              SELECT 1 FROM shipping_labels
+               WHERE order_id = ?1 AND status = 'purchased' AND claim_token = ?5
+            )`,
       )
-      .bind(orderId, p.carrierCode, p.trackingNumber, p.labelUrl),
+      .bind(orderId, p.carrierCode, p.trackingNumber, p.labelUrl, claimToken),
     // Same INSERT OR IGNORE contract as outboxStore.queueNotification, inlined so
-    // it joins this batch — and conditional on OUR tracking having landed, so a
-    // shipped email can never carry another path's tracking number.
+    // it joins this batch — and conditional on the guarded transition above
+    // having landed OUR tracking, so a shipped email can neither carry another
+    // path's number nor go out for an order that refused fulfillment.
     db
       .prepare(
         `INSERT OR IGNORE INTO order_notifications (order_id, kind)
          SELECT ?1, 'order-shipped'
-          WHERE EXISTS (SELECT 1 FROM orders WHERE id = ?1 AND tracking_number = ?2)`,
+          WHERE EXISTS (
+            SELECT 1 FROM orders
+             WHERE id = ?1 AND fulfillment_status = 'fulfilled' AND tracking_number = ?2
+          )
+            AND EXISTS (
+              SELECT 1 FROM shipping_labels
+               WHERE order_id = ?1 AND status = 'purchased' AND claim_token = ?3
+            )`,
       )
-      .bind(orderId, p.trackingNumber),
+      .bind(orderId, p.trackingNumber, claimToken),
   ]);
-  // Zero-row transitions are reconciliation signals, not success: the label row
-  // must have been 'purchasing', and the order must have accepted OUR tracking.
+  // Zero-row transitions are reconciliation signals, not success. `recorded`
+  // false = this attempt was superseded; its label exists only at Shippo.
   return {
     recorded: (results[0]?.meta?.changes ?? 0) > 0,
     orderFulfilled: (results[1]?.meta?.changes ?? 0) > 0,
@@ -170,26 +197,36 @@ export async function recordPurchased(
 }
 
 /** Shippo said no. Safe to quote again. */
-export async function markLabelFailed(db: D1Database, orderId: number, error: string): Promise<void> {
+export async function markLabelFailed(
+  db: D1Database,
+  orderId: number,
+  claimToken: string,
+  error: string,
+): Promise<void> {
   await db
     .prepare(
       `UPDATE shipping_labels
           SET status = 'failed', error = ?2, updated_at = datetime('now')
-        WHERE order_id = ?1 AND status = 'purchasing'`,
+        WHERE order_id = ?1 AND status = 'purchasing' AND claim_token = ?3`,
     )
-    .bind(orderId, error)
+    .bind(orderId, error, claimToken)
     .run();
 }
 
 /** The outcome is unknown — park it; a human resolves it against the dashboard. */
-export async function markLabelUncertain(db: D1Database, orderId: number, error: string): Promise<void> {
+export async function markLabelUncertain(
+  db: D1Database,
+  orderId: number,
+  claimToken: string,
+  error: string,
+): Promise<void> {
   await db
     .prepare(
       `UPDATE shipping_labels
           SET status = 'uncertain', error = ?2, updated_at = datetime('now')
-        WHERE order_id = ?1 AND status = 'purchasing'`,
+        WHERE order_id = ?1 AND status = 'purchasing' AND claim_token = ?3`,
     )
-    .bind(orderId, error)
+    .bind(orderId, error, claimToken)
     .run();
 }
 
