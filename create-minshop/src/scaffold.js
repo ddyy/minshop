@@ -49,7 +49,7 @@ export function normalizeThemeId(name) {
  * Every store gets one. `src/themes/default/` is upstream's and is never
  * edited by a store — that separation is what lets upstream change the default
  * without colliding with a merchant's work, and it only holds if the scaffolder
- * creates the store's set from the start.
+ * creates the store's theme from the start.
  */
 export function resolveThemeId(requested, directory) {
   if (requested != null) {

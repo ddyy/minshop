@@ -13,7 +13,7 @@ import { discoverThemeIds, THEMES_DIR } from '../../scripts/themes.mjs';
 
 const global = readFileSync('src/styles/global.css', 'utf8');
 // Structural rules moved to base.css so the Admin entry can share them without
-// inheriting the set import. Tests that assert on rules read the structural
+// inheriting the theme import. Tests that assert on rules read the structural
 // file; tests about IMPORT ORDER still read the entry point.
 const structural = readFileSync('src/styles/base.css', 'utf8');
 const override = readFileSync('src/styles/overrides.css', 'utf8');
@@ -58,15 +58,15 @@ describe('the content-page prose scale', () => {
   });
 
   it('lets the merchant override file declare nothing at all', () => {
-    // An empty override is the normal state: it means the store uses its set's
+    // An empty override is the normal state: it means the store uses its theme's
     // tokens unchanged. Requiring tokens here would make that state fail.
     const declarations = override.match(/--[a-z-]+\s*:/g) ?? [];
 
     expect(declarations).toEqual([]);
   });
 
-  it('applies the merchant override after the active set', () => {
-    // Order is the whole contract: the set supplies the design, the store's own
+  it('applies the merchant override after the active theme', () => {
+    // Order is the whole contract: the theme supplies the design, the store's own
     // values win over it.
     expect(global.indexOf('#theme-css')).toBeLessThan(
       global.indexOf('./overrides.css'),
@@ -192,7 +192,7 @@ describe('the page container', () => {
 
   it.each(themes)('%s declares the container tokens it wants', (id) => {
     // Not required to declare all three — the fallbacks cover omissions — but a
-    // set that declares none is relying on defaults, which is worth seeing.
+    // theme that declares none is relying on defaults, which is worth seeing.
     const css = readFileSync(`${THEMES_DIR}/${id}/tokens.css`, 'utf8');
     const declared = CONTAINER_RULES.filter(([, token]) => css.includes(`${token}:`));
 

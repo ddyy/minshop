@@ -13,8 +13,8 @@ import { themeCssPath, writeThemeArtifacts } from './scripts/theme-css.mjs';
 // with Tailwind through the #theme-css alias below — the template alias
 // and the CSS scope must never disagree, or the build succeeds while shipping
 // an unstyled or wrongly styled site. The generated files are written for ALL
-// sets and are byte-identical no matter which set this process selected, so a
-// concurrent build for another set cannot fight a running dev server over
+// themes and are byte-identical no matter which theme this process selected, so a
+// concurrent build for another theme cannot fight a running dev server over
 // them (see the design rule in scripts/theme-css.mjs).
 const theme = resolveTheme();
 writeThemeArtifacts();
@@ -55,7 +55,7 @@ export default defineConfig({
     resolve: {
       alias: {
         '#theme': theme.dir,
-        // The per-set stylesheet this process compiles. Selection by alias is
+        // The per-theme stylesheet this process compiles. Selection by alias is
         // the point: the files on disk never change per process, only which
         // one global.css's @import resolves to. Tailwind v4's plugin follows
         // Vite aliases in CSS @import (probed before relying on it).

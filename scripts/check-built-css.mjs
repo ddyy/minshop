@@ -6,7 +6,7 @@
  * markup-equivalence baselines never look at compiled CSS and a build that
  * violates both still exits 0:
  *
- *  1. Set scoping — the active theme's utilities are present and every inactive
+ *  1. Theme scoping — the active theme's utilities are present and every inactive
  *     theme's are absent. This is what the generated `@source not` exclusions
  *     and `source(none)` scoping exist to guarantee; break either and the
  *     stylesheet silently bloats with (or leaks styling from) themes the build
@@ -99,9 +99,9 @@ function cssEscaped(name) {
 
 const ids = discoverThemeIds(root);
 const active = resolveTheme(root);
-const setClasses = new Map(ids.map((id) => [id, classesUnder(resolve(root, THEMES_DIR, id))]));
+const themeClasses = new Map(ids.map((id) => [id, classesUnder(resolve(root, THEMES_DIR, id))]));
 // One haystack per theme: all of src EXCEPT that theme's own directory.
-const srcExceptSet = new Map(
+const srcExceptTheme = new Map(
   ids.map((id) => [
     id,
     rawContentUnder(resolve(root, 'src'), { skipDirs: [resolve(root, THEMES_DIR, id)] }),
@@ -109,8 +109,8 @@ const srcExceptSet = new Map(
 );
 
 function uniqueTo(id) {
-  const haystack = srcExceptSet.get(id);
-  return [...setClasses.get(id)].filter((c) => !haystack.includes(c));
+  const haystack = srcExceptTheme.get(id);
+  return [...themeClasses.get(id)].filter((c) => !haystack.includes(c));
 }
 
 // ---------------------------------------------------------------------------

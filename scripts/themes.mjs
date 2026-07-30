@@ -6,7 +6,7 @@
  * readers with slightly different rules eventually disagree, and the symptom is
  * a build that compiles one design and styles another.
  *
- * Selection is BUILD TIME. The active set is baked into a deployment; it is
+ * Selection is BUILD TIME. The active theme is baked into a deployment; it is
  * never read from a request.
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
@@ -16,7 +16,7 @@ export const THEMES_DIR = 'src/themes';
 export const CONFIG_FILE = 'theme.config.json';
 
 /** Ids upstream owns. A store may not claim one, or a later upstream release
- *  would have nowhere to put the set the name was held for. `studio` and
+ *  would have nowhere to put the theme the name was held for. `studio` and
  *  `market` are frozen here before the scaffolder can generate stores, even
  *  though those designs do not exist yet — reserving a string costs nothing;
  *  reclaiming one after stores exist costs a migration. */
@@ -41,13 +41,13 @@ export function normalizeThemeId(name) {
   return isValidThemeId(slug) ? slug : null;
 }
 
-/** Every set present in the tree, sorted. Discovery is dynamic so a generated
- *  store's own set is covered without editing any list.
+/** Every theme present in the tree, sorted. Discovery is dynamic so a generated
+ *  store's own theme is covered without editing any list.
  *
  *  A DIRECTORY with an invalid name is an error, not something to skip: the
  *  developer who created src/themes/My-Theme was clearly adding a theme, and
  *  silently excluding it removes it from the boundary checker, the generated
- *  artifacts, and the CI matrix at once — every guard reports green on a set
+ *  artifacts, and the CI matrix at once — every guard reports green on a theme
  *  none of them saw. Dot-prefixed entries (editor and OS droppings) and plain
  *  files are still ignored; they are not attempts at a theme. */
 export function discoverThemeIds(root = process.cwd()) {
@@ -66,7 +66,7 @@ export function discoverThemeIds(root = process.cwd()) {
       [
         `Invalid theme director${invalid.length === 1 ? 'y' : 'ies'} under ${THEMES_DIR}/: ${invalid.join(', ')}.`,
         'Theme ids use lowercase letters, digits, and single hyphens — at most 40 characters.',
-        'Rename the directory (e.g. "My-Theme" → "my-theme") or move it out of the sets directory.',
+        'Rename the directory (e.g. "My-Theme" → "my-theme") or move it out of the themes directory.',
       ].join('\n'),
     );
   }
@@ -84,7 +84,7 @@ export function themePath(id, root = process.cwd()) {
 }
 
 function themeError(message, root) {
-  // Discovery itself throws on misnamed set directories. Here it is only
+  // Discovery itself throws on misnamed theme directories. Here it is only
   // decorating another error, so fall back to an empty list rather than
   // letting the decoration mask the actual failure.
   let available;
@@ -103,10 +103,10 @@ function themeError(message, root) {
 }
 
 /**
- * The active set id.
+ * The active theme id.
  *
  * Fails closed. An explicit THEME wins; otherwise the config file must
- * exist and name a valid, present set. There is no invented fallback to
+ * exist and name a valid, present theme. There is no invented fallback to
  * `default`: once the scaffolder writes a store's own id into the config, a
  * store that lost the file would otherwise build and deploy the UPSTREAM design
  * in place of its own, passing every check on the way. A fresh clone builds
@@ -115,20 +115,20 @@ function themeError(message, root) {
 export function resolveTheme(root = process.cwd()) {
   const override = process.env.THEME?.trim();
   if (override) {
-    return validateSet(override, 'the THEME environment variable', root);
+    return validateTheme(override, 'the THEME environment variable', root);
   }
   return resolveConfiguredTheme(root);
 }
 
 /**
- * The set named by the CONFIG FILE alone, ignoring any THEME override.
+ * The theme named by the CONFIG FILE alone, ignoring any THEME override.
  *
  * This exists for the generated artifacts that are shared between processes
  * (the editor's tsconfig paths). Those must never follow a per-process
  * environment variable: a `THEME=x` build running beside a dev server
  * would otherwise rewrite state the dev server watches, the dev server would
  * restart and write it back, and whichever process read the file second would
- * silently combine one set's templates with another's styling. Shared files
+ * silently combine one theme's templates with another's styling. Shared files
  * follow the durable selection; the override affects only in-process state
  * (the Vite alias, an explicit --tsconfig flag).
  */
@@ -145,10 +145,10 @@ export function resolveConfiguredTheme(root = process.cwd()) {
   }
   const id = typeof parsed?.theme === 'string' ? parsed.theme.trim() : '';
   if (!id) throw new Error(themeError(`${CONFIG_FILE} has no "theme" string.`, root));
-  return validateSet(id, CONFIG_FILE, root);
+  return validateTheme(id, CONFIG_FILE, root);
 }
 
-function validateSet(id, source, root) {
+function validateTheme(id, source, root) {
   if (!isValidThemeId(id)) {
     throw new Error(themeError(`${source} names "${id}", which is not a valid theme id.`, root));
   }

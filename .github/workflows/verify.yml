@@ -80,7 +80,7 @@ jobs:
   # every other theme in the tree. Not the full `verify`: the parts this omits
   # (integration, MCP, scaffold, Stripe country data) are set-independent and
   # would only multiply the bill.
-  sets:
+  themes:
     name: Verify theme (${{ matrix.theme }})
     runs-on: ubuntu-latest
     timeout-minutes: 15

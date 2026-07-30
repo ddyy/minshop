@@ -209,7 +209,7 @@ test('the generated repository CI matrix discovers every theme it carries', () =
     stdio: 'pipe',
   });
 
-  // The workflow must derive its matrix, not enumerate upstream's sets: a
+  // The workflow must derive its matrix, not enumerate upstream's themes: a
   // hardcoded list can never contain a merchant's own theme, so the store's
   // retained shipped themes would break without CI noticing.
   const workflow = readFileSync(join(result.target, '.github/workflows/verify.yml'), 'utf8');

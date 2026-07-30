@@ -12,11 +12,11 @@ import { themeCssPath, writeThemeArtifacts } from './scripts/theme-css.mjs';
 //
 // Because astro.config.mjs is skipped, the #theme alias it declares does
 // NOT exist here. It has to be resolved again from the same helper, or the
-// contract suite would test whichever set happens to be first on disk instead
-// of the selected one. Run one set per process (THEME=<id> vitest run):
+// contract suite would test whichever theme happens to be first on disk instead
+// of the selected one. Run one theme per process (THEME=<id> vitest run):
 // looping ids inside a single run re-uses the module cache and silently
 // re-tests the first.
-// Generate the per-set artifacts before resolving: the root tsconfig extends
+// Generate the per-theme artifacts before resolving: the root tsconfig extends
 // generated tsconfig.theme.json, so on a fresh checkout the documented
 // standalone commands (test:storefront-contract, test:watch) would otherwise
 // die collecting tests with "Tsconfig not found". Safe to run from any number
@@ -33,7 +33,7 @@ export default getViteConfig(
       alias: {
         '#theme': theme.dir,
         // Mirrors astro.config.mjs: if a test ever renders something that
-        // pulls global.css, the CSS import resolves to the same per-set file.
+        // pulls global.css, the CSS import resolves to the same per-theme file.
         '#theme-css': themeCssPath(theme.id),
         // Lets pure-function modules that merely read deployment vars at import
         // time (config.ts, and the email templates through it) be unit-tested.

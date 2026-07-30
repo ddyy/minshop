@@ -15,10 +15,10 @@ import {
 // the Cloudflare types. Same reason as boundary.test.mjs.
 
 const roots = [];
-function fixture(sets, config) {
-  const root = mkdtempSync(join(tmpdir(), 'storefront-set-'));
+function fixture(ids, config) {
+  const root = mkdtempSync(join(tmpdir(), 'theme-resolver-'));
   roots.push(root);
-  for (const id of sets) mkdirSync(join(root, 'src/themes', id), { recursive: true });
+  for (const id of ids) mkdirSync(join(root, 'src/themes', id), { recursive: true });
   if (config !== undefined) writeFileSync(join(root, 'theme.config.json'), config);
   return root;
 }
@@ -28,7 +28,7 @@ afterEach(() => {
   while (roots.length) rmSync(roots.pop(), { recursive: true, force: true });
 });
 
-describe('set ids', () => {
+describe('theme ids', () => {
   it.each(['default', 'studio', 'acme', 'acme-holiday', 'shop2'])('accepts %s', (id) => {
     expect(isValidThemeId(id)).toBe(true);
   });
@@ -79,7 +79,7 @@ describe('discovery', () => {
   it('fails on a directory that is not a valid id, naming it', () => {
     // A misnamed directory is an attempted theme. Skipping it would silently
     // drop it from the boundary checker, the generated artifacts, and the CI
-    // matrix — every guard green on a set none of them saw.
+    // matrix — every guard green on a theme none of them saw.
     const root = fixture(['default']);
     mkdirSync(join(root, 'src/themes', 'My-Theme'), { recursive: true });
 
@@ -131,7 +131,7 @@ describe('resolveTheme', () => {
     expect(() => resolveTheme(fixture(['default'], body))).toThrow(expected);
   });
 
-  it('fails when the named set does not exist', () => {
+  it('fails when the named theme does not exist', () => {
     expect(() => resolveTheme(fixture(['default'], '{"theme":"studio"}'))).toThrow(
       /does not exist/,
     );
