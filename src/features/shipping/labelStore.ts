@@ -9,7 +9,10 @@
  *   paid, unfulfilled, and a delivery (not pickup) order — the page's display
  *   logic is convenience, these guards are the enforcement.
  * - An ambiguous provider outcome parks the row in 'uncertain' and nothing
- *   retries it automatically; only an explicit discard reopens the order.
+ *   retries it automatically; provider reconciliation or an explicit
+ *   risk-bearing override is required.
+ * - Every settled submitted attempt is copied to shipping_label_attempts before
+ *   the mutable active row can be reused or removed.
  */
 
 import type { D1Database } from '@cloudflare/workers-types';
@@ -49,6 +52,26 @@ export interface LabelRecord {
   updated_at: string;
 }
 
+export type LabelAttemptOutcome = 'purchased' | 'refunded' | 'failed' | 'force_discarded';
+
+export interface LabelAttemptRecord {
+  id: number;
+  order_id: number;
+  claim_token: string;
+  outcome: LabelAttemptOutcome;
+  shipment_id: string;
+  rate_id: string | null;
+  transaction_id: string | null;
+  provider: string | null;
+  service: string | null;
+  amount_cents: number | null;
+  tracking_number: string | null;
+  label_url: string | null;
+  error: string | null;
+  created_at: string;
+  settled_at: string;
+}
+
 /** The order must still be worth labelling: paid, unfulfilled, not a pickup. */
 const ORDER_ELIGIBLE = `EXISTS (
   SELECT 1 FROM orders
@@ -61,6 +84,24 @@ export async function getLabelRecord(db: D1Database, orderId: number): Promise<L
     .prepare('SELECT * FROM shipping_labels WHERE order_id = ?')
     .bind(orderId)
     .first<LabelRecord>();
+}
+
+export async function listLabelAttempts(
+  db: D1Database,
+  orderId: number,
+  limit = 25,
+): Promise<LabelAttemptRecord[]> {
+  const result = await db
+    .prepare(
+      `SELECT *
+         FROM shipping_label_attempts
+        WHERE order_id = ?1
+        ORDER BY settled_at DESC, id DESC
+        LIMIT ?2`,
+    )
+    .bind(orderId, limit)
+    .all<LabelAttemptRecord>();
+  return result.results;
 }
 
 /**
@@ -81,6 +122,13 @@ export async function recordQuote(
          shipment_id = excluded.shipment_id,
          status = 'quoted',
          rate_id = NULL,
+         transaction_id = NULL,
+         provider = NULL,
+         service = NULL,
+         amount_cents = NULL,
+         tracking_number = NULL,
+         label_url = NULL,
+         claim_token = NULL,
          error = NULL,
          updated_at = datetime('now')
        WHERE shipping_labels.status IN ('quoted', 'failed')
@@ -129,10 +177,8 @@ export interface PurchasedRecord {
 }
 
 /**
- * The confirmed charge lands atomically: label row, order fulfillment (guarded —
- * a concurrent manual fulfil cannot be overwritten), the label URL, and the
- * shipped-notification outbox row all commit in one batch, so a crash after the
- * charge can no longer leave a paid label unrecorded.
+ * The confirmed charge lands atomically: active label row, append-only audit
+ * row, guarded order fulfillment, label URL, and shipped-notification outbox.
  *
  * Accepts 'uncertain' as well as 'purchasing': provider reconciliation settles
  * a parked attempt with the same fencing (its stored claim token) — which is
@@ -156,6 +202,23 @@ export async function recordPurchased(
           WHERE order_id = ?1 AND status IN ('purchasing', 'uncertain') AND claim_token = ?8`,
       )
       .bind(orderId, p.transactionId, p.provider, p.service, p.amountCents, p.trackingNumber, p.labelUrl, claimToken),
+    // The active row is mutable; this append-only copy is the durable money
+    // trail and survives replacement quotes and later label purchases.
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO shipping_label_attempts (
+           order_id, claim_token, outcome, shipment_id, rate_id, transaction_id,
+           provider, service, amount_cents, tracking_number, label_url, error,
+           created_at
+         )
+         SELECT order_id, claim_token, 'purchased', shipment_id, rate_id,
+                transaction_id, provider, service, amount_cents, tracking_number,
+                label_url, error, created_at
+           FROM shipping_labels
+          WHERE order_id = ?1 AND status = 'purchased'
+            AND claim_token = ?2 AND transaction_id = ?3`,
+      )
+      .bind(orderId, claimToken, p.transactionId),
     // Fulfillment repeats the FULL eligibility, not just 'unfulfilled': the
     // order may have been refunded while the provider call was in flight, and a
     // refunded order must not become fulfilled-with-tracking. It is also
@@ -197,7 +260,7 @@ export async function recordPurchased(
   // false = this attempt was superseded; its label exists only at Shippo.
   return {
     recorded: (results[0]?.meta?.changes ?? 0) > 0,
-    orderFulfilled: (results[1]?.meta?.changes ?? 0) > 0,
+    orderFulfilled: (results[2]?.meta?.changes ?? 0) > 0,
   };
 }
 
@@ -212,15 +275,32 @@ export async function markLabelFailed(
   orderId: number,
   claimToken: string,
   error: string,
-): Promise<void> {
-  await db
-    .prepare(
-      `UPDATE shipping_labels
-          SET status = 'failed', error = ?2, updated_at = datetime('now')
-        WHERE order_id = ?1 AND status IN ('purchasing', 'uncertain') AND claim_token = ?3`,
-    )
-    .bind(orderId, error, claimToken)
-    .run();
+): Promise<boolean> {
+  const results = await db.batch([
+    db
+      .prepare(
+        `UPDATE shipping_labels
+            SET status = 'failed', error = ?2, updated_at = datetime('now')
+          WHERE order_id = ?1 AND status IN ('purchasing', 'uncertain') AND claim_token = ?3`,
+      )
+      .bind(orderId, error, claimToken),
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO shipping_label_attempts (
+           order_id, claim_token, outcome, shipment_id, rate_id, transaction_id,
+           provider, service, amount_cents, tracking_number, label_url, error,
+           created_at
+         )
+         SELECT order_id, claim_token, 'failed', shipment_id, rate_id,
+                transaction_id, provider, service, amount_cents, tracking_number,
+                label_url, error, created_at
+           FROM shipping_labels
+          WHERE order_id = ?1 AND status = 'failed' AND claim_token = ?2
+            AND error = ?3`,
+      )
+      .bind(orderId, claimToken, error),
+  ]);
+  return (results[0]?.meta?.changes ?? 0) > 0;
 }
 
 /** The outcome is unknown — park it; a human resolves it against the dashboard. */
@@ -272,18 +352,34 @@ export async function recordRefundedAttempt(
   claimToken: string,
   p: PurchasedRecord,
 ): Promise<boolean> {
-  const result = await db
-    .prepare(
-      `UPDATE shipping_labels
-          SET status = 'failed', transaction_id = ?2, provider = ?3, service = ?4,
-              amount_cents = ?5, tracking_number = ?6, label_url = ?7,
-              error = 'Purchased then refunded at Shippo (transaction ' || ?2 || ').',
-              updated_at = datetime('now')
-        WHERE order_id = ?1 AND status IN ('purchasing', 'uncertain') AND claim_token = ?8`,
-    )
-    .bind(orderId, p.transactionId, p.provider, p.service, p.amountCents, p.trackingNumber, p.labelUrl, claimToken)
-    .run();
-  return (result.meta?.changes ?? 0) > 0;
+  const results = await db.batch([
+    db
+      .prepare(
+        `UPDATE shipping_labels
+            SET status = 'failed', transaction_id = ?2, provider = ?3, service = ?4,
+                amount_cents = ?5, tracking_number = ?6, label_url = ?7,
+                error = 'Purchased then refunded at Shippo (transaction ' || ?2 || ').',
+                updated_at = datetime('now')
+          WHERE order_id = ?1 AND status IN ('purchasing', 'uncertain') AND claim_token = ?8`,
+      )
+      .bind(orderId, p.transactionId, p.provider, p.service, p.amountCents, p.trackingNumber, p.labelUrl, claimToken),
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO shipping_label_attempts (
+           order_id, claim_token, outcome, shipment_id, rate_id, transaction_id,
+           provider, service, amount_cents, tracking_number, label_url, error,
+           created_at
+         )
+         SELECT order_id, claim_token, 'refunded', shipment_id, rate_id,
+                transaction_id, provider, service, amount_cents, tracking_number,
+                label_url, error, created_at
+           FROM shipping_labels
+          WHERE order_id = ?1 AND status = 'failed' AND claim_token = ?2
+            AND transaction_id = ?3`,
+      )
+      .bind(orderId, claimToken, p.transactionId),
+  ]);
+  return (results[0]?.meta?.changes ?? 0) > 0;
 }
 
 /**
@@ -294,12 +390,28 @@ export async function recordRefundedAttempt(
  * before offering this; nothing calls it automatically.
  */
 export async function forceDiscardLabelAttempt(db: D1Database, orderId: number): Promise<boolean> {
-  const result = await db
-    .prepare(
-      `DELETE FROM shipping_labels
-        WHERE order_id = ?1 AND status IN ('purchasing', 'uncertain')`,
-    )
-    .bind(orderId)
-    .run();
-  return (result.meta?.changes ?? 0) > 0;
+  const results = await db.batch([
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO shipping_label_attempts (
+           order_id, claim_token, outcome, shipment_id, rate_id, transaction_id,
+           provider, service, amount_cents, tracking_number, label_url, error,
+           created_at
+         )
+         SELECT order_id, claim_token, 'force_discarded', shipment_id, rate_id,
+                transaction_id, provider, service, amount_cents, tracking_number,
+                label_url, error, created_at
+           FROM shipping_labels
+          WHERE order_id = ?1 AND status IN ('purchasing', 'uncertain')
+            AND claim_token IS NOT NULL`,
+      )
+      .bind(orderId),
+    db
+      .prepare(
+        `DELETE FROM shipping_labels
+          WHERE order_id = ?1 AND status IN ('purchasing', 'uncertain')`,
+      )
+      .bind(orderId),
+  ]);
+  return (results[1]?.meta?.changes ?? 0) > 0;
 }

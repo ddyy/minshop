@@ -406,9 +406,9 @@ export async function findTransactionForRate(
         }
       : null;
 
-  // Priority: a live purchase outranks everything (SUCCESS, or a refund Shippo
-  // REJECTED — that label still stands); then a completed refund (terminal but
-  // must be recorded); then anything unresolved; then the explicit no.
+  // Priority across EVERY matching transaction: a live purchase outranks
+  // everything; then any unresolved money; then a completed refund (only when
+  // every other match is refunded/ERROR); then the explicit no.
   const success = matches.find((tx) => tx.status === 'SUCCESS' || tx.status === 'REFUNDREJECTED');
   if (success) {
     const label = toLabel(success);
@@ -416,15 +416,19 @@ export async function findTransactionForRate(
       ? { ok: true, value: { state: 'purchased', label } }
       : { ok: false, error: 'Shippo reports a purchased label but its record is incomplete; reconcile in the dashboard.' };
   }
+  if (matches.some((tx) => tx.status === 'QUEUED' || tx.status === 'WAITING' || tx.status === 'REFUNDPENDING')) {
+    return { ok: true, value: { state: 'pending' } };
+  }
   const refunded = matches.find((tx) => tx.status === 'REFUNDED');
   if (refunded) {
+    const onlySettled = matches.every((tx) => tx.status === 'REFUNDED' || tx.status === 'ERROR');
+    if (!onlySettled) {
+      return { ok: false, error: 'Shippo returned conflicting transaction states; reconciliation is inconclusive.' };
+    }
     const label = toLabel(refunded);
     return label
       ? { ok: true, value: { state: 'refunded', label } }
       : { ok: false, error: 'Shippo reports a refunded label but its record is incomplete; reconcile in the dashboard.' };
-  }
-  if (matches.some((tx) => tx.status === 'QUEUED' || tx.status === 'WAITING' || tx.status === 'REFUNDPENDING')) {
-    return { ok: true, value: { state: 'pending' } };
   }
   if (matches.every((tx) => tx.status === 'ERROR')) {
     return { ok: true, value: { state: 'none' } };

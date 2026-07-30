@@ -18,7 +18,11 @@
 		"nodejs_compat"
 	],
 	"observability": {
-		"enabled": true
+		"enabled": true,
+		// Span-level attribution (D1 calls, subrequests, waitUntil work). Full
+		// sampling: post-cache invocation volume is a few thousand a day, and the
+		// tail spikes we chase are exactly the ones sampling would drop.
+		"traces": { "enabled": true, "head_sampling_rate": 1 }
 	},
 	// Safe default for fresh workers.dev deployments. A rendered instance may
 	// enable Workers Caching only after it declares CANONICAL_ORIGIN and disables

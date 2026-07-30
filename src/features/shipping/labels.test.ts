@@ -239,6 +239,27 @@ describe('findTransactionForRate', () => {
       value: { state: 'refunded', label: { transactionId: 'txn_1', trackingNumber: '9400x' } },
     });
   });
+  it('unresolved money outranks a refunded transaction for the same rate', async () => {
+    respond({
+      results: [
+        tx({ status: 'REFUNDED', object_id: 'txn_refunded' }),
+        tx({ status: 'REFUNDPENDING', object_id: 'txn_pending' }),
+      ],
+    });
+    expect(await find()).toEqual({ ok: true, value: { state: 'pending' } });
+  });
+  it('a refunded transaction plus terminal errors is safely refunded', async () => {
+    respond({
+      results: [
+        tx({ status: 'ERROR', object_id: 'txn_error' }),
+        tx({ status: 'REFUNDED', object_id: 'txn_refunded' }),
+      ],
+    });
+    expect(await find()).toMatchObject({
+      ok: true,
+      value: { state: 'refunded', label: { transactionId: 'txn_refunded' } },
+    });
+  });
   it('an incomplete SUCCESS is a reconciliation error, never a reopen', async () => {
     respond({ results: [tx({ label_url: undefined })] });
     expect((await find()).ok).toBe(false);

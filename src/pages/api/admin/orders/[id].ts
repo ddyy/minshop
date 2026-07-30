@@ -387,12 +387,15 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
       );
     }
     if (outcome.value.state === 'none') {
-      await markLabelFailed(
+      const failed = await markLabelFailed(
         env.DB,
         id,
         record.claim_token!,
         'Reconciled with Shippo: the attempt terminated in ERROR without purchasing.',
       );
+      if (!failed) {
+        return fail('The attempt changed state while reconciling — reload and check again.');
+      }
       return notice('Shippo explicitly reports the attempt failed without purchasing. You can fetch rates again.');
     }
     const found = outcome.value.label;

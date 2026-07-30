@@ -16,7 +16,11 @@ import {
   type LabelRate,
   type ShipFrom,
 } from '../../../features/shipping/labels.ts';
-import { getLabelRecord, isPurchaseStale } from '../../../features/shipping/labelStore';
+import {
+  getLabelRecord,
+  isPurchaseStale,
+  listLabelAttempts,
+} from '../../../features/shipping/labelStore';
 import { shouldSendCustomerOrderEmail } from '../../../features/email/orderPolicy';
 import RefundPanel from '../../../features/refunds/RefundPanel.astro';
 import { formatWeight } from '../../../features/shipping/weight';
@@ -60,6 +64,7 @@ const shippoToken = await getSecret(env.DB, 'shippo_api_key');
 // mid-purchase, forced manual fulfil) is money already spent, and it must stay
 // visible on fulfilled/refunded orders — even if the Shippo token was removed.
 const labelRecord = await getLabelRecord(env.DB, order.id);
+const labelAttempts = await listLabelAttempts(env.DB, order.id);
 const canLabel =
   !!shippoToken &&
   !!order.ship_address &&
@@ -534,6 +539,56 @@ const willEmailCustomer =
           </button>
         </form>
         </div>
+      )
+    }
+    {
+      labelAttempts.length > 0 && (
+        <details class="mt-5 border-t border-line pt-4">
+          <summary class="cursor-pointer text-xs uppercase tracking-widest text-gray-500">
+            Label history ({labelAttempts.length})
+          </summary>
+          <ol class="mt-3 space-y-3">
+            {labelAttempts.map((attempt) => (
+              <li class="rounded-md bg-paper px-3 py-2 text-xs text-gray-600">
+                <div class="flex flex-wrap items-baseline justify-between gap-2">
+                  <span class="font-medium text-gray-800">
+                    {attempt.outcome === 'force_discarded'
+                      ? 'Force-discarded'
+                      : attempt.outcome.charAt(0).toUpperCase() + attempt.outcome.slice(1)}
+                  </span>
+                  <time datetime={`${attempt.settled_at.replace(' ', 'T')}Z`}>
+                    {formatDate(attempt.settled_at, undefined, timeZone)}
+                  </time>
+                </div>
+                {(attempt.provider || attempt.service || attempt.amount_cents != null) && (
+                  <p class="mt-1">
+                    {[attempt.provider, attempt.service].filter(Boolean).join(' ')}
+                    {attempt.amount_cents != null && <> · {formatPrice(attempt.amount_cents)}</>}
+                  </p>
+                )}
+                {attempt.tracking_number && <p class="mt-1">Tracking {attempt.tracking_number}</p>}
+                {attempt.transaction_id && (
+                  <p class="mt-1">
+                    Transaction <code>{attempt.transaction_id}</code>
+                  </p>
+                )}
+                {attempt.error && <p class="mt-1">{attempt.error}</p>}
+                {attempt.label_url && (
+                  <p class="mt-1">
+                    <a
+                      href={attempt.label_url}
+                      target="_blank"
+                      rel="noopener"
+                      class="text-accent hover:underline"
+                    >
+                      Label PDF
+                    </a>
+                  </p>
+                )}
+              </li>
+            ))}
+          </ol>
+        </details>
       )
     }
   </div>

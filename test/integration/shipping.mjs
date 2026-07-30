@@ -18,6 +18,7 @@ import {
   recordRefundedAttempt,
   discardLabelAttempt,
   getLabelRecord,
+  listLabelAttempts,
   markLabelUncertain,
   recordPurchased,
   recordQuote,
@@ -77,6 +78,17 @@ const SCHEMA = `
                                 claim_token TEXT,
                                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                                 updated_at TEXT NOT NULL DEFAULT (datetime('now')));
+  CREATE TABLE shipping_label_attempts (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                order_id INTEGER NOT NULL,
+                                claim_token TEXT NOT NULL UNIQUE,
+                                outcome TEXT NOT NULL,
+                                shipment_id TEXT NOT NULL, rate_id TEXT,
+                                transaction_id TEXT, provider TEXT, service TEXT,
+                                amount_cents INTEGER, tracking_number TEXT,
+                                label_url TEXT, error TEXT,
+                                created_at TEXT NOT NULL,
+                                settled_at TEXT NOT NULL DEFAULT (datetime('now')));
   CREATE TABLE order_notifications (order_id INTEGER NOT NULL, kind TEXT NOT NULL,
                                     state TEXT NOT NULL DEFAULT 'pending',
                                     attempts INTEGER NOT NULL DEFAULT 0,
@@ -99,8 +111,9 @@ async function freshDb() {
   await db.exec('DROP TABLE IF EXISTS settings');
   await db.exec('DROP TABLE IF EXISTS products');
   await db.exec('DROP TABLE IF EXISTS product_variants');
-  await db.exec('DROP TABLE IF EXISTS orders');
+  await db.exec('DROP TABLE IF EXISTS shipping_label_attempts');
   await db.exec('DROP TABLE IF EXISTS shipping_labels');
+  await db.exec('DROP TABLE IF EXISTS orders');
   await db.exec('DROP TABLE IF EXISTS order_notifications');
   for (const stmt of SCHEMA.split(';').map((s) => s.trim()).filter(Boolean)) {
     await db.exec(stmt.replace(/\s+/g, ' '));
@@ -479,6 +492,28 @@ await check('a refunded-at-Shippo attempt reopens only after recording the audit
   assert.equal(row.transaction_id, 'txn_refunded', 'original transaction is on record');
   assert.match(row.error, /refunded at Shippo/);
   assert.equal(await recordQuote(db, 1, 'shp_b'), true);
+  assert.equal(await discardLabelAttempt(db, 1), true, 'discard removes only the active replacement quote');
+  assert.equal((await listLabelAttempts(db, 1))[0]?.transaction_id, 'txn_refunded');
+  assert.equal(await recordQuote(db, 1, 'shp_c'), true);
+  const replacement = await claimPurchase(db, 1, 'rate_2');
+  await recordPurchased(db, 1, replacement.claimToken, {
+    transactionId: 'txn_replacement',
+    provider: 'UPS',
+    service: 'Ground',
+    amountCents: 650,
+    trackingNumber: '1Zreplacement',
+    labelUrl: 'https://labels.example/replacement.pdf',
+    carrierCode: 'ups',
+  });
+  const history = await listLabelAttempts(db, 1);
+  assert.deepEqual(
+    history.map((attempt) => [attempt.outcome, attempt.transaction_id]),
+    [
+      ['purchased', 'txn_replacement'],
+      ['refunded', 'txn_refunded'],
+    ],
+    'replacement purchase cannot overwrite the refunded audit',
+  );
   // Stale token cannot fake the audit.
   await addOrder(db, 2);
   await recordQuote(db, 2, 'shp_c');
@@ -499,6 +534,7 @@ await check('force-discard is the only local exit for a submitted attempt', asyn
   await claimPurchase(db, 1, 'rate_1');
   assert.equal(await discardLabelAttempt(db, 1), false, 'safe discard refuses');
   assert.equal(await forceDiscardLabelAttempt(db, 1), true, 'the override removes it');
+  assert.equal((await listLabelAttempts(db, 1))[0]?.outcome, 'force_discarded');
   assert.equal(await recordQuote(db, 1, 'shp_b'), true, 'the order reopens — risk accepted');
   // But never a purchased row.
   const claim2 = await claimPurchase(db, 1, 'rate_2');
@@ -507,6 +543,11 @@ await check('force-discard is the only local exit for a submitted attempt', asyn
     trackingNumber: '9400ok', labelUrl: 'https://labels.example/ok.pdf', carrierCode: 'usps',
   });
   assert.equal(await forceDiscardLabelAttempt(db, 1), false, 'purchased rows are permanent');
+  assert.deepEqual(
+    (await listLabelAttempts(db, 1)).map((attempt) => attempt.outcome),
+    ['purchased', 'force_discarded'],
+    'the replacement cannot erase the risk-bearing override',
+  );
 });
 
 await check('recordPurchased lands label, fulfillment, and the shipped email in one batch', async () => {
