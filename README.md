@@ -508,6 +508,11 @@ to someone who hit the URL beforehand.
 
 ## Theming
 
+> **Customizing the storefront:** see [CUSTOMIZING.md](CUSTOMIZING.md) for the
+> full store-owned surface — your storefront set, its templates and tokens, the
+> controls to keep, and the checks to run.
+
+
 Brand color, accent, font, and corner radius are **design tokens** in `src/styles/theme.css` (a Tailwind v4 `@theme` block) — rebrand a clone by editing a few values, no component changes:
 
 ```css

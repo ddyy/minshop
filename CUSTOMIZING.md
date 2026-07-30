@@ -10,7 +10,8 @@ theme engine and no code editor in Admin — you edit source, build, and deploy.
 
 | File | What it controls |
 | --- | --- |
-| `src/styles/theme.css` | Brand tokens: colors, fonts, radii. |
+| `src/storefront/<your-set>/` | Your storefront set — templates and tokens. Created for you at setup. |
+| `src/styles/theme.css` | Optional overrides applied after your set's tokens. |
 | `src/storefront/Header.astro` | Logo, announcement bar, navigation, search, cart and account placement. |
 | `src/storefront/Footer.astro` | Footer navigation and store attribution. |
 | `src/storefront/ProductCard.astro` | Every product card — catalog, category, search, and the "You may also like" row. |
@@ -213,6 +214,17 @@ otherwise be indistinguishable to an automated check — or to a screen reader.
 | `data-low-stock` | Product page scarcity note | Keeps scarcity distinguishable from normal availability without publishing a count. |
 | `class="markdown-content"` | Content page | The hook every prose style is scoped to. |
 
+## Two conventions the contract tests enforce
+
+**Navigation landmarks carry a non-empty accessible name.** The name itself is
+yours — "Primary", "Shop", "Main" all pass. An unlabelled `<nav>` does not.
+
+**`<StoreNav>` renders merchant links twice**, once in the inline row and once
+in the mobile disclosure, so navigation is reachable at every width with
+scripts blocked. That duplication is deliberate and asserted; if a design
+genuinely needs a single responsive navigation, that is a change to the control
+upstream, not a test to relax in your set.
+
 ## Rules
 
 1. **Public IDs only.** Never render a numeric row ID.
@@ -274,6 +286,25 @@ empty search — those are where card layouts break.
 matches the *default* design byte-for-byte. It exists for upstream extraction
 work. If you have customized anything, it is supposed to fail, and it is not
 part of `npm run verify`.
+
+## Your set, and upstream's
+
+`src/storefront/default/` belongs to upstream and receives improvements. Your
+set is a copy of it, created and selected when your store was scaffolded, and
+upstream never writes there.
+
+That separation is the point: edit your own set and an upstream change to the
+default can never collide with your work. Editing `default/` directly gives that
+guarantee up.
+
+Which set is active is one value:
+
+```json
+{ "set": "your-store" }
+```
+
+in `storefront.config.json`. Change it and rebuild to try another set;
+`STOREFRONT=<id> npm run dev` does the same thing for one command.
 
 ## Resetting a file
 

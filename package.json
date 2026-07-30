@@ -33,7 +33,8 @@
     "mcp:deploy": "wrangler deploy --config mcp/wrangler.jsonc",
     "mcp:check": "bash scripts/check-mcp.sh",
     "scaffold:check": "npm test --prefix create-minshop && npm pack ./create-minshop --dry-run",
-    "storefront:sync": "node scripts/storefront-sync.mjs"
+    "storefront:sync": "node scripts/storefront-sync.mjs",
+    "db:seed:storefront-states": "bash scripts/seed-storefront-states.sh"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.1.4",

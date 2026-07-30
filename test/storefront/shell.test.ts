@@ -25,6 +25,15 @@ const input = (overrides: Partial<ShellInput> = {}): ShellInput => ({
   ...overrides,
 });
 
+/** Navigation landmarks with a non-empty accessible name. The NAME is the
+ *  design's to choose — "Primary", "Main", "Shop" are all fine — but an
+ *  unlabelled set of landmarks is not, so this asserts the property rather than
+ *  the string. */
+const labelledNavs = (html: string) =>
+  [...html.matchAll(/<nav\b[^>]*aria-label="([^"]+)"/g)].map((m) => m[1].trim()).filter(Boolean);
+
+const navCount = (html: string) => (html.match(/<nav\b/g) ?? []).length;
+
 const render = async (component: unknown, model: unknown) => {
   const container = await AstroContainer.create();
   // No request, no locals: the shell renders on checkout and the pay page, so
@@ -200,10 +209,14 @@ describe('the store-owned header', () => {
     }
   });
 
-  it('labels its landmarks', async () => {
-    const html = await render(Header, buildShellModel(input()));
+  it('gives every navigation landmark a non-empty accessible name', async () => {
+    const html = await render(
+      Header,
+      buildShellModel(input({ headerItems: [menuItem('About', '/pages/about')] })),
+    );
 
-    expect(html).toContain('aria-label="Primary"');
+    expect(navCount(html)).toBeGreaterThan(0);
+    expect(labelledNavs(html).length).toBe(navCount(html));
   });
 });
 
@@ -216,13 +229,15 @@ describe('the store-owned footer', () => {
 
     expect(html).toContain('My Shop');
     expect(html).toContain('href="/pages/privacy"');
-    expect(html).toContain('aria-label="Footer"');
+    // Labelled, but the label itself belongs to the design.
+    expect(navCount(html)).toBe(1);
+    expect(labelledNavs(html).length).toBe(1);
   });
 
   it('omits the footer nav entirely when there are no links', async () => {
     const html = await render(Footer, buildShellModel(input()));
 
-    expect(html).not.toContain('aria-label="Footer"');
+    expect(navCount(html)).toBe(0);
   });
 });
 
