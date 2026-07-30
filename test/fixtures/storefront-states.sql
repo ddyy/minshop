@@ -89,6 +89,29 @@ SELECT 'About', 'about',
   1
 WHERE NOT EXISTS (SELECT 1 FROM pages WHERE slug = 'about');
 
+-- Header navigation. Without this the header renders with no merchant links,
+-- so neither the inline row nor the mobile disclosure is ever exercised — and
+-- "no links" would be the only header state any gate or local instance sees.
+-- Four items is enough to show truncation pressure beside search and the cart.
+INSERT INTO menu_items (location, target_type, target_id, label, position)
+SELECT 'header', 'catalog', NULL, 'Shop', 0
+WHERE NOT EXISTS (SELECT 1 FROM menu_items WHERE location = 'header');
+
+INSERT INTO menu_items (location, target_type, target_id, label, position)
+SELECT 'header', 'category', c.id, 'Apparel', 1 FROM categories c
+WHERE c.slug = 'apparel'
+  AND NOT EXISTS (SELECT 1 FROM menu_items WHERE location = 'header' AND position = 1);
+
+INSERT INTO menu_items (location, target_type, target_id, label, position)
+SELECT 'header', 'page', p.id, 'About', 2 FROM pages p
+WHERE p.slug = 'about'
+  AND NOT EXISTS (SELECT 1 FROM menu_items WHERE location = 'header' AND position = 2);
+
+INSERT INTO menu_items (location, target_type, target_id, label, position)
+SELECT 'header', 'product', p.id, 'Featured: Sample Tee', 3 FROM products p
+WHERE p.slug = 'sample-tee'
+  AND NOT EXISTS (SELECT 1 FROM menu_items WHERE location = 'header' AND position = 3);
+
 -- Public serializers refuse rows without a public ID, and the storefront now
 -- fails loudly rather than leaking a storage key, so every fixture row needs
 -- one. Values are random per run and normalized out of the baselines.
@@ -97,4 +120,5 @@ UPDATE categories       SET public_id = 'cat_'  || lower(substr(hex(randomblob(1
 UPDATE pages            SET public_id = 'page_' || lower(substr(hex(randomblob(10)),1,10)) WHERE public_id IS NULL;
 UPDATE product_variants SET public_id = 'var_'  || lower(substr(hex(randomblob(10)),1,10)) WHERE public_id IS NULL;
 UPDATE product_extras   SET public_id = 'xtra_' || lower(substr(hex(randomblob(10)),1,10)) WHERE public_id IS NULL;
+UPDATE menu_items       SET public_id = 'nav_'  || lower(substr(hex(randomblob(10)),1,10)) WHERE public_id IS NULL;
 UPDATE product_images   SET public_id = 'pimg_' || lower(substr(hex(randomblob(10)),1,10)) WHERE public_id IS NULL;

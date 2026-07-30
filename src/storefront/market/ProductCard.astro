@@ -25,8 +25,14 @@ const { card, headingLevel = 'h2' } = Astro.props;
 const Heading = headingLevel;
 ---
 
-<li class="flex flex-col gap-2 bg-paper p-2.5 pb-3">
-  <a href={card.href} class="group block">
+<li class="flex flex-col bg-paper">
+  <!-- ONE link per card. Splitting the image and the title into two anchors
+       gives every tile a duplicate destination: keyboard users tab through it
+       twice, screen readers announce it twice, and the image-only anchor has no
+       text of its own — its name comes solely from the alt attribute, which
+       audits flag and which breaks entirely if a product ever renders without
+       one. -->
+  <a href={card.href} class="group flex flex-1 flex-col gap-2 p-2.5 pb-3">
     <div class="relative aspect-square overflow-hidden bg-[color:var(--market-surface)]">
       <StoreImage
         image={card.image}
@@ -41,19 +47,19 @@ const Heading = headingLevel;
         )
       }
     </div>
+
+    <Heading class="line-clamp-2 text-[13px] font-semibold leading-snug group-hover:text-brand">
+      {card.name}
+    </Heading>
+
+    <div class="mt-auto flex items-center justify-between gap-2">
+      <span class="font-serif text-[15px] font-bold tabular-nums">{card.formattedPrice}</span>
+      <span
+        class="text-[10px] font-bold uppercase tracking-wide"
+        style={`color:${card.inStock ? 'var(--market-stock-in)' : 'var(--market-muted)'}`}
+      >
+        {card.inStock ? 'In stock' : 'Out'}
+      </span>
+    </div>
   </a>
-
-  <Heading class="line-clamp-2 text-[13px] font-semibold leading-snug">
-    <a href={card.href} class="hover:text-brand">{card.name}</a>
-  </Heading>
-
-  <div class="mt-auto flex items-center justify-between gap-2">
-    <span class="font-serif text-[15px] font-bold tabular-nums">{card.formattedPrice}</span>
-    <span
-      class="text-[10px] font-bold uppercase tracking-wide"
-      style={`color:${card.inStock ? 'var(--market-stock-in)' : 'var(--market-muted)'}`}
-    >
-      {card.inStock ? 'In stock' : 'Out'}
-    </span>
-  </div>
 </li>

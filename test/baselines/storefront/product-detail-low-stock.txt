@@ -48,6 +48,26 @@ cache-tag: catalog,product:prod_<id>,shell
 <input type="search" name="q" value placeholder="Search" aria-label="Search products" class="w-40 border-0 border-b border-line bg-transparent px-1 py-1 text-sm transition-all focus:w-56 focus:border-brand focus:outline-none">
 </form>
 <nav aria-label="Primary" class="ml-auto flex min-w-0 items-center gap-4 text-xs uppercase tracking-widest text-gray-500 sm:gap-6">
+<div class="hidden min-w-0 items-center gap-4 xl:flex xl:gap-6">
+<a href="/" title="Shop" class="min-w-0 truncate hover:text-brand">Shop</a>
+<a href="/categories/apparel" title="Apparel" class="min-w-0 truncate hover:text-brand">Apparel</a>
+<a href="/pages/about" title="About" class="min-w-0 truncate hover:text-brand">About</a>
+<a href="/products/sample-tee" title="Featured: Sample Tee" class="min-w-0 truncate hover:text-brand">Featured: Sample Tee</a>
+</div>
+<details data-nav-disclosure class="relative order-last xl:hidden">
+<summary aria-label="Menu" class="flex cursor-pointer list-none items-center hover:text-brand">
+<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+<path d="M2 4.5h14M2 9h14M2 13.5h14">
+</path>
+</svg>
+</summary>
+<div class="absolute right-0 z-40 mt-3 flex min-w-44 flex-col gap-3 border border-line bg-white p-4 shadow-lg">
+<a href="/" class="hover:text-brand">Shop</a>
+<a href="/categories/apparel" class="hover:text-brand">Apparel</a>
+<a href="/pages/about" class="hover:text-brand">About</a>
+<a href="/products/sample-tee" class="hover:text-brand">Featured: Sample Tee</a>
+</div>
+</details>
 <a href="/search" class="hover:text-brand sm:hidden">Search</a>
 <a href="/cart" data-cart-open class="inline-flex items-center hover:text-brand">Cart<span data-cart-count-label class="inline-block min-w-[4ch] tabular-nums" aria-live="polite" aria-atomic="true">
 </span>
