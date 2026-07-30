@@ -83,6 +83,7 @@ const detail = (overrides: Partial<ProductDetailModel> = {}): ProductDetailModel
   id: 'prod_k7m2qx8vn6',
   name: 'Sample Tee',
   description: 'A shirt.',
+  descriptionHtml: '<p>A shirt.</p>',
   formattedPrice: '$24.00',
   priceCents: 2400,
   currency: 'usd',
@@ -350,5 +351,29 @@ describe('an independently authored product page', () => {
     expect(html).toContain('data-related="prod_related001"');
     expect(html).toContain('href="/products/other-thing"');
     expect(html).not.toContain('reveal group');
+  });
+});
+describe('description markdown', () => {
+  it('renders the sanitized HTML inside the prose styles', async () => {
+    const html = await render(ProductDetail, {
+      model: detail({
+        description: '**Soft** cotton\n\n- pre-shrunk',
+        descriptionHtml: '<p><strong>Soft</strong> cotton</p>\n<ul>\n<li>pre-shrunk</li>\n</ul>',
+      }),
+      purchase: purchase(),
+    });
+    expect(html).toContain('<strong>Soft</strong>');
+    expect(html).toContain('<li>pre-shrunk</li>');
+    expect(html).toContain('markdown-content');
+    // The RAW source must never reach the page.
+    expect(html).not.toContain('**Soft**');
+  });
+
+  it('omits the block entirely without a description', async () => {
+    const html = await render(ProductDetail, {
+      model: detail({ description: null, descriptionHtml: null }),
+      purchase: purchase(),
+    });
+    expect(html).not.toContain('markdown-content');
   });
 });

@@ -88,6 +88,7 @@ const inputClass =
     <label class="block text-sm font-medium" for="description">Description</label>
     <textarea id="description" name="description" rows="3" class={inputClass}
       >{product?.description ?? ''}</textarea>
+      <p class="mt-1 text-xs text-gray-500">Plain text or Markdown — paragraphs, lists, links, and <code>/images/…</code> media render on the product page.</p>
   </div>
 
   <div class="grid grid-cols-2 gap-4">

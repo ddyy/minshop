@@ -116,12 +116,12 @@ const { model, purchase } = Astro.props;
   </aside>
 
   {
-    model.description && (
+    model.descriptionHtml && (
       <section class="lg:order-2">
         <h2 class="mb-2 text-xs font-bold uppercase tracking-wider text-[color:var(--market-muted)]">
           Details
         </h2>
-        <p class="text-sm leading-relaxed">{model.description}</p>
+        <div class="markdown-content text-sm leading-relaxed" set:html={model.descriptionHtml} />
       </section>
     )
   }

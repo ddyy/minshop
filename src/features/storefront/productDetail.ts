@@ -5,6 +5,7 @@ import { listVariants, listExtras } from '../products/variants';
 import { categoriesForProduct, relatedProducts } from '../categories/db';
 import { getRelatedStored, storeRelatedIds } from '../search';
 import { enabledMethods } from '../payments';
+import { markdownExcerpt, renderMarkdown } from '../pages/markdown.ts';
 import { productImageSources, productImageUrl, type ImageDelivery } from '../products/image';
 import { stockState } from '../products/stock';
 import { catalogPath } from '../settings/home';
@@ -162,7 +163,8 @@ export async function loadProductDetail(
     '@context': 'https://schema.org',
     '@type': 'Product',
     name: product.name,
-    ...(product.description ? { description: product.description } : {}),
+    // Structured data wants prose, not Markdown syntax characters.
+    ...(product.description ? { description: markdownExcerpt(product.description, 5000) } : {}),
     image: new URL(imagePath, options.origin).href,
     offers: {
       '@type': 'Offer',
@@ -187,7 +189,8 @@ export async function loadProductDetail(
       storedRelated === null ? () => storeRelatedIds(product.id, RELATED_TARGET) : null,
     seo: {
       title: product.name,
-      description: product.description,
+      // Meta/og description: plain text, truncated on a word boundary.
+      description: product.description ? markdownExcerpt(product.description, 160) : null,
       imagePath,
       // Escape "<" so a product name can't break out of the <script> tag.
       jsonLd: JSON.stringify(jsonLd).replace(/</g, '\\u003c'),
@@ -196,6 +199,9 @@ export async function loadProductDetail(
       id: requirePublicId(product.public_id, product.id, 'product'),
       name: product.name,
       description: product.description,
+      descriptionHtml: product.description
+        ? renderMarkdown(product.description, { baseUrl: options.imageBaseUrl })
+        : null,
       formattedPrice: formatMoney(displayPriceCents, options.currency),
       priceCents: product.price_cents,
       currency: options.currency,

@@ -201,7 +201,12 @@ export interface ProductSeoModel {
 export interface ProductDetailModel {
   id: string;
   name: string;
+  /** Raw Markdown source (also what the catalog API returns). */
   description: string | null;
+  /** Rendered, sanitized HTML (renderMarkdown: raw HTML escaped, schemes
+   *  filtered). Themes show THIS, inside their .markdown-content prose styles —
+   *  never the raw source. */
+  descriptionHtml: string | null;
   /** Lowest variant price when they differ, else the product price. */
   formattedPrice: string;
   /** Raw minor units for the live price script; display-only. */

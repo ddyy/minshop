@@ -76,8 +76,8 @@ const { model, purchase } = Astro.props;
     {model.lowStock && <p data-low-stock class="mt-2 text-xs tracking-[0.16em] text-brand">Low stock</p>}
 
     {
-      model.description && (
-        <p class="mt-8 max-w-[38ch] leading-[1.8] text-[#b9b2a5]">{model.description}</p>
+      model.descriptionHtml && (
+        <div class="markdown-content mt-8 max-w-[38ch] leading-[1.8] text-[#b9b2a5]" set:html={model.descriptionHtml} />
       )
     }
 

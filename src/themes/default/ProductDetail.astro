@@ -79,7 +79,11 @@ const { model, purchase } = Astro.props;
         </p>
       )
     }
-    <p class="mt-6 max-w-prose leading-relaxed text-muted">{model.description}</p>
+    {
+      model.descriptionHtml && (
+        <div class="markdown-content mt-6 max-w-prose text-muted" set:html={model.descriptionHtml} />
+      )
+    }
 
     <ProductPurchaseForm model={purchase} />
 
