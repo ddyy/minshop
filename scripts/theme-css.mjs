@@ -15,7 +15,7 @@
  * skip turns that into no write at all, and no watcher fires. (Before this
  * rule, that exact scenario shipped a corrupt worker: the dev server noticed
  * the shared tsconfig change, restarted, wrote both shared files back to its
- * own set, and the build's Tailwind then read the reverted stylesheet — it
+ * own theme, and the build's Tailwind then read the reverted stylesheet — it
  * exited 0 carrying studio templates with default styling.)
  *
  * Per-process selection happens in process-local state only:
@@ -29,7 +29,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { dirname, resolve } from 'node:path';
 import { CONFIG_FILE, THEMES_DIR, discoverThemeIds, resolveConfiguredTheme } from './themes.mjs';
 
-/** One stylesheet per set, so selecting a set is an alias, not a rewrite. */
+/** One stylesheet per theme, so selecting a theme is an alias, not a rewrite. */
 export const GENERATED_CSS_DIR = 'src/styles/themes';
 /** The editor-facing tsconfig fragment; follows theme.config.json only. */
 export const SHARED_TSCONFIG = 'tsconfig.theme.json';
@@ -47,7 +47,7 @@ export function themeCss(id, root = process.cwd()) {
   const toThemes = '../../themes';
   // Exclude each INACTIVE theme individually. Excluding the parent and then
   // re-including the active child does not work: the exclusion wins, and the
-  // active set's utilities silently vanish along with the others'. Verified by
+  // active theme's utilities silently vanish along with the others'. Verified by
   // building a probe theme and finding its unique utility absent even when the
   // probe was selected.
   const inactive = discoverThemeIds(root).filter((other) => other !== id);
@@ -125,7 +125,7 @@ export function writeThemeArtifacts(root = process.cwd()) {
 
   // The Admin entry's exclusion list: EVERY theme, because no theme's templates
   // render inside Admin and no theme may restyle it. Named with a leading
-  // underscore, which no theme id can carry, so it cannot collide with a set's
+  // underscore, which no theme id can carry, so it cannot collide with a theme's
   // own generated file.
   const adminExclusions = ids.map((id) => `@source not "../../themes/${id}";`).join('\n');
   writeIfChanged(
@@ -149,9 +149,7 @@ ${adminExclusions || '/* no themes */'}
     }
   }
   for (const name of readdirSync(root)) {
-    // Live pruning for the current naming, plus cleanup of the pre-rename
-    // generated names any existing checkout still carries.
-    const m = name.match(/^tsconfig\.(?:theme|storefront)\.([a-z0-9-]+)\.json$/);
+    const m = name.match(/^tsconfig\.theme\.([a-z0-9-]+)\.json$/);
     if (m && !live.has(m[1])) rmSync(resolve(root, name), { force: true });
   }
 
@@ -160,10 +158,6 @@ ${adminExclusions || '/* no themes */'}
   // above. Env-selected processes pass their per-set tsconfig explicitly.
   const configured = resolveConfiguredTheme(root);
   writeIfChanged(resolve(root, SHARED_TSCONFIG), sharedTsconfig(configured.id));
-
-  // The pre-per-set generated stylesheet. Nothing imports it any more; leaving
-  // a stale generated file behind invites something to.
-  rmSync(resolve(root, 'src/styles/themes-active.css'), { force: true });
 
   return { ids, configured };
 }

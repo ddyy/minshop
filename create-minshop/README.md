@@ -20,6 +20,7 @@ Requires Node 22.12 or newer and Git.
 ```text
 --no-install   Scaffold without installing dependencies
 --ref <ref>    Clone a specific Git branch or tag (default: main)
+--theme <id>   Name this store's theme (default: derived from the directory)
 -h, --help     Show help
 -v, --version  Show the installed version
 ```

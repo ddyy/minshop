@@ -513,7 +513,7 @@ to someone who hit the URL beforehand.
 > controls to keep, and the checks to run.
 
 
-Minshop ships selectable **themes** — as on other platforms, except a theme here is compiled source selected at build time, not a package installed at runtime. Brand color, accent, font, and corner radius are **design tokens** in your theme's `tokens.css` (`src/themes/<your-theme>/theme.css`, a Tailwind v4 `@theme` block) — rebrand a clone by editing a few values, no component changes:
+Minshop ships selectable **themes** — as on other platforms, except a theme here is compiled source selected at build time, not a package installed at runtime. Brand color, accent, font, and corner radius are **design tokens** in your theme's `tokens.css` (`src/themes/<your-theme>/tokens.css`, a Tailwind v4 `@theme` block) — rebrand a clone by editing a few values, no component changes:
 
 ```css
 @theme {

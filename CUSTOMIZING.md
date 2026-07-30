@@ -258,7 +258,7 @@ upstream, not a test to relax in your theme.
 
 ## Styling
 
-Tokens live in your theme's `tokens.css` (`src/themes/<your-theme>/theme.css`),
+Tokens live in your theme's `tokens.css` (`src/themes/<your-theme>/tokens.css`),
 in a Tailwind v4 `@theme` block, and become utilities automatically —
 `--color-brand` gives you `bg-brand`, `text-brand`, and so on. Structure is
 expressed with Tailwind utilities in your own markup.
@@ -278,11 +278,11 @@ matters:
 - The **semantic `@theme` tokens** (`--color-*`, `--font-*`, `--radius-*`)
   have NO fallback: they are what generates the utilities. A theme that omits
   `--color-brand` doesn't get the default brand — `bg-brand` simply stops
-  being generated. Every set must therefore declare the complete semantic
+  being generated. Every theme must therefore declare the complete semantic
   surface; the contract suite enforces the required names for every theme in
   the tree.
 
-Only your active set's directory is scanned for utilities (inactive themes are
+Only your active theme's directory is scanned for utilities (inactive themes are
 excluded per build, and generated files under `src/styles/storefront/` wire
 that up — never edit or commit them). Classes you add in your theme are
 generated without touching any config file.
@@ -336,10 +336,10 @@ part of `npm run verify`.
 ## Your theme, and upstream's
 
 `src/themes/default/` belongs to upstream and receives improvements. Your
-set is a copy of it, created and selected when your store was scaffolded, and
+theme is a copy of it, created and selected when your store was scaffolded, and
 upstream never writes there.
 
-That separation is the point: edit your own set and an upstream change to the
+That separation is the point: edit your own theme and an upstream change to the
 default can never collide with your work. Editing `default/` directly gives that
 guarantee up.
 
@@ -350,7 +350,7 @@ put them.
 ## Starting from Studio or Market
 
 The shipped designs are reference implementations, and they are also legitimate
-starting points. Copy one's CONTENTS into your own set rather than selecting it
+starting points. Copy one's CONTENTS into your own theme rather than selecting it
 directly — a store that selects `studio` is editing an upstream directory again,
 with all the collision it was scaffolded to avoid:
 
@@ -372,13 +372,13 @@ this repository. They embed no third-party assets — every font stack resolves
 to system faces, and Studio's grain texture is an inline SVG authored here — so
 copying one into your theme carries no license or attribution obligation.
 
-Which set is active is one value:
+Which theme is active is one value:
 
 ```json
-{ "set": "your-store" }
+{ "theme": "your-store" }
 ```
 
-in `theme.config.json`. Change it and rebuild to try another set;
+in `theme.config.json`. Change it and rebuild to try another theme;
 `THEME=<id> npm run dev` does the same thing for one command.
 
 ## Resetting a file

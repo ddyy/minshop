@@ -61,7 +61,7 @@ components. Deleting a folder still builds.
 src/
   config.ts              SCHEMA + DEFAULTS (upstream-owned). getConfig() = source of truth.
   store.config.ts        build-time shop overrides, deep-merged on top
-  styles/theme.css       post-set override layer (normally empty; theme tokens live in themes/<theme>/tokens.css)
+  styles/overrides.css   post-theme override layer (normally empty; theme tokens live in themes/<theme>/tokens.css)
   middleware.ts          admin auth gate (fail-closed)
   env.d.ts               Cloudflare.Env binding/secret types
   layouts/               Layout.astro (storefront), AdminLayout.astro

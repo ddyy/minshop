@@ -176,7 +176,7 @@ const activeHits = activeCandidates.filter((c) =>
   storefrontFiles.some((f) => css.get(f).includes(cssEscaped(c))),
 );
 if (activeCandidates.length === 0) {
-  // No silent caps: a set whose every class overlaps its siblings cannot be
+  // No silent caps: a theme whose every class overlaps its siblings cannot be
   // sentinel-checked, and pretending otherwise would report coverage that
   // does not exist.
   console.log(

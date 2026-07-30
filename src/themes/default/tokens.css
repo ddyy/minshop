@@ -14,7 +14,7 @@
 
   /* Body text. Tokenized alongside --color-paper: a theme that changes the page
      colour must be able to change the text colour with it, and a hardcoded
-     utility on <body> beats anything a set declares in the base layer. */
+     utility on <body> beats anything a theme declares in the base layer. */
   --color-ink: #111827;
 
   /* Accent — text links */
@@ -39,7 +39,7 @@
   --color-faint: #6b7280;
 
   /* Label colour on a `brand` fill. A token rather than a hardcoded white,
-     because a set is free to pick a light brand — and then white fails
+     because a theme is free to pick a light brand — and then white fails
      contrast on every primary button at once. */
   --color-on-brand: #ffffff;
 
