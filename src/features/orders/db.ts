@@ -80,7 +80,7 @@ export interface PaidOrderInput {
    *  Snapshotted so later catalog or rate edits cannot rewrite history. */
   shippingLabel?: string | null;
   shippingWeightGrams?: number | null;
-  deliveryMethod?: 'pickup' | 'shipping' | null;
+  deliveryMethod?: 'pickup' | 'shipping' | 'unknown' | null;
   discountCents?: number;
   taxCents?: number;
   shippingAddress?: ShippingAddress | null;
@@ -268,16 +268,26 @@ export async function fulfillOrder(
   id: number,
   carrier: string | null,
   trackingNumber: string | null,
-): Promise<void> {
-  await db
+): Promise<boolean> {
+  // Refuses while a label purchase is in flight ('purchasing') or unresolved
+  // ('uncertain'): the purchase path requires an unfulfilled order to claim, so
+  // D1's serialization lets exactly one of the two fulfillment routes win —
+  // without this, a manual fulfil could land mid-purchase and the paid label's
+  // tracking would silently lose to the hand-typed one.
+  const result = await db
     .prepare(
       `UPDATE orders
          SET fulfillment_status = 'fulfilled', tracking_carrier = ?, tracking_number = ?,
              fulfilled_at = datetime('now')
-       WHERE id = ?`,
+       WHERE id = ?
+         AND NOT EXISTS (
+           SELECT 1 FROM shipping_labels
+            WHERE order_id = orders.id AND status IN ('purchasing', 'uncertain')
+         )`,
     )
     .bind(carrier, trackingNumber, id)
     .run();
+  return (result.meta?.changes ?? 0) > 0;
 }
 
 /** Revert an order to unfulfilled, clearing tracking. */

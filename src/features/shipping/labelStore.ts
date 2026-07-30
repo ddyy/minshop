@@ -16,6 +16,22 @@ import type { D1Database } from '@cloudflare/workers-types';
 
 export type LabelStatus = 'quoted' | 'purchasing' | 'purchased' | 'failed' | 'uncertain';
 
+/**
+ * How long a 'purchasing' row is presumed to have a live request behind it.
+ * Within the lease it is untouchable — discarding it would let a second
+ * purchase start while Shippo is still processing the first, exactly the
+ * double-buy the claim exists to prevent. Past the lease it is treated as a
+ * crashed attempt: same reconciliation path as 'uncertain'.
+ */
+export const PURCHASE_LEASE_SECONDS = 120;
+
+/** A purchasing row whose lease has expired — crashed, not in flight. */
+export function isPurchaseStale(record: Pick<LabelRecord, 'status' | 'updated_at'>): boolean {
+  if (record.status !== 'purchasing') return false;
+  const updated = Date.parse(`${record.updated_at.replace(' ', 'T')}Z`);
+  return !Number.isFinite(updated) || Date.now() - updated >= PURCHASE_LEASE_SECONDS * 1000;
+}
+
 export interface LabelRecord {
   order_id: number;
   status: LabelStatus;
@@ -28,13 +44,14 @@ export interface LabelRecord {
   tracking_number: string | null;
   label_url: string | null;
   error: string | null;
+  updated_at: string;
 }
 
 /** The order must still be worth labelling: paid, unfulfilled, not a pickup. */
 const ORDER_ELIGIBLE = `EXISTS (
   SELECT 1 FROM orders
    WHERE id = ?1 AND status = 'paid' AND fulfillment_status = 'unfulfilled'
-     AND COALESCE(delivery_method, 'shipping') = 'shipping'
+     AND delivery_method = 'shipping'
 )`;
 
 export async function getLabelRecord(db: D1Database, orderId: number): Promise<LabelRecord | null> {
@@ -114,8 +131,8 @@ export async function recordPurchased(
   db: D1Database,
   orderId: number,
   p: PurchasedRecord,
-): Promise<void> {
-  await db.batch([
+): Promise<{ recorded: boolean; orderFulfilled: boolean }> {
+  const results = await db.batch([
     db
       .prepare(
         `UPDATE shipping_labels
@@ -133,12 +150,23 @@ export async function recordPurchased(
           WHERE id = ?1 AND fulfillment_status = 'unfulfilled'`,
       )
       .bind(orderId, p.carrierCode, p.trackingNumber, p.labelUrl),
-    // Same INSERT OR IGNORE contract as outboxStore.queueNotification, inlined
-    // so it joins this batch: the shipped email survives a crash right here.
+    // Same INSERT OR IGNORE contract as outboxStore.queueNotification, inlined so
+    // it joins this batch — and conditional on OUR tracking having landed, so a
+    // shipped email can never carry another path's tracking number.
     db
-      .prepare(`INSERT OR IGNORE INTO order_notifications (order_id, kind) VALUES (?1, 'order-shipped')`)
-      .bind(orderId),
+      .prepare(
+        `INSERT OR IGNORE INTO order_notifications (order_id, kind)
+         SELECT ?1, 'order-shipped'
+          WHERE EXISTS (SELECT 1 FROM orders WHERE id = ?1 AND tracking_number = ?2)`,
+      )
+      .bind(orderId, p.trackingNumber),
   ]);
+  // Zero-row transitions are reconciliation signals, not success: the label row
+  // must have been 'purchasing', and the order must have accepted OUR tracking.
+  return {
+    recorded: (results[0]?.meta?.changes ?? 0) > 0,
+    orderFulfilled: (results[1]?.meta?.changes ?? 0) > 0,
+  };
 }
 
 /** Shippo said no. Safe to quote again. */
@@ -167,15 +195,20 @@ export async function markLabelUncertain(db: D1Database, orderId: number, error:
 
 /**
  * The merchant's explicit "I checked the dashboard, no label exists" (or
- * abandoning a quote). Deliberately cannot touch a purchased row.
+ * abandoning a quote). Cannot touch a purchased row, and cannot touch a
+ * purchasing row inside its lease — that request may still be in flight, and
+ * discarding it would reopen the order for a concurrent second purchase.
  */
 export async function discardLabelAttempt(db: D1Database, orderId: number): Promise<boolean> {
   const result = await db
     .prepare(
       `DELETE FROM shipping_labels
-        WHERE order_id = ? AND status IN ('quoted', 'failed', 'uncertain', 'purchasing')`,
+        WHERE order_id = ?1
+          AND (status IN ('quoted', 'failed', 'uncertain')
+               OR (status = 'purchasing'
+                   AND updated_at <= datetime('now', '-' || ?2 || ' seconds')))`,
     )
-    .bind(orderId)
+    .bind(orderId, PURCHASE_LEASE_SECONDS)
     .run();
   return (result.meta?.changes ?? 0) > 0;
 }

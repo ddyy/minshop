@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { COUNTRY_CODES } from '../shipping/countries';
 import { STRIPE_UNSUPPORTED, stripeAllowedCountries, stripeSessionDestination } from './stripeCountries';
+import { classifyRateDelivery } from './stripe';
 
 describe('stripeAllowedCountries', () => {
   it('passes explicit zone countries straight through', () => {
@@ -77,5 +78,20 @@ describe('stripeSessionDestination', () => {
   it('accepts any supported country under a catch-all zone', () => {
     expect(stripeSessionDestination('CA', ['US'], true)).toEqual(['CA']);
     expect(stripeSessionDestination('KP', ['US'], true)).toBeNull();
+  });
+});
+
+describe('classifyRateDelivery', () => {
+  it('reads the stamped mode', () => {
+    expect(classifyRateDelivery({ delivery: 'pickup' })).toBe('pickup');
+    expect(classifyRateDelivery({ delivery: 'shipping' })).toBe('shipping');
+  });
+  it('treats anything unstamped as unknown, never as delivery', () => {
+    // 'unknown' blocks label purchase until reconciled; guessing 'shipping'
+    // would offer carrier labels on a possible pickup order.
+    expect(classifyRateDelivery({})).toBe('unknown');
+    expect(classifyRateDelivery(null)).toBe('unknown');
+    expect(classifyRateDelivery(undefined)).toBe('unknown');
+    expect(classifyRateDelivery({ delivery: 'PICKUP' })).toBe('unknown');
   });
 });

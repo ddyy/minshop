@@ -425,7 +425,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     // One batch: label row, guarded fulfillment, label URL, and the durable
     // shipped-notification row. A crash after the charge can no longer leave a
     // paid label unrecorded, and the email survives via the outbox sweep.
-    await recordPurchased(env.DB, id, {
+    const recorded = await recordPurchased(env.DB, id, {
       transactionId: bought.value.transactionId,
       provider: rate.provider,
       service: rate.service,
@@ -434,26 +434,45 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
       labelUrl: bought.value.labelUrl,
       carrierCode: carrierCodeFor(bought.value.provider),
     });
-    let delivery = 'No customer email will be sent.';
+    if (!recorded.orderFulfilled) {
+      // The charge is real but the order refused our tracking (fulfilled some
+      // other way despite the guards, or refunded mid-flight). Say so —
+      // pretending this succeeded is how paid labels get lost.
+      return fail(
+        `Label ${bought.value.trackingNumber} was purchased and saved, but the order could not be marked fulfilled with it — it changed state meanwhile. Reconcile the tracking by hand.`,
+      );
+    }
+    const settings = await getStoreSettings(env.DB);
     const order = await getOrder(env.DB, id);
-    if (order?.email && shouldSendCustomerOrderEmail(order.payment_method)) {
-      delivery = 'The customer is being emailed the tracking details.';
+    const willEmail =
+      !!order?.email &&
+      shouldSendCustomerOrderEmail(order.payment_method) &&
+      !!(await getEmailProvider(settings));
+    if (willEmail) {
       try {
-        await deliverOrderNotifications(env.DB, id, new URL(request.url).origin);
+        await deliverOrderNotifications(env.DB, id, new URL(request.url).origin, settings);
       } catch (err) {
         // Row stays queued; the piggyback sweep retries it.
         console.error('Shipped-notification delivery failed:', err);
       }
     }
     return notice(
-      `Label purchased (${rate.provider} ${rate.service}). Tracking ${bought.value.trackingNumber} recorded. ${delivery}`,
+      `Label purchased (${rate.provider} ${rate.service}). Tracking ${bought.value.trackingNumber} recorded. ${
+        willEmail
+          ? 'The tracking email to the customer has been queued.'
+          : 'No customer email will be sent (demo order, no address, or email not configured).'
+      }`,
     );
   }
 
   // Fulfill
   const carrier = String(form.get('carrier') ?? '').trim() || null;
   const trackingNumber = String(form.get('tracking_number') ?? '').trim() || null;
-  await fulfillOrder(env.DB, id, carrier, trackingNumber);
+  if (!(await fulfillOrder(env.DB, id, carrier, trackingNumber))) {
+    return fail(
+      'This order has a label purchase in progress or awaiting reconciliation — finish or discard that first.',
+    );
+  }
 
   // Durable shipped notice: queue + attempt now; a failed send is retried by
   // the outbox sweep instead of vanishing into a log line. Demo orders and

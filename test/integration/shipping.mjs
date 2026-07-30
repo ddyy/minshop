@@ -11,6 +11,7 @@ import {
 } from '../../src/features/shipping/settings.ts';
 import { countProductsMissingWeight } from '../../src/features/shipping/sellability.ts';
 import {
+  PURCHASE_LEASE_SECONDS,
   claimPurchase,
   discardLabelAttempt,
   getLabelRecord,
@@ -18,6 +19,7 @@ import {
   recordPurchased,
   recordQuote,
 } from '../../src/features/shipping/labelStore.ts';
+import { fulfillOrder } from '../../src/features/orders/db.ts';
 
 // Merchant-managed shipping against a real D1. The properties here are the ones a
 // mocked database cannot show: that the revision guard actually serializes two
@@ -236,7 +238,7 @@ const addOrder = async (db, id, over = {}) => {
       `INSERT INTO orders (id, public_id, status, fulfillment_status, delivery_method)
        VALUES (?, ?, ?, ?, ?)`,
     )
-    .bind(id, `ord_label_${id}`, over.status ?? 'paid', over.fulfillment ?? 'unfulfilled', over.delivery ?? null)
+    .bind(id, `ord_label_${id}`, over.status ?? 'paid', over.fulfillment ?? 'unfulfilled', 'delivery' in over ? over.delivery : 'shipping')
     .run();
 };
 
@@ -250,6 +252,14 @@ await check('quoting requires a paid, unfulfilled delivery order', async () => {
   assert.equal(await recordQuote(db, 2, 'shp_b'), false, 'refunded order must refuse');
   assert.equal(await recordQuote(db, 3, 'shp_c'), false, 'fulfilled order must refuse');
   assert.equal(await recordQuote(db, 4, 'shp_d'), false, 'pickup order must refuse');
+});
+
+await check('unknown and legacy-null delivery modes cannot quote', async () => {
+  const db = await freshDb();
+  await addOrder(db, 1, { delivery: 'unknown' });
+  await addOrder(db, 2, { delivery: null });
+  assert.equal(await recordQuote(db, 1, 'shp_a'), false, "'unknown' must be reconciled, not guessed");
+  assert.equal(await recordQuote(db, 2, 'shp_b'), false, 'post-0036, NULL means not-a-delivery');
 });
 
 await check('a foreign shipment id can never be bought from', async () => {
@@ -272,6 +282,66 @@ await check('exactly one concurrent purchase claim wins', async () => {
     claimPurchase(db, 1, 'rate_2'),
   ]);
   assert.equal([a, b].filter(Boolean).length, 1, 'one claim exactly');
+});
+
+await check('a live purchasing claim cannot be discarded or replaced', async () => {
+  const db = await freshDb();
+  await addOrder(db, 1);
+  await recordQuote(db, 1, 'shp_a');
+  await claimPurchase(db, 1, 'rate_1');
+  // Fresh claim (updated_at = now): inside the lease, untouchable — discarding
+  // here would let a second purchase start while Shippo processes the first.
+  assert.equal(await discardLabelAttempt(db, 1), false, 'live claim must not discard');
+  assert.equal(await recordQuote(db, 1, 'shp_b'), false, 'live claim must not be replaced');
+  // Backdate past the lease: now it is a crashed attempt and discardable.
+  await db
+    .prepare(`UPDATE shipping_labels SET updated_at = datetime('now', '-' || ? || ' seconds') WHERE order_id = 1`)
+    .bind(PURCHASE_LEASE_SECONDS + 5)
+    .run();
+  assert.equal(await discardLabelAttempt(db, 1), true, 'stale claim is reconcilable');
+});
+
+await check('manual fulfillment loses to an in-flight purchase, and vice versa', async () => {
+  const db = await freshDb();
+  await addOrder(db, 1);
+  await recordQuote(db, 1, 'shp_a');
+  await claimPurchase(db, 1, 'rate_1');
+  // The claim is live: the manual path must refuse rather than race the charge.
+  assert.equal(await fulfillOrder(db, 1, 'usps', 'MANUAL-1'), false);
+  const order = await db.prepare('SELECT fulfillment_status FROM orders WHERE id = 1').first();
+  assert.equal(order.fulfillment_status, 'unfulfilled');
+  // And the mirror: once manually fulfilled (no label row), a claim cannot start.
+  await addOrder(db, 2);
+  assert.equal(await fulfillOrder(db, 2, 'usps', 'MANUAL-2'), true);
+  assert.equal(await recordQuote(db, 2, 'shp_b'), false);
+});
+
+await check('a forced fulfillment mid-purchase surfaces as a reconciliation state', async () => {
+  const db = await freshDb();
+  await addOrder(db, 1);
+  await recordQuote(db, 1, 'shp_a');
+  await claimPurchase(db, 1, 'rate_1');
+  // Simulate the guard being bypassed (e.g. a pre-guard deploy still running):
+  // force-fulfil directly, then let the provider success land.
+  await db
+    .prepare(`UPDATE orders SET fulfillment_status = 'fulfilled', tracking_number = 'MANUAL-X' WHERE id = 1`)
+    .run();
+  const result = await recordPurchased(db, 1, {
+    transactionId: 'txn_race',
+    provider: 'USPS',
+    service: 'Priority Mail',
+    amountCents: 733,
+    trackingNumber: '9400race',
+    labelUrl: 'https://labels.example/race.pdf',
+    carrierCode: 'usps',
+  });
+  assert.equal(result.recorded, true, 'the paid label is still persisted');
+  assert.equal(result.orderFulfilled, false, 'zero-row order update is reported, not swallowed');
+  // The shipped email must NOT go out carrying the manual tracking number.
+  const note = await db
+    .prepare(`SELECT 1 FROM order_notifications WHERE order_id = 1 AND kind = 'order-shipped'`)
+    .first();
+  assert.equal(note, null, 'no shipped email for a tracking number that did not land');
 });
 
 await check('an uncertain outcome blocks re-quoting until discarded', async () => {
