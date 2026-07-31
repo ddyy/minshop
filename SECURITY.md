@@ -5,10 +5,16 @@ security reports get priority over everything else.
 
 ## Reporting a vulnerability
 
-Email **dev@daniel-yang.com** with a description, steps to reproduce, and the
-impact you believe it has. Please don't open a public issue for anything
-exploitable. You'll get an acknowledgment within 72 hours and a fix or a plan
-before any public disclosure. Reports that include a working proof of concept
+Use GitHub's private reporting:
+[Report a vulnerability](https://github.com/ddyy/minshop/security/advisories/new).
+That opens a private advisory only the maintainer can see, keeps the whole
+thread in one place, and credits you if the report leads to a fix. If you'd
+rather not use GitHub, email **dev@daniel-yang.com**.
+
+Either way, include a description, steps to reproduce, and the impact you
+believe it has. Please don't open a public issue for anything exploitable.
+You'll get an acknowledgment within 72 hours and a fix or a plan before any
+public disclosure. Reports that include a working proof of concept
 against a local or demo store are the fastest to act on.
 
 Please don't test against stores you don't own. The
