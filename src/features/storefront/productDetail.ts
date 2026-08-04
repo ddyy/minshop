@@ -210,6 +210,7 @@ export async function loadProductDetail(
       // Deliberately never shown for a product with variants: the product-level
       // count means nothing when the variant is the inventory unit.
       lowStock: !hasVariants && state === 'low',
+      digitalDelivery: Boolean(product.file_key),
       categories: categories.map((category) => ({
         text: category.name,
         href: `/categories/${category.slug}`,

@@ -4,7 +4,7 @@
  */
 export type DigitalDeliveryRelease = 1 | 2 | 3 | 4;
 
-export const DIGITAL_DELIVERY_RELEASE: DigitalDeliveryRelease = 3;
+export const DIGITAL_DELIVERY_RELEASE: DigitalDeliveryRelease = 4;
 
 export const lifecycleActive = (release: DigitalDeliveryRelease = DIGITAL_DELIVERY_RELEASE) =>
   release >= 2;

@@ -90,6 +90,7 @@ const detail = (overrides: Partial<ProductDetailModel> = {}): ProductDetailModel
   priceVaries: false,
   soldOut: false,
   lowStock: false,
+  digitalDelivery: false,
   categories: [{ text: 'Apparel', href: '/categories/apparel' }],
   images: [],
   heroImage: { ...image('/images/tee.jpg'), priority: true },

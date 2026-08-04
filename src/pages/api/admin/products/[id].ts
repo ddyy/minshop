@@ -7,6 +7,7 @@ import {
   syncPrimaryImage,
   updateProduct,
   deleteProduct,
+  setProductFile,
 } from '../../../../features/products/db';
 import { parseProductForm } from '../../../../features/products/form';
 import { zonesRequireWeight } from '../../../../features/shipping/calculator';
@@ -29,7 +30,9 @@ import {
   attachMediaToProduct,
   replaceProductImageFromMedia,
 } from '../../../../features/media/db';
-import { getStorage } from '../../../../features/storage';
+import { getStorage, getFileStorage } from '../../../../features/storage';
+import { uploadDigitalFile, validateDigitalFile } from '../../../../features/products/digitalFile.ts';
+import { attachmentActive } from '../../../../features/digitalDelivery/rollout.ts';
 import { indexProduct, unindexProduct } from '../../../../features/search';
 import { parsePublicId } from '../../../../features/ids/publicId';
 import { CACHE_TAG } from '../../../../features/cache/tags';
@@ -156,6 +159,11 @@ export const POST: APIRoute = async ({ request, params, redirect, locals }) => {
     const media = await uploadMedia(env.DB, storage, await optimizeUpload(file), file.name);
     uploadedMediaId = media.id;
   }
+  const deliverable = form.get('deliverable');
+  if (attachmentActive() && deliverable instanceof File && deliverable.size > 0) {
+    const fileError = validateDigitalFile(deliverable);
+    if (fileError) return fail(fileError);
+  }
 
   // Keep the slug stable on rename: use the form's slug field (pre-filled with
   // the current slug), falling back to the existing slug, then the name.
@@ -181,6 +189,11 @@ export const POST: APIRoute = async ({ request, params, redirect, locals }) => {
   }
 
   await updateProduct(env.DB, id, { ...parsed.data, image_key, slug });
+  if (attachmentActive() && deliverable instanceof File && deliverable.size > 0) {
+    await setProductFile(env.DB, id, await uploadDigitalFile(getFileStorage(), deliverable));
+  } else if (attachmentActive() && form.get('remove_deliverable') != null) {
+    await setProductFile(env.DB, id, null);
+  }
   // products.image_key follows the gallery, so this runs after both.
   if (uploadedMediaId !== null) await syncPrimaryImage(env.DB, id);
 

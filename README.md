@@ -132,7 +132,7 @@ The order shows up in `/admin` (and in D1: `npx wrangler d1 execute minshop-db -
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/ddyy/minshop)
 
-Forks the repo, provisions D1 (`minshop-db`) + R2 (`minshop-images`), applies migrations, and deploys the free-plan default. Then finish onboarding at `/admin/setup` (below). Cloudflare Images, semantic search, and Cloudflare Email are opt-in; their bindings are commented in `wrangler.jsonc`.
+Forks the repo, provisions D1 plus separate R2 buckets for public images (`minshop-images`) and private deliverables (`minshop-files`), applies migrations, and deploys the free-plan default. The files bucket must stay private: never enable r2.dev or attach a custom domain. Then finish onboarding at `/admin/setup` (below). Cloudflare Images, semantic search, and Cloudflare Email are opt-in; their bindings are commented in `wrangler.jsonc`.
 
 **Fields the deploy form shows:**
 
@@ -162,6 +162,7 @@ npx wrangler login
 # `wrangler deploy` create it.
 npx wrangler d1 create minshop-db
 npx wrangler r2 bucket create minshop-images
+npx wrangler r2 bucket create minshop-files   # FILES binding; keep private
 npm run db:migrate:remote          # applies migrations/ to the production DB
 
 # The only two REQUIRED Worker secrets. The optional cache-purge secret is
@@ -466,6 +467,7 @@ hardening for a high-traffic paid deployment.
 - **Shipping labels (Shippo)** — optional: add a Shippo API token in **Admin → Settings** and a **Buy shipping label** card appears on unfulfilled paid delivery orders (never local-pickup ones), prefilled with the order's recorded address and shipment weight. Buying a label records the tracking number, marks the order fulfilled, notifies the customer when the order has an email (demo orders never email), and keeps the label PDF link on the order. Purchases are single-shot per order: concurrent clicks can't double-buy, an in-flight purchase locks out manual fulfillment (and vice versa), and a submitted purchase is never locally reopened — an ambiguous outcome parks the attempt until **Reconcile with Shippo** asks the provider what happened, either recording the found label durably (and fulfilling the order) or, on a confirmed no-purchase, reopening rate fetching. Transactions carry the order id as metadata. **Domestic labels only** for now — international shipments need a customs declaration this flow doesn't collect. A `shippo_test_…` token purchases fake labels for trying the flow. Rates at checkout still come from your configured zones — the carrier only enters at fulfillment.
 
 - **Shipping weight** — set a product's packed weight (and a per-variant override; blank inherits) on the product form. Weights are stored in grams and entered in the store's unit, set in the **Admin → Settings** shipping card — it defaults from the store's time zone (lb for US stores, g elsewhere), and changing it only changes display: stored grams re-render converted. Uncheck **Requires shipping** for digital goods so they are excluded from the shipment weight instead of blocking checkout. An unknown weight is never treated as zero: weight-priced services are withheld and, if nothing else can carry the order, checkout is blocked and the products are named.
+- **Digital delivery** — attach a PDF, ZIP, EPUB, MP3, M4A, or text file (up to 25 MB) on the product form. Checkout snapshots the exact object, so replacing or removing the product file never changes a paid or in-flight buyer's entitlement. Paid order pages expose token-protected downloads; fully refunded orders do not. Deliverables live in the distinct private `FILES` bucket and never in the public image bucket or Media library. Old objects are retained in v1; replacement and product deletion do not delete them.
 - **Email** — configured in **Admin → Settings → Email** (on/off, provider, from-address; the key in the encrypted vault). Unconfigured it's a safe no-op — checkout still succeeds. A **Send test email** button verifies real delivery. Two providers:
   - **Resend** (default, **works on the Workers free plan** — a plain HTTPS call): get a free key at [resend.com](https://resend.com), paste it in Settings → Email, and set the from-address (a Resend-verified domain, or `onboarding@resend.dev` to test to your own address).
   - **Cloudflare (Workers Paid plan)**: onboard a sender domain, add the commented `send_email` binding from `wrangler.jsonc`, redeploy, then pick Cloudflare in Settings → Email with a from-address on that domain. The section flags whether the binding is wired.
@@ -607,7 +609,8 @@ A small, **public**, machine-readable API so an AI agent can **browse and buy** 
 | `GET /api/products` | Active catalog. `?q=` (uses the active **search** backend — semantic when on), `?limit=` (1–100, default 24), `?offset=` |
 | `GET /api/products/:slug` | One product as JSON (404 if missing/inactive) |
 | `GET /api/checkout` | Available payment methods and the current default |
-| `POST /api/checkout` | Programmatic checkout. Body `{ "items": [{ "product_id", "quantity" }] }` → `{ checkout_url, … }` |
+| `POST /api/checkout` | Programmatic checkout. Body `{ "items": [{ "product_id", "quantity" }] }` → `{ checkout_url, order_status_url, … }` |
+| `GET /order/:token/status` | Poll checkout state (`confirming`, `expired`, `paid`, or `refunded`) and receive paid item download URLs |
 
 Each product is self-describing — `id` is the prefixed public ID (`prod_…`; variants/extras on the detail route carry `var_…`/`xtra_…` IDs), price in both major + minor units:
 
@@ -649,6 +652,7 @@ When shipping is enabled, `ship_to` is required for every rail that collects the
 {
   "flow": "invoice",
   "checkout_url": "https://shop.example/pay/…",
+  "order_status_url": "https://shop.example/order/…/status",
   "lightning": {
     "invoice": "lnbc…",
     "amount_sat": 12345,
@@ -660,7 +664,7 @@ When shipping is enabled, `ship_to` is required for every rail that collects the
 }
 ```
 
-The order is recorded only after the existing settlement verifier confirms payment. The browser form checkout is unchanged; the JSON path triggers only on `Content-Type: application/json`.
+The order is recorded only after the existing settlement verifier confirms payment. Poll `order_status_url` without an `Accept` header. A paid response includes stable `itm_…` item IDs and a `download_url` for each purchased deliverable; fetch that URL to save the artifact. If payment was submitted, keep polling through `expired` because a delayed verified settlement can still become `paid`; stop at `410 Gone`. If payment was never submitted, `expired` is terminal for the caller. Status and download responses are private/no-store and support cross-origin GET/OPTIONS. The browser form checkout is unchanged; the JSON path triggers only on `Content-Type: application/json`.
 
 ### Demo — an agent shops the store
 

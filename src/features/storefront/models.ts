@@ -217,6 +217,7 @@ export interface ProductDetailModel {
   soldOut: boolean;
   /** Low-stock nudge, already gated: never set for a product with variants. */
   lowStock: boolean;
+  digitalDelivery: boolean;
   categories: StorefrontLink[];
   /** More than one image means the gallery renderer; one or none is the single
    *  hero. The distinction is the template's to make. */

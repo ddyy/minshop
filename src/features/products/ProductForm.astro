@@ -3,6 +3,7 @@ import type { Product } from './db';
 import type { CategoryOption } from '../categories/db';
 import { getConfig, toMajorUnits, currencyDecimals } from '../../config';
 import { formatWeightValue, type WeightUnit } from '../shipping/weight';
+import { attachmentActive } from '../digitalDelivery/rollout.ts';
 
 interface Props {
   action: string;
@@ -102,7 +103,7 @@ const inputClass =
     </div>
   </div>
 
-  <fieldset class="rounded-md border border-line p-4">
+  {attachmentActive() && <fieldset class="rounded-md border border-line p-4">
     <legend class="px-1 text-sm font-medium">Shipping</legend>
     <label class="flex items-center gap-2 text-sm">
       <input
@@ -134,6 +135,31 @@ const inputClass =
           : ' Optional while a flat rate is available.'}
       </p>
     </div>
+  </fieldset>}
+
+  <fieldset class="rounded-md border border-line p-4">
+    <legend class="px-1 text-sm font-medium">Digital delivery</legend>
+    {product?.file_key && (
+      <p class="mb-3 text-sm text-muted">
+        Attached: <strong>{product.file_name ?? 'download'}</strong>
+        {product.file_size_bytes != null && ` (${Math.ceil(product.file_size_bytes / 1024)} KB)`}
+      </p>
+    )}
+    <label class="block text-sm font-medium" for="deliverable">{product?.file_key ? 'Replace file' : 'Attach file'}</label>
+    <input
+      id="deliverable"
+      name="deliverable"
+      type="file"
+      accept=".pdf,.zip,.epub,.mp3,.m4a,.txt"
+      class="mt-1 block w-full text-sm text-muted"
+    />
+    <p class="mt-1 text-xs text-muted">Private download after payment. PDF, ZIP, EPUB, MP3, M4A, or TXT; 25 MB maximum. For a download-only product, uncheck <strong>Requires shipping</strong> above.</p>
+    {product?.file_key && (
+      <label class="mt-3 flex items-center gap-2 text-sm">
+        <input type="checkbox" name="remove_deliverable" class="h-4 w-4" />
+        Remove attachment from future purchases
+      </label>
+    )}
   </fieldset>
 
   {

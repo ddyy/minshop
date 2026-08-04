@@ -63,6 +63,7 @@ const { model, purchase } = Astro.props;
 
   <aside class="border border-line p-4 lg:order-3 lg:sticky lg:top-16">
     <h1 class="text-[19px] font-extrabold leading-snug tracking-tight">{model.name}</h1>
+    {model.digitalDelivery && <p class="mt-2 text-xs font-bold uppercase tracking-wide text-brand">Digital download</p>}
     <p class="mt-1 font-serif text-[11px] uppercase text-[color:var(--market-muted)]">
       {model.id}
     </p>

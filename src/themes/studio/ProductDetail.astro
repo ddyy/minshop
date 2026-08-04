@@ -62,6 +62,7 @@ const { model, purchase } = Astro.props;
     <h1 class="font-serif text-[clamp(2.4rem,4.4vw,4rem)] font-normal leading-[0.95] tracking-[-0.03em]">
       {model.name}
     </h1>
+    {model.digitalDelivery && <p class="mt-3 text-xs uppercase tracking-[0.2em] text-brand">Digital download</p>}
 
     <p
       class="mt-6 text-sm tracking-[0.12em] text-[color:var(--studio-muted)]"

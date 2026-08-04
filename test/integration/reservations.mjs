@@ -3,12 +3,14 @@ import { Miniflare } from 'miniflare';
 import {
   getActiveReservationItems,
   getSettlementReservation,
+  getReservationStatusSnapshot,
   expireSelfRenderedReservation,
   markInventoryReservationPaymentPending,
   releaseExpiredReservations,
   releaseInventoryReservation,
   reserveInventory,
 } from '../../src/features/orders/reservations.ts';
+import { reservationItems } from '../../src/features/orders/reservationItems.ts';
 import { recordPaidOrder } from '../../src/features/orders/db.ts';
 import { pendingToPaidOrder } from '../../src/features/payments/lightning/pending.ts';
 import {
@@ -29,7 +31,7 @@ try {
   // Minimal production-shaped schema for the reservation state machine. The
   // separate Wrangler integration gate applies every real migration clean-room.
   for (const sql of [
-    'CREATE TABLE products (id INTEGER PRIMARY KEY AUTOINCREMENT, public_id TEXT UNIQUE, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, description TEXT NOT NULL, price_cents INTEGER NOT NULL, currency TEXT NOT NULL, stock INTEGER NOT NULL, active INTEGER NOT NULL)',
+    'CREATE TABLE products (id INTEGER PRIMARY KEY AUTOINCREMENT, public_id TEXT UNIQUE, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, description TEXT NOT NULL, price_cents INTEGER NOT NULL, currency TEXT NOT NULL, stock INTEGER NOT NULL, active INTEGER NOT NULL, file_key TEXT, file_name TEXT, file_mime TEXT, file_size_bytes INTEGER)',
     'CREATE TABLE orders (id INTEGER PRIMARY KEY AUTOINCREMENT, provider_session_id TEXT NOT NULL UNIQUE, public_id TEXT NOT NULL UNIQUE, email TEXT, amount_total_cents INTEGER NOT NULL, shipping_cents INTEGER NOT NULL DEFAULT 0, shipping_label TEXT, shipping_weight_grams INTEGER, delivery_method TEXT, discount_cents INTEGER NOT NULL DEFAULT 0, tax_cents INTEGER NOT NULL DEFAULT 0, currency TEXT NOT NULL, ship_address TEXT, status TEXT NOT NULL, payment_method TEXT, settlement_token TEXT, provider_payment_id TEXT)',
     'CREATE TABLE order_items (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL, product_id INTEGER, variant_id INTEGER, name TEXT NOT NULL, price_cents INTEGER NOT NULL, quantity INTEGER NOT NULL, public_id TEXT UNIQUE, file_key TEXT, file_name TEXT, file_mime TEXT, file_size_bytes INTEGER, downloads INTEGER NOT NULL DEFAULT 0)',
     'CREATE TABLE product_variants (id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER NOT NULL, label TEXT NOT NULL, price_delta_cents INTEGER NOT NULL DEFAULT 0, stock INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1)',
@@ -521,7 +523,201 @@ try {
     [1, 0, 1],
   );
 
-  console.log('Reservation integration passed: concurrency + pending + terminal settlement + inventory exception + legacy');
+  // ---------------------------------------------------------------------
+  // Cross-release rollback safety.
+  //
+  // The rollout gates are a compile-time constant, so a build pinned at
+  // release 4 cannot execute release 1's writers. What it CAN do is meet
+  // release 1's readers with data only a later release produces — which is
+  // precisely the rollback that loses money if a reader was gated. Readers are
+  // release-invariant (pinned structurally in rollout.test.ts), so exercising
+  // them here IS exercising the rollback target.
+  // ---------------------------------------------------------------------
+
+  // (1) A reservation written by a Release-2 build, settled by a Release-1
+  // build. Release 1 never mints itm_ IDs of its own, so the published
+  // identity survives only if settlement copies the snapshot's. If it minted a
+  // fresh one instead, an agent that already polled `confirming` would see the
+  // item's identity change under it at `paid`.
+  await db.prepare(
+    `INSERT INTO products (public_id, name, slug, description, price_cents, currency, stock, active)
+     VALUES ('prod_rollback1234', 'Rollback tee', 'rollback-tee', '', 500, 'usd', 5, 1)`,
+  ).run();
+  const rollbackProduct = await db.prepare("SELECT id FROM products WHERE slug = 'rollback-tee'").first();
+  const r2PublicId = crypto.randomUUID();
+  const r2ItemId = 'itm_r2publish01';
+  const r2Items = [
+    { productId: rollbackProduct.id, name: 'Rollback tee', priceCents: 500, quantity: 1, publicId: r2ItemId },
+  ];
+  // Exactly what Release 2 leaves behind: the snapshot carries the identity and
+  // the registry owns it, both written before provider handoff.
+  await db.batch([
+    db
+      .prepare(
+        `INSERT INTO checkout_reservations (public_id, items, payment_method, status, expires_at)
+         VALUES (?, ?, 'stripe', 'active', datetime('now', '+30 minutes'))`,
+      )
+      .bind(r2PublicId, JSON.stringify(r2Items)),
+    db
+      .prepare('INSERT INTO order_item_ids (public_id, order_public_id) VALUES (?, ?)')
+      .bind(r2ItemId, r2PublicId),
+    db.prepare('UPDATE products SET stock = stock - 1 WHERE id = ?').bind(rollbackProduct.id),
+  ]);
+
+  const r2Snapshot = await getSettlementReservation(db, r2PublicId);
+  assert.equal(r2Snapshot.items[0].publicId, r2ItemId, 'the R2 snapshot carries its published identity');
+
+  assert(
+    await recordPaidOrder(db, {
+      providerSessionId: 'r2-reservation-r1-settlement',
+      publicId: r2PublicId,
+      reservationId: r2PublicId,
+      reservationStatus: r2Snapshot.status,
+      email: 'rollback@example.com',
+      amountTotalCents: 500,
+      currency: 'usd',
+      items: r2Snapshot.items,
+    }),
+  );
+  const r2Settled = await db
+    .prepare(
+      "SELECT public_id FROM order_items WHERE order_id = (SELECT id FROM orders WHERE provider_session_id = 'r2-reservation-r1-settlement')",
+    )
+    .first();
+  assert.equal(r2Settled.public_id, r2ItemId, 'settlement preserved the identity instead of minting a new one');
+  const r2Claims = await db
+    .prepare('SELECT COUNT(*) AS n FROM order_item_ids WHERE order_public_id = ?')
+    .bind(r2PublicId)
+    .first();
+  assert.equal(r2Claims.n, 1, 'no duplicate claim was minted for an already-claimed identity');
+  assert.equal(
+    (await db.prepare('SELECT stock FROM products WHERE id = ?').bind(rollbackProduct.id).first()).stock,
+    4,
+    'an active reservation is not decremented twice at settlement',
+  );
+
+  // (2) The status URL Release 2 published is still answerable by Release 1.
+  // This is the snapshot the route serializes; a 404 here is what a polling
+  // agent would read as "unknown or revoked" — permanent loss — rather than a
+  // temporary rollback.
+  const r2StatusPublicId = crypto.randomUUID();
+  const r2StatusItemId = 'itm_r2status01';
+  await db
+    .prepare(
+      `INSERT INTO checkout_reservations (public_id, items, payment_method, status, expires_at)
+       VALUES (?, ?, 'stripe', 'active', datetime('now', '+30 minutes'))`,
+    )
+    .bind(
+      r2StatusPublicId,
+      JSON.stringify([
+        { productId: rollbackProduct.id, name: 'Rollback tee', priceCents: 500, quantity: 1, publicId: r2StatusItemId },
+      ]),
+    )
+    .run();
+  const confirming = await getReservationStatusSnapshot(db, r2StatusPublicId);
+  assert.equal(confirming.status, 'active', 'an unsettled R2 checkout still resolves (serialized as confirming)');
+  assert.equal(confirming.items[0].publicId, r2StatusItemId, 'and reports the identity it already published');
+
+  await db
+    .prepare("UPDATE checkout_reservations SET status = 'expired', terminal_at = datetime('now') WHERE public_id = ?")
+    .bind(r2StatusPublicId)
+    .run();
+  const terminalSnapshot = await getReservationStatusSnapshot(db, r2StatusPublicId);
+  assert.equal(terminalSnapshot.status, 'expired', 'a terminal R2 checkout is still readable, not absent');
+  assert.equal(terminalSnapshot.items[0].publicId, r2StatusItemId, 'identity is stable across confirming → expired');
+
+  // (3) A file attached under Release 4, bought in a checkout that BEGINS after
+  // a rollback to Release 3. The product row survives the rollback and shoppers
+  // keep buying, so Release 3 must still write the entitlement into the
+  // snapshot — otherwise the paid order records no file_key and the
+  // entitlement is destroyed permanently, unrecoverable by rolling forward.
+  await db.prepare(
+    `INSERT INTO products (public_id, name, slug, description, price_cents, currency, stock, active,
+                           file_key, file_name, file_mime, file_size_bytes)
+     VALUES ('prod_r4attached01', 'Attached guide', 'attached-guide', '', 900, 'usd', 2, 1,
+             'deliverables/attached/guide.pdf', 'guide.pdf', 'application/pdf', 4096)`,
+  ).run();
+  const attachedProduct = await db.prepare("SELECT id FROM products WHERE slug = 'attached-guide'").first();
+  const r3PublicId = crypto.randomUUID();
+  // Drive the REAL builder over a file-bearing product row, not a hand-written
+  // item: hand-writing the snapshot would pass even if checkout stopped copying
+  // the entitlement, gated it at the wrong release, or dropped a field — which
+  // is the entire failure this case exists to catch.
+  const attachedRow = await db
+    .prepare('SELECT * FROM products WHERE id = ?')
+    .bind(attachedProduct.id)
+    .first();
+  const [r3Item] = reservationItems([
+    {
+      product: attachedRow,
+      qty: 1,
+      name: 'Attached guide',
+      unitPriceCents: 900,
+      availableStock: attachedRow.stock,
+      variantId: null,
+    },
+  ]);
+  assert.equal(r3Item.fileKey, 'deliverables/attached/guide.pdf', 'the builder copied the entitlement');
+  assert.equal(await reserveInventory(db, r3PublicId, [r3Item], 600, 'stripe'), true);
+  const r3Snapshot = await getSettlementReservation(db, r3PublicId);
+  assert.equal(r3Snapshot.items[0].fileKey, 'deliverables/attached/guide.pdf', 'R3 snapshots the entitlement');
+
+  assert(
+    await recordPaidOrder(db, {
+      providerSessionId: 'r4-attached-r3-checkout',
+      publicId: r3PublicId,
+      reservationId: r3PublicId,
+      reservationStatus: r3Snapshot.status,
+      email: 'attached@example.com',
+      amountTotalCents: 900,
+      currency: 'usd',
+      items: r3Snapshot.items,
+    }),
+  );
+  const r3Settled = await db
+    .prepare(
+      `SELECT public_id, file_key, file_name, file_mime, file_size_bytes
+         FROM order_items
+        WHERE order_id = (SELECT id FROM orders WHERE provider_session_id = 'r4-attached-r3-checkout')`,
+    )
+    .first();
+  assert.deepEqual(
+    [r3Settled.file_key, r3Settled.file_name, r3Settled.file_mime, r3Settled.file_size_bytes],
+    ['deliverables/attached/guide.pdf', 'guide.pdf', 'application/pdf', 4096],
+    'the entitlement reached the paid order intact',
+  );
+  assert.ok(r3Settled.public_id?.startsWith('itm_'), 'and the item is addressable for download');
+
+  // (4) Stock-transition purges must fire in EVERY release, including the
+  // compatibility one that writes no identity claims. The decrement results sit
+  // at a different batch offset there, and reading the wrong slot fails silently
+  // — no error, just a storefront showing "In stock" for a sold-out product
+  // until the cache TTL expires. Pass the actual Release 1 boundary: omitting
+  // item identities is not equivalent under a Release 4 build, because that
+  // build mints them before constructing its claim statements.
+  await db.prepare(
+    `INSERT INTO products (public_id, name, slug, description, price_cents, currency, stock, active)
+     VALUES ('prod_purgeboundary', 'Last one', 'last-one', '', 400, 'usd', 1, 1)`,
+  ).run();
+  const purgeProduct = await db.prepare("SELECT id FROM products WHERE slug = 'last-one'").first();
+  const purged = [];
+  assert.equal(
+    await reserveInventory(
+      db,
+      crypto.randomUUID(),
+      [{ productId: purgeProduct.id, name: 'Last one', priceCents: 400, quantity: 1 }],
+      600,
+      'stripe',
+      async (publicIds) => {
+        purged.push(...publicIds);
+      },
+      1,
+    ),
+    true,
+  );
+  assert.deepEqual(purged, ['prod_purgeboundary'], 'crossing In stock → Sold out purged the product');
+
+  console.log('Reservation integration passed: concurrency + pending + terminal settlement + inventory exception + legacy + cross-release rollback + stock purge offset');
 } finally {
   await mf.dispose();
 }

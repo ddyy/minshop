@@ -5,6 +5,7 @@ import {
   deleteProduct,
   getProduct,
   syncPrimaryImage,
+  setProductFile,
 } from '../../../features/products/db';
 import { setProductCategories, getCategoriesByPublicIds } from '../../../features/categories/db';
 import { parsePublicId } from '../../../features/ids/publicId';
@@ -17,7 +18,9 @@ import { validateImage } from '../../../features/products/image';
 import { optimizeUpload } from '../../../features/products/imageOptimize';
 import { uploadMedia } from '../../../features/media/upload';
 import { attachMediaToProduct } from '../../../features/media/db';
-import { getStorage } from '../../../features/storage';
+import { getStorage, getFileStorage } from '../../../features/storage';
+import { uploadDigitalFile, validateDigitalFile } from '../../../features/products/digitalFile.ts';
+import { attachmentActive } from '../../../features/digitalDelivery/rollout.ts';
 import { CACHE_TAG } from '../../../features/cache/tags';
 import { purgeCacheTags } from '../../../features/cache/purge';
 
@@ -48,6 +51,12 @@ export const POST: APIRoute = async ({ request, redirect, locals }) => {
     mediaId = media.id;
   }
 
+  const deliverable = form.get('deliverable');
+  if (attachmentActive() && deliverable instanceof File && deliverable.size > 0) {
+    const fileError = validateDigitalFile(deliverable);
+    if (fileError) return redirect(fail(fileError), 303);
+  }
+
   // Slug from the optional slug field, else the name; made unique.
   const slugBase = String(form.get('slug') ?? '').trim() || parsed.data.name;
   const slug = await uniqueSlug(env.DB, slugBase);
@@ -57,6 +66,9 @@ export const POST: APIRoute = async ({ request, redirect, locals }) => {
   // media row is unreferenced until the attach lands, so a concurrent library
   // delete could leave the product pointing at an object that no longer exists.
   const productId = await createProduct(env.DB, { ...parsed.data, image_key: null, slug });
+  if (attachmentActive() && deliverable instanceof File && deliverable.size > 0) {
+    await setProductFile(env.DB, productId, await uploadDigitalFile(getFileStorage(), deliverable));
+  }
   if (mediaId !== null) {
     const attached = await attachMediaToProduct(env.DB, productId, mediaId);
     if (!attached.ok) {
