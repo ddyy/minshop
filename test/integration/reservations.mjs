@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { Miniflare } from 'miniflare';
 import {
   getActiveReservationItems,
+  getSettlementReservation,
+  expireSelfRenderedReservation,
   markInventoryReservationPaymentPending,
   releaseExpiredReservations,
   releaseInventoryReservation,
@@ -59,6 +61,36 @@ try {
     priceCents: 1200,
     quantity: 4,
   };
+
+  // Item identity preflight stays below D1's 100-variable cap even for a cart
+  // with more than 50 distinct lines.
+  await db
+    .prepare(
+      `INSERT INTO products (public_id, name, slug, description, price_cents, currency, stock, active)
+       VALUES ('prod_many123456', 'Many lines', 'many-lines', '', 1, 'usd', 100, 1)`,
+    )
+    .run();
+  const manyProduct = await db.prepare("SELECT id FROM products WHERE slug = 'many-lines'").first();
+  const manyId = crypto.randomUUID();
+  const manyItems = Array.from({ length: 60 }, (_, index) => ({
+    productId: manyProduct.id,
+    name: `Line ${index + 1}`,
+    priceCents: 1,
+    quantity: 1,
+  }));
+  assert.equal(await reserveInventory(db, manyId, manyItems, 600, 'demo'), true);
+  assert.equal(await releaseInventoryReservation(db, manyId), true);
+
+  // A status read can expire a locally authoritative self-rendered hold
+  // immediately; hosted rails remain untouched by this helper.
+  const statusExpiryId = crypto.randomUUID();
+  assert.equal(await reserveInventory(db, statusExpiryId, [{ ...item, quantity: 1 }], 600, 'demo'), true);
+  await db
+    .prepare("UPDATE checkout_reservations SET expires_at = datetime('now', '-1 minute') WHERE public_id = ?")
+    .bind(statusExpiryId)
+    .run();
+  assert.equal(await expireSelfRenderedReservation(db, statusExpiryId), true);
+  assert.equal((await getSettlementReservation(db, statusExpiryId)).status, 'expired');
 
   // Cache invalidation follows rendered state, not every decrement. Product
   // quantities purge only when they cross in/low/out; variant quantities purge
@@ -271,7 +303,7 @@ try {
         .bind(expiredDemoId)
         .first()
     ).status,
-    'released',
+    'expired',
   );
   assert.equal(
     (await db.prepare('SELECT stock FROM products WHERE id = ?').bind(demoProduct.id).first()).stock,
@@ -291,7 +323,7 @@ try {
   await releaseExpiredReservations(db);
   assert.equal(
     (await db.prepare('SELECT status FROM checkout_reservations WHERE public_id = ?').bind(expiredId).first()).status,
-    'released',
+    'expired',
   );
   assert.equal((await db.prepare('SELECT stock FROM products WHERE id = ?').bind(product.id).first()).stock, 3);
 
@@ -432,7 +464,64 @@ try {
   assert.equal(parked.state, 'dead');
   assert.match(parked.last_error, /interrupted/);
 
-  console.log('Reservation integration passed: concurrency + pending + release + settlement + legacy + batched pending settle');
+  // A terminal hold keeps its exact entitlement snapshot and item identity.
+  // If the restored unit was resold before a delayed paid event arrives, the
+  // paid order still lands once and records a resolvable inventory exception.
+  await db.prepare(
+    `INSERT INTO products (public_id, name, slug, description, price_cents, currency, stock, active)
+     VALUES ('prod_late123456', 'Late digital', 'late-digital', '', 700, 'usd', 1, 1)`,
+  ).run();
+  const lateProduct = await db.prepare("SELECT id FROM products WHERE slug = 'late-digital'").first();
+  const latePublicId = crypto.randomUUID();
+  const lateItem = {
+    productId: lateProduct.id,
+    name: 'Late digital',
+    priceCents: 700,
+    quantity: 1,
+    fileKey: 'deliverables/file-a.pdf',
+    fileName: 'file-a.pdf',
+    fileMime: 'application/pdf',
+    fileSizeBytes: 123,
+  };
+  assert.equal(await reserveInventory(db, latePublicId, [lateItem], 600, 'lightning'), true);
+  const beforeTerminal = await getSettlementReservation(db, latePublicId);
+  assert.ok(beforeTerminal?.items[0].publicId?.startsWith('itm_'));
+  await db
+    .prepare("UPDATE checkout_reservations SET expires_at = datetime('now', '-1 minute') WHERE public_id = ?")
+    .bind(latePublicId)
+    .run();
+  await releaseExpiredReservations(db);
+  await db.prepare('UPDATE products SET stock = 0 WHERE id = ?').bind(lateProduct.id).run();
+  const terminal = await getSettlementReservation(db, latePublicId);
+  assert.equal(terminal?.status, 'expired');
+  const lateOrder = {
+    providerSessionId: 'late-paid-session',
+    publicId: latePublicId,
+    reservationId: latePublicId,
+    reservationStatus: 'expired',
+    email: 'late@example.com',
+    amountTotalCents: 700,
+    currency: 'usd',
+    items: terminal.items,
+  };
+  assert(await recordPaidOrder(db, lateOrder));
+  assert.equal(await recordPaidOrder(db, lateOrder), null, 'redelivery is idempotent');
+  const lateSaved = await db
+    .prepare("SELECT public_id, file_key, file_name FROM order_items WHERE order_id = (SELECT id FROM orders WHERE provider_session_id = 'late-paid-session')")
+    .first();
+  assert.equal(lateSaved.public_id, beforeTerminal.items[0].publicId);
+  assert.equal(lateSaved.file_key, 'deliverables/file-a.pdf');
+  assert.equal(lateSaved.file_name, 'file-a.pdf');
+  const exception = await db
+    .prepare("SELECT public_id, requested_qty, consumed_qty, shortfall_qty FROM order_inventory_exceptions WHERE order_id = (SELECT id FROM orders WHERE provider_session_id = 'late-paid-session')")
+    .first();
+  assert.ok(exception.public_id.startsWith('iexc_'));
+  assert.deepEqual(
+    [exception.requested_qty, exception.consumed_qty, exception.shortfall_qty],
+    [1, 0, 1],
+  );
+
+  console.log('Reservation integration passed: concurrency + pending + terminal settlement + inventory exception + legacy');
 } finally {
   await mf.dispose();
 }

@@ -38,6 +38,10 @@ import {
   type ReservationItem,
 } from '../../features/orders/reservations';
 import { purgeStockProductCache } from '../../features/cache/purge';
+import {
+  entitlementWriterActive,
+  lifecycleActive,
+} from '../../features/digitalDelivery/rollout.ts';
 import { mintLightningOrder } from '../../features/payments/lightning-provider';
 import { getLightningBackend } from '../../features/payments/lightning';
 
@@ -90,6 +94,14 @@ const reservationItems = (lines: LineDraft[]): ReservationItem[] =>
     name: line.name,
     priceCents: line.unitPriceCents,
     quantity: line.qty,
+    ...(entitlementWriterActive() && line.product.file_key
+      ? {
+          fileKey: line.product.file_key,
+          fileName: line.product.file_name,
+          fileMime: line.product.file_mime,
+          fileSizeBytes: line.product.file_size_bytes,
+        }
+      : {}),
   }));
 
 function reservationTtlSeconds(method: PaymentMethod): number {
@@ -828,6 +840,9 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
         available_methods: available,
         flow: 'invoice',
         checkout_url: minted.payUrl,
+        ...(lifecycleActive()
+          ? { order_status_url: `${origin}/order/${lnAccessToken}/status` }
+          : {}),
         lightning: {
           invoice: minted.bolt11,
           amount_sat: minted.amountSat,
@@ -945,6 +960,7 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
     available_methods: available, // what else this store offers
     flow: ln ? 'invoice' : 'redirect',
     checkout_url: result.url, // human fallback (QR page for Lightning, hosted page otherwise)
+    ...(lifecycleActive() ? { order_status_url: `${origin}/order/${accessToken}/status` } : {}),
     ...(ln && {
       lightning: {
         invoice: ln.invoice,
