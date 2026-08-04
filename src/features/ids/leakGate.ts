@@ -25,6 +25,7 @@ const PREFIXES = new Set(Object.values(PUBLIC_ID_PREFIXES));
 
 /** Keys whose value must be a public ID of a specific kind (or legacy shape). */
 const KEY_KINDS: Record<string, PublicIdKind> = {
+  item_public_id: 'orderItem',
   product_id: 'product',
   variant_id: 'variant',
   extra_id: 'extra',

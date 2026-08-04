@@ -2,6 +2,8 @@
 import { getConfig } from '../config';
 import { paymentsInDemoMode } from '../features/payments';
 import { shippingFor } from '../features/shipping/effective';
+import { env } from 'cloudflare:workers';
+import { countUnresolvedInventoryExceptions } from '../features/orders/db';
 // Admin's OWN stylesheet — never global.css, which carries the active
 // storefront set's tokens and base-layer rules. A dark set would otherwise
 // restyle every authenticated Admin page (see src/styles/admin.css).
@@ -40,6 +42,7 @@ const pageTitle = title ? `${title} — ${storeName} admin` : `${storeName} admi
 // out that they cannot take orders. Resolution is already loaded for this request,
 // so this costs no query.
 const shippingIssue = shippingFor(Astro.locals.settings).issue;
+const inventoryExceptionCount = await countUnresolvedInventoryExceptions(env.DB);
 
 const nav: { key: Section; label: string; href: string }[] = [
   { key: 'dashboard', label: 'Dashboard', href: '/admin' },
@@ -171,6 +174,20 @@ const currentLabel = nav.find((n) => n.key === active)?.label ?? 'Menu';
               <span>
                 <strong class="font-semibold">Shipping checkout is blocked by invalid configuration:</strong>{' '}
                 {shippingIssue.reason}
+              </span>
+              <span aria-hidden="true">&rarr;</span>
+            </a>
+          )
+        }
+        {
+          inventoryExceptionCount > 0 && (
+            <a
+              href="/admin/orders#inventory-exceptions"
+              class="mb-6 flex items-center justify-between gap-3 rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 transition hover:border-red-500"
+            >
+              <span>
+                <strong class="font-semibold">Inventory needs attention.</strong>{' '}
+                {inventoryExceptionCount} paid order line{inventoryExceptionCount === 1 ? '' : 's'} arrived after its stock hold ended and could not be fully deducted. Open the affected orders and reconcile stock.
               </span>
               <span aria-hidden="true">&rarr;</span>
             </a>

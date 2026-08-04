@@ -63,6 +63,7 @@ const TABLES = [
   ['menu_items', 'navItem'],
   ['orders', 'order'],
   ['refunds', 'refund'],
+  ['order_items', 'orderItem'],
 ];
 
 function d1(sql) {
@@ -192,6 +193,21 @@ function check() {
     failed = true;
   } else {
     console.log('ok order_reference_aliases');
+  }
+  const missingItemClaim = rows(
+    d1(
+      `SELECT COUNT(*) AS n FROM order_items oi
+       JOIN orders o ON o.id = oi.order_id
+       LEFT JOIN order_item_ids i ON i.public_id = oi.public_id
+       WHERE oi.public_id IS NULL OR i.public_id IS NULL OR i.order_public_id <> o.public_id`,
+    ),
+  )[0]?.n ?? 0;
+  // Claims without an order_items row are valid while checkout is reserved.
+  if (missingItemClaim > 0) {
+    console.error(`FAIL order_item_ids: ${missingItemClaim} missing/mismatched`);
+    failed = true;
+  } else {
+    console.log('ok order_item_ids');
   }
   if (failed) process.exit(1);
 }

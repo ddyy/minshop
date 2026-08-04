@@ -18,6 +18,10 @@ export interface Product {
   /** 0 = digital/no fulfillment: excluded from shipment weight and from the
    *  missing-weight check, so a mixed cart can still check out. */
   requires_shipping: number;
+  file_key: string | null;
+  file_name: string | null;
+  file_mime: string | null;
+  file_size_bytes: number | null;
   /** Precomputed semantic neighbours as a JSON id array; null = not computed yet
    *  (see migration 0024 / features/search relatedIds). */
   related_ids: string | null;
@@ -409,6 +413,21 @@ export async function updateProduct(db: D1Database, id: number, p: ProductInput)
        WHERE id = ?`,
     )
     .bind(p.name, p.slug, p.description, p.price_cents, p.currency, p.image_key, p.stock, p.active, p.weight_grams, p.requires_shipping, id)
+    .run();
+}
+
+/** Attach/replace a private deliverable. Old object keys are intentionally retained. */
+export async function setProductFile(
+  db: D1Database,
+  id: number,
+  file: { key: string; name: string; mime: string; size: number } | null,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE products SET file_key = ?, file_name = ?, file_mime = ?, file_size_bytes = ?
+        WHERE id = ?`,
+    )
+    .bind(file?.key ?? null, file?.name ?? null, file?.mime ?? null, file?.size ?? null, id)
     .run();
 }
 

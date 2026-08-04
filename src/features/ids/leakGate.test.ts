@@ -13,6 +13,10 @@ const product: Product = {
   price_cents: 2400,
   currency: 'usd',
   image_key: null,
+  file_key: null,
+  file_name: null,
+  file_mime: null,
+  file_size_bytes: null,
   stock: 3,
   active: 1,
   variant_label: 'Size',
@@ -53,6 +57,8 @@ describe('findLeaks', () => {
   it('enforces the right prefix for typed id keys, allowing legacy order/refund shapes', () => {
     expect(findLeaks({ product_id: 'var_n9fx2km7qc' })).toHaveLength(1);
     expect(findLeaks({ product_id: 'prod_k7m2qx8vn6' })).toEqual([]);
+    expect(findLeaks({ item_public_id: 'prod_k7m2qx8vn6' })).toHaveLength(1);
+    expect(findLeaks({ item_public_id: 'itm_k7m2qx8vn6' })).toEqual([]);
     expect(findLeaks({ order_id: 'a'.repeat(32) })).toEqual([]);
     expect(findLeaks({ refund_id: '123e4567-e89b-42d3-a456-426614174000' })).toEqual([]);
     expect(findLeaks({ order_id: 'prod_k7m2qx8vn6' })).toHaveLength(1);

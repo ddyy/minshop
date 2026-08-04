@@ -2,7 +2,7 @@
 import { env } from 'cloudflare:workers';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { formatPrice, formatDate, getConfig } from '../../../config';
-import { getOrderByPublicId, listOrderItemsWithImages } from '../../../features/orders/db';
+import { getOrderByPublicId, listOrderItemsWithImages, listOrderInventoryExceptions } from '../../../features/orders/db';
 import { orderReference } from '../../../features/orders/number';
 import { CARRIERS, carrierName, trackingUrl } from '../../../features/orders/tracking';
 import { getSecret } from '../../../features/secrets/store';
@@ -49,6 +49,7 @@ const paymentLabel = order.payment_method
   : '—';
 const timeZone = Astro.locals.settings?.timeZone ?? getConfig().timeZone;
 const items = await listOrderItemsWithImages(env.DB, order.id);
+const inventoryExceptions = await listOrderInventoryExceptions(env.DB, order.id);
 const fulfilled = order.fulfillment_status === 'fulfilled';
 const weightUnit = Astro.locals.settings?.weightUnit ?? 'g';
 
@@ -175,6 +176,24 @@ const willEmailCustomer =
       <p class="mb-6 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
         {noticeMsg}
       </p>
+    )
+  }
+  {
+    inventoryExceptions.some((entry) => !entry.resolved_at) && (
+      <section class="mb-8 rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-900">
+        <h2 class="font-semibold">Inventory reconciliation required</h2>
+        <p class="mt-1">Payment arrived after the stock hold ended. The order remains paid, but these quantities could not be deducted automatically.</p>
+        <div class="mt-4 space-y-3">
+          {inventoryExceptions.filter((entry) => !entry.resolved_at).map((entry) => (
+            <form method="post" action={`/api/admin/orders/${publicId}`} class="flex flex-wrap items-center justify-between gap-3 rounded border border-red-200 bg-white/60 p-3">
+              <span><strong>{items.find((item) => item.product_id === entry.product_id && item.variant_id === entry.variant_id)?.name ?? 'Order item'}</strong>: ordered {entry.requested_qty}, only {entry.consumed_qty} available at settlement ({entry.shortfall_qty} oversold).</span>
+              <input type="hidden" name="_action" value="resolve_inventory_exception" />
+              <input type="hidden" name="exception_id" value={entry.public_id} />
+              <button class="rounded border border-red-400 px-3 py-1.5 font-medium hover:bg-red-100">Mark reconciled</button>
+            </form>
+          ))}
+        </div>
+      </section>
     )
   }
 

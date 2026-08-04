@@ -6,6 +6,7 @@ import {
   fulfillOrder,
   unfulfillOrder,
   type ShippingAddress,
+  resolveInventoryException,
 } from '../../../../features/orders/db';
 import { getSecret } from '../../../../features/secrets/store';
 import { setSetting } from '../../../../features/settings/db';
@@ -48,7 +49,7 @@ import { getStoreSettings } from '../../../../features/settings/db';
 import { shouldSendCustomerOrderEmail } from '../../../../features/email/orderPolicy';
 import { getPaymentProvider, type PaymentMethod } from '../../../../features/payments';
 import { formatPrice } from '../../../../config';
-import { parseOrderOrLegacyPublicId } from '../../../../features/ids/publicId';
+import { parseOrderOrLegacyPublicId, parsePublicId } from '../../../../features/ids/publicId';
 
 export const prerender = false;
 
@@ -83,6 +84,13 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
   const admin = String(form.get('_admin') ?? '') || null;
   const note = String(form.get('note') ?? '').trim() || null;
   const reason = String(form.get('reason') ?? '').trim() || null;
+
+  if (action === 'resolve_inventory_exception') {
+    const exceptionId = parsePublicId(form.get('exception_id'), 'inventoryException');
+    if (!exceptionId) return fail('Invalid inventory exception.');
+    const resolved = await resolveInventoryException(env.DB, id, exceptionId);
+    return resolved ? notice('Inventory exception marked reconciled.') : fail('That inventory exception is already resolved or does not belong to this order.');
+  }
 
   // Rotate the guest access token and email the customer the replacement link.
   // The token itself NEVER appears in admin output — the queued customer email

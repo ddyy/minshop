@@ -7,12 +7,11 @@ import { sendRefundNotice } from '../refunds/notify';
 import { getPaymentProvider, type PaymentMethod } from '../payments';
 import type { StoreSettings } from '../settings/db';
 import {
-  getActiveReservationItems,
+  getSettlementReservation,
   markInventoryReservationPaymentPending,
-  releaseInventoryReservation,
+  markInventoryReservationTerminal,
 } from './reservations';
 import { markPendingSettled } from '../payments/lightning/pending';
-import { deleteGuestAccessIfUnsettled } from './guestAccess';
 import { purgeStockProductCache } from '../cache/purge';
 
 /**
@@ -48,16 +47,12 @@ export async function recordPaidWebhookOrder(
     }
   };
   if (result.releaseReservationId) {
-    await releaseInventoryReservation(
+    await markInventoryReservationTerminal(
       env.DB,
       result.releaseReservationId,
+      'failed',
       purgeStockProductCache,
     );
-    // Provider-confirmed terminal (expired/failed) checkout: collect the guest
-    // credential too. The delete is atomic with a no-settled-order check, so a
-    // paid webhook racing this expiry keeps its row (reservation id IS the
-    // order public id for post-cutover checkouts; legacy ids simply no-op).
-    await deleteGuestAccessIfUnsettled(env.DB, result.releaseReservationId);
   }
   if (result.pendingReservationId) {
     await markInventoryReservationPaymentPending(env.DB, result.pendingReservationId);
@@ -96,8 +91,8 @@ export async function recordPaidWebhookOrder(
   // and ensuring settlement consumes inventory that was atomically held.
   let paidOrder = result.order;
   if (paidOrder.reservationId) {
-    const reservedItems = await getActiveReservationItems(env.DB, paidOrder.reservationId);
-    if (!reservedItems) {
+    const reservation = await getSettlementReservation(env.DB, paidOrder.reservationId);
+    if (!reservation) {
       // Normal idempotent redelivery after the first delivery settled the
       // reservation. Anything else is a real integrity failure and must retry.
       // This is THE redelivery path for reserved checkouts, so it must finish
@@ -110,7 +105,16 @@ export async function recordPaidWebhookOrder(
       }
       throw new Error(`Missing or expired inventory reservation ${paidOrder.reservationId}.`);
     }
-    paidOrder = { ...paidOrder, items: reservedItems };
+    paidOrder = {
+      ...paidOrder,
+      items: reservation.items,
+      reservationStatus:
+        reservation.status === 'active' || reservation.status === 'payment_pending'
+          ? reservation.status
+          : reservation.status === 'expired'
+            ? 'expired'
+            : 'failed',
+    };
   }
 
   // recordPaidOrder returns the new id, or null if this session was already

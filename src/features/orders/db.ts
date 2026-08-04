@@ -3,6 +3,7 @@ import {
   visibleStockChanged,
   type StockTransitionPurger,
 } from '../products/stock.ts';
+import { generatePublicId } from '../ids/publicId.ts';
 
 export interface ShippingAddress {
   name: string | null;
@@ -53,6 +54,11 @@ export interface OrderItemInput {
   name: string;
   priceCents: number;
   quantity: number;
+  publicId?: string;
+  fileKey?: string | null;
+  fileName?: string | null;
+  fileMime?: string | null;
+  fileSizeBytes?: number | null;
 }
 
 /** A persisted order_items row. */
@@ -64,6 +70,82 @@ export interface OrderItem {
   name: string;
   price_cents: number;
   quantity: number;
+  public_id: string | null;
+  file_key: string | null;
+  file_name: string | null;
+  file_mime: string | null;
+  file_size_bytes: number | null;
+  downloads: number;
+}
+
+export interface InventoryException {
+  public_id: string;
+  order_id: number;
+  order_public_id: string;
+  product_id: number;
+  variant_id: number | null;
+  requested_qty: number;
+  consumed_qty: number;
+  shortfall_qty: number;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+export async function countUnresolvedInventoryExceptions(db: D1Database): Promise<number> {
+  const row = await db
+    .prepare('SELECT COUNT(*) AS n FROM order_inventory_exceptions WHERE resolved_at IS NULL')
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+export async function listOrderInventoryExceptions(
+  db: D1Database,
+  orderId: number,
+): Promise<InventoryException[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT e.*, o.public_id AS order_public_id
+       FROM order_inventory_exceptions e
+       JOIN orders o ON o.id = e.order_id
+       WHERE e.order_id = ?
+       ORDER BY e.created_at DESC`,
+    )
+    .bind(orderId)
+    .all<InventoryException>();
+  return results ?? [];
+}
+
+export async function listUnresolvedInventoryExceptions(
+  db: D1Database,
+  limit = 50,
+): Promise<InventoryException[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT e.*, o.public_id AS order_public_id
+       FROM order_inventory_exceptions e
+       JOIN orders o ON o.id = e.order_id
+       WHERE e.resolved_at IS NULL
+       ORDER BY e.created_at DESC LIMIT ?`,
+    )
+    .bind(limit)
+    .all<InventoryException>();
+  return results ?? [];
+}
+
+export async function resolveInventoryException(
+  db: D1Database,
+  orderId: number,
+  publicId: string,
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE order_inventory_exceptions
+       SET resolved_at = datetime('now')
+       WHERE order_id = ? AND public_id = ? AND resolved_at IS NULL`,
+    )
+    .bind(orderId, publicId)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
 }
 
 /** A paid order to persist, in provider-agnostic terms. */
@@ -73,6 +155,7 @@ export interface PaidOrderInput {
   publicId?: string;
   /** Inventory reservation already holding this order's stock. */
   reservationId?: string;
+  reservationStatus?: 'active' | 'payment_pending' | 'expired' | 'failed';
   email: string | null;
   amountTotalCents: number;
   shippingCents?: number;
@@ -371,6 +454,22 @@ export async function recordPaidOrder(
   // access and no registry row exists to tokenize).
   const publicId = o.publicId ?? crypto.randomUUID();
   const settlementToken = crypto.randomUUID();
+  const pendingExceptionIds = new Set<string>();
+  const mintInventoryExceptionId = async (): Promise<string> => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const candidate = generatePublicId('inventoryException');
+      if (pendingExceptionIds.has(candidate)) continue;
+      const exists = await db
+        .prepare('SELECT public_id FROM order_inventory_exceptions WHERE public_id = ?')
+        .bind(candidate)
+        .first<{ public_id: string }>();
+      if (!exists) {
+        pendingExceptionIds.add(candidate);
+        return candidate;
+      }
+    }
+    throw new Error('inventory exception identity collision retry exhausted');
+  };
   const orderValues = [
     o.providerSessionId,
     publicId,
@@ -389,6 +488,7 @@ export async function recordPaidOrder(
     // but not the session, so this is what charge.refunded resolves an order by.
     o.providerPaymentId ?? null,
   ] as const;
+  const settlementStatuses = "('active', 'payment_pending', 'expired', 'failed')";
   const insertOrder = o.reservationId
     ? db
         .prepare(
@@ -396,7 +496,7 @@ export async function recordPaidOrder(
            SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, NULL, ?
             WHERE EXISTS (
               SELECT 1 FROM checkout_reservations
-               WHERE public_id = ? AND status IN ('active', 'payment_pending')
+               WHERE public_id = ? AND status IN ${settlementStatuses}
             )
            ON CONFLICT(provider_session_id) DO NOTHING
            RETURNING id`,
@@ -429,15 +529,60 @@ export async function recordPaidOrder(
     quantity: number;
   }> = [];
 
-  const items = o.items ?? [];
-  const skipStock = Boolean(o.reservationId);
+  const items = (o.items ?? []).map((item) => ({ ...item, needsClaim: !item.publicId }));
+  for (const item of items) {
+    if (item.publicId) {
+      const claim = await db
+        .prepare('SELECT order_public_id FROM order_item_ids WHERE public_id = ?')
+        .bind(item.publicId)
+        .first<{ order_public_id: string }>();
+      if (!claim || claim.order_public_id !== publicId) {
+        throw new Error(`Order item identity ${item.publicId} is not claimed by ${publicId}.`);
+      }
+      continue;
+    }
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const candidate = generatePublicId('orderItem');
+      const exists = await db
+        .prepare(
+          `SELECT public_id FROM order_item_ids WHERE public_id = ?
+           UNION ALL SELECT public_id FROM order_items WHERE public_id = ? LIMIT 1`,
+        )
+        .bind(candidate, candidate)
+        .first<{ public_id: string }>();
+      if (!exists) {
+        item.publicId = candidate;
+        break;
+      }
+    }
+    if (!item.publicId) throw new Error('order item identity collision retry exhausted');
+  }
+  const lateReservation = o.reservationStatus === 'expired' || o.reservationStatus === 'failed';
+  const skipStock = Boolean(o.reservationId) && !lateReservation;
   for (const it of items) {
     const variantId = it.variantId ?? null;
+    if (!it.publicId) {
+      throw new Error('A settled order item must have a public identity.');
+    }
+    if (it.needsClaim) {
+      stmts.push(
+        db
+          .prepare(
+            `INSERT INTO order_item_ids (public_id, order_public_id)
+             SELECT ?, ? WHERE EXISTS (
+               SELECT 1 FROM orders WHERE provider_session_id = ? AND settlement_token = ?
+             )`,
+          )
+          .bind(it.publicId, publicId, o.providerSessionId, settlementToken),
+      );
+    }
     stmts.push(
       db
         .prepare(
-          `INSERT INTO order_items (order_id, product_id, variant_id, name, price_cents, quantity)
-           SELECT id, ?, ?, ?, ?, ? FROM orders
+          `INSERT INTO order_items
+             (order_id, product_id, variant_id, name, price_cents, quantity,
+              public_id, file_key, file_name, file_mime, file_size_bytes)
+           SELECT id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? FROM orders
             WHERE provider_session_id = ? AND settlement_token = ?`,
         )
         .bind(
@@ -446,13 +591,47 @@ export async function recordPaidOrder(
           it.name,
           it.priceCents,
           it.quantity,
+          it.publicId,
+          it.fileKey ?? null,
+          it.fileName ?? null,
+          it.fileMime ?? null,
+          it.fileSizeBytes ?? null,
           o.providerSessionId,
           settlementToken,
         ),
     );
     // A reservation already consumed this inventory before provider handoff.
     if (skipStock) continue;
+    const exceptionPublicId = await mintInventoryExceptionId();
     if (variantId != null) {
+      stmts.push(
+        db
+          .prepare(
+            `INSERT INTO order_inventory_exceptions
+               (public_id, order_id, product_id, variant_id, requested_qty, consumed_qty, shortfall_qty)
+             SELECT ?, o.id, ?, ?, ?,
+                    MIN(COALESCE((SELECT stock FROM product_variants WHERE id = ?), 0), ?),
+                    ? - MIN(COALESCE((SELECT stock FROM product_variants WHERE id = ?), 0), ?)
+               FROM orders o
+              WHERE o.provider_session_id = ? AND o.settlement_token = ?
+                AND COALESCE((SELECT stock FROM product_variants WHERE id = ?), 0) < ?`,
+          )
+          .bind(
+            exceptionPublicId,
+            it.productId,
+            variantId,
+            it.quantity,
+            variantId,
+            it.quantity,
+            it.quantity,
+            variantId,
+            it.quantity,
+            o.providerSessionId,
+            settlementToken,
+            variantId,
+            it.quantity,
+          ),
+      );
       stmts.push(
         db
           .prepare(
@@ -474,6 +653,33 @@ export async function recordPaidOrder(
         });
       }
     } else if (it.productId != null) {
+      stmts.push(
+        db
+          .prepare(
+            `INSERT INTO order_inventory_exceptions
+               (public_id, order_id, product_id, variant_id, requested_qty, consumed_qty, shortfall_qty)
+             SELECT ?, o.id, ?, NULL, ?,
+                    MIN(COALESCE((SELECT stock FROM products WHERE id = ?), 0), ?),
+                    ? - MIN(COALESCE((SELECT stock FROM products WHERE id = ?), 0), ?)
+               FROM orders o
+              WHERE o.provider_session_id = ? AND o.settlement_token = ?
+                AND COALESCE((SELECT stock FROM products WHERE id = ?), 0) < ?`,
+          )
+          .bind(
+            exceptionPublicId,
+            it.productId,
+            it.quantity,
+            it.productId,
+            it.quantity,
+            it.quantity,
+            it.productId,
+            it.quantity,
+            o.providerSessionId,
+            settlementToken,
+            it.productId,
+            it.quantity,
+          ),
+      );
       stmts.push(
         db
           .prepare(
@@ -500,7 +706,7 @@ export async function recordPaidOrder(
       db
         .prepare(
           `UPDATE checkout_reservations SET status = 'settled'
-            WHERE public_id = ? AND status IN ('active', 'payment_pending') AND EXISTS (
+            WHERE public_id = ? AND status IN ${settlementStatuses} AND EXISTS (
               SELECT 1 FROM orders
                WHERE provider_session_id = ? AND settlement_token = ?
             )`,

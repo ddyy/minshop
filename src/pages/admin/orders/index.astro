@@ -8,6 +8,7 @@ import {
   getOrder,
   getOrderByPublicId,
   findOrderPublicIdByReference,
+  listUnresolvedInventoryExceptions,
 } from '../../../features/orders/db';
 import { orderByClause } from '../../../features/orders/sort';
 import { orderReference } from '../../../features/orders/number';
@@ -92,6 +93,7 @@ const arrow = (col: string) => (sort === col ? (dir === 'asc' ? ' ↑' : ' ↓')
 // Refunds a provider reported that no order claims — real money that moved, so
 // they surface here rather than sitting silently in a table.
 const unmatched = await listUnmatchedRefundEvents(env.DB);
+const inventoryExceptions = await listUnresolvedInventoryExceptions(env.DB);
 // The conflicting order for each matched event, so the warning can link and
 // label it by public ID + reference (never the row id). Bounded by the queue.
 const conflictOrders = new Map(
@@ -105,6 +107,24 @@ const listError = Astro.url.searchParams.get('error');
 ---
 
 <AdminLayout title="Orders" active="orders">
+  {
+    inventoryExceptions.length > 0 && (
+      <section id="inventory-exceptions" class="mb-8 rounded-lg border border-red-300 bg-red-50 px-5 py-4">
+        <h2 class="text-sm font-medium text-red-900">{inventoryExceptions.length} inventory exception{inventoryExceptions.length === 1 ? '' : 's'} need attention</h2>
+        <p class="mt-1 text-xs text-red-800">These paid orders arrived after their stock holds ended. Open each order to reconcile the oversold quantity.</p>
+        <ul class="mt-3 space-y-2 text-sm text-red-900">
+          {inventoryExceptions.map((entry) => (
+            <li>
+              <a class="font-medium underline" href={`/admin/orders/${entry.order_public_id}`}>
+                Order #{orderReference(entry.order_public_id, entry.order_id, onCfg)}
+              </a>{' '}
+              — {entry.shortfall_qty} unit{entry.shortfall_qty === 1 ? '' : 's'} oversold
+            </li>
+          ))}
+        </ul>
+      </section>
+    )
+  }
   {
     listError && (
       <p class="mb-6 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">

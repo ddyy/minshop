@@ -30,7 +30,8 @@ try {
        access_token    TEXT NOT NULL UNIQUE,
        generation      INTEGER NOT NULL DEFAULT 1,
        created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-       rotated_at      TEXT
+       rotated_at      TEXT,
+       hidden_at       TEXT
      )`,
     `CREATE TABLE order_notifications (
        order_id INTEGER NOT NULL, kind TEXT NOT NULL,
@@ -39,7 +40,7 @@ try {
        created_at TEXT NOT NULL DEFAULT (datetime('now')), sent_at TEXT,
        PRIMARY KEY (order_id, kind))`,
     `CREATE TABLE pending_payments (public_id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'pending', expires_at TEXT)`,
-    `CREATE TABLE checkout_reservations (public_id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'active')`,
+    `CREATE TABLE checkout_reservations (public_id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'active', terminal_at TEXT)`,
   ]) {
     await db.exec(sql.replace(/\n\s*/g, ' '));
   }
@@ -87,17 +88,21 @@ try {
   assert.equal(await deleteGuestAccessIfUnsettled(db, abandoned.publicId), true, 'abandoned row collected');
   assert.equal(await getGuestAccess(db, abandoned.publicId), null);
 
-  // Reconciliation sweep: a pending payment that expired well past the grace
-  // window loses its credential; the settled order's row survives untouched.
-  const expired = await claimOrderIdentity(db);
+  // A terminal reservation is hidden after its visible window, never deleted:
+  // the same credential must recover if a delayed paid event lands later.
+  const terminal = await claimOrderIdentity(db);
   await db
-    .prepare("INSERT INTO pending_payments (public_id, status, expires_at) VALUES (?, 'pending', datetime('now', '-4 days'))")
-    .bind(expired.publicId)
+    .prepare("INSERT INTO checkout_reservations (public_id, status, terminal_at) VALUES (?, 'expired', datetime('now', '-4 days'))")
+    .bind(terminal.publicId)
     .run();
+  await db.prepare("UPDATE order_guest_access SET created_at = datetime('now', '-10 days') WHERE order_public_id = ?").bind(terminal.publicId).run();
+  const orphan = await claimOrderIdentity(db);
+  await db.prepare("UPDATE order_guest_access SET created_at = datetime('now', '-8 days') WHERE order_public_id = ?").bind(orphan.publicId).run();
   const fresh = await claimOrderIdentity(db); // recent row, nothing terminal — must survive
-  const removed = await sweepAbandonedGuestAccess(db);
-  assert.equal(removed, 1, 'sweep removed exactly the terminally expired row');
-  assert.equal(await getGuestAccess(db, expired.publicId), null);
+  const changed = await sweepAbandonedGuestAccess(db);
+  assert.equal(changed, 2, 'sweep hid the terminal row and removed only the impossible orphan');
+  assert.ok((await getGuestAccess(db, terminal.publicId))?.hidden_at, 'terminal credential became a tombstone');
+  assert.equal(await getGuestAccess(db, orphan.publicId), null);
   assert.ok(await getGuestAccess(db, fresh.publicId), 'fresh unsettled row survives the sweep');
   assert.ok(await getGuestAccess(db, orderPublicId), 'settled row survives the sweep');
 

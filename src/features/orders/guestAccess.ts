@@ -20,6 +20,7 @@ export interface GuestAccess {
   generation: number;
   created_at: string;
   rotated_at: string | null;
+  hidden_at: string | null;
 }
 
 /**
@@ -159,34 +160,36 @@ export async function guestOrderUrl(
  * notification sweep.
  */
 export async function sweepAbandonedGuestAccess(db: D1Database, limit = 5): Promise<number> {
-  const result = await db
+  const hidden = await db
+    .prepare(
+      `UPDATE order_guest_access
+          SET hidden_at = COALESCE(hidden_at, datetime('now'))
+        WHERE order_public_id IN (
+          SELECT g.order_public_id FROM order_guest_access g
+          JOIN checkout_reservations r ON r.public_id = g.order_public_id
+         WHERE r.status IN ('expired', 'failed')
+           AND r.terminal_at < datetime('now', '-3 days')
+           AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.public_id = g.order_public_id)
+         LIMIT ?1)`,
+    )
+    .bind(limit)
+    .run();
+  const deleted = await db
     .prepare(
       `DELETE FROM order_guest_access
         WHERE order_public_id IN (
           SELECT g.order_public_id FROM order_guest_access g
            WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.public_id = g.order_public_id)
-             AND (
-               EXISTS (SELECT 1 FROM pending_payments p
-                        WHERE p.public_id = g.order_public_id
-                          AND p.status != 'settled'
-                          AND p.expires_at IS NOT NULL
-                          AND p.expires_at < datetime('now', '-3 days'))
-               OR (
-                 g.created_at < datetime('now', '-7 days')
-                 AND NOT EXISTS (SELECT 1 FROM checkout_reservations r
-                                  WHERE r.public_id = g.order_public_id
-                                    AND r.status IN ('active', 'payment_pending'))
-                 AND NOT EXISTS (SELECT 1 FROM pending_payments p
-                                  WHERE p.public_id = g.order_public_id
-                                    AND p.status = 'pending'
-                                    AND (p.expires_at IS NULL OR p.expires_at >= datetime('now', '-3 days')))
-               )
-             )
+             AND g.created_at < datetime('now', '-7 days')
+             AND NOT EXISTS (SELECT 1 FROM checkout_reservations r
+                              WHERE r.public_id = g.order_public_id)
+             AND NOT EXISTS (SELECT 1 FROM pending_payments p
+                              WHERE p.public_id = g.order_public_id)
            LIMIT ?1)`,
     )
     .bind(limit)
     .run();
-  return result.meta.changes ?? 0;
+  return (hidden.meta.changes ?? 0) + (deleted.meta.changes ?? 0);
 }
 
 /**
