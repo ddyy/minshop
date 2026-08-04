@@ -7,16 +7,25 @@
 	// Email) are commented below; uncomment + redeploy to enable. Every one degrades
 	// gracefully when its binding is absent, so the store runs without them.
 	//
-	// No `main`/`assets` here: @astrojs/cloudflare supplies the worker entry itself.
+	// `main` points at a custom entrypoint that re-exports Astro's fetch handler
+	// and adds `scheduled` for the cron below; the adapter still builds the app.
+	// No `assets` here: @astrojs/cloudflare supplies that itself.
 	//
 	// Per-instance CLI deploys use scripts/provision-cf.sh, which renders an instance
 	// config from wrangler.template.jsonc (real ids) and restores this file after.
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "minshop",
+	"main": "./src/worker.ts",
 	"compatibility_date": "2026-07-20",
 	"compatibility_flags": [
 		"nodejs_compat"
 	],
+	// Recurring jobs. Everything minshop defers was previously driven by incoming
+	// traffic (the notification sweep rides on live settlements; expired inventory
+	// holds are released by the next shopper's reservation), so a quiet store
+	// retried nothing and kept sold-out-looking stock locked. Five minutes is well
+	// inside the reservation TTL and costs one invocation. Handler: src/worker.ts.
+	"triggers": { "crons": ["*/5 * * * *"] },
 	"observability": {
 		"enabled": true,
 		// Span-level attribution (D1 calls, subrequests, waitUntil work). Full

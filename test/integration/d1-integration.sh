@@ -551,4 +551,16 @@ if [[ "$bare_status" != "404" ]]; then
   exit 1
 fi
 
-echo "D1 integration passed: migrations + seed + bound reads + paid-order write/read"
+# The cron handler only exists because wrangler `main` points at src/worker.ts
+# and the Astro adapter bundles it. If an adapter upgrade stops honouring that,
+# the build still succeeds and every scheduled sweep silently stops running —
+# which is invisible until a store notices stock stuck on hold. Assert the built
+# artifact really exposes the handler.
+scheduled_status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+  "http://127.0.0.1:$test_port/cdn-cgi/handler/scheduled")"
+if [[ "$scheduled_status" != "200" ]]; then
+  echo "D1 integration failed: built worker exposes no scheduled handler (got $scheduled_status)" >&2
+  exit 1
+fi
+
+echo "D1 integration passed: migrations + seed + bound reads + paid-order write/read + cron handler"

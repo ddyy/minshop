@@ -13,7 +13,7 @@ import {
 
 export { NOTIFICATION_KINDS, type NotificationKind } from './outboxStore';
 import { getConfig } from '../../config';
-import { getStoreSettings, type StoreSettings } from '../settings/db';
+import { getSetting, setSetting, getStoreSettings, type StoreSettings } from '../settings/db';
 import { getOrder, listOrderItemsWithImages } from '../orders/db';
 import { getEmailProvider } from './index';
 import { orderConfirmationEmail, orderNotificationEmail, orderShippedEmail } from './orderConfirmation';
@@ -43,6 +43,28 @@ const SWEEP_MIN_AGE_SECONDS = 120;
 const SWEEP_BATCH = 3;
 
 /**
+ * Remember the origin this store is served from.
+ *
+ * The scheduled sweep has no request to read an origin off, but emails contain
+ * customer-facing order links, so it cannot be guessed — a wrong one ships dead
+ * links in real mail. Rather than add a deploy-time field (which this project
+ * deliberately avoids: a free-form URL is exactly the typo a wizard would have
+ * caught), the origin is learned from live traffic and reused by the cron.
+ *
+ * Written only when it actually changes, so the common case costs one read.
+ */
+export async function rememberStoreUrl(db: D1Database, origin: string): Promise<void> {
+  if (!/^https?:\/\//.test(origin)) return;
+  try {
+    if ((await getSetting(db, 'store_url')) === origin) return;
+    await setSetting(db, 'store_url', origin);
+  } catch (err) {
+    // Never let bookkeeping break a delivery.
+    console.error('Recording store_url failed:', err);
+  }
+}
+
+/**
  * Deliver whatever undelivered notifications an order still has. Safe to call
  * from anywhere, any number of times — the claim makes repeats no-ops. This is
  * what closes the old redelivery gap: a webhook retry that finds the order
@@ -57,6 +79,8 @@ export async function deliverOrderNotifications(
   // Settings resolve once per delivery pass, at send time — a store that
   // enabled email after the order was placed still gets the sends.
   const s = settings ?? (await getStoreSettings(db));
+  // This call always has a real request origin behind it; the cron does not.
+  await rememberStoreUrl(db, origin);
   let order: Awaited<ReturnType<typeof getOrder>> | undefined;
   let items: Awaited<ReturnType<typeof listOrderItemsWithImages>> | undefined;
 
@@ -181,8 +205,9 @@ export async function deliverOrderNotifications(
  * so it is deliberately tiny — a backlog drains a little on every sale.
  */
 export async function sweepStaleNotifications(db: D1Database, origin: string): Promise<void> {
-  // Piggyback the guest-credential reconciliation here too: same cadence, same
-  // bounded-work philosophy, and this is the only recurring hook the Worker has.
+  // Piggyback the guest-credential reconciliation here too: same cadence and
+  // the same bounded-work philosophy. Reached both from live settlements and
+  // from the scheduled handler (src/worker.ts).
   try {
     await sweepAbandonedGuestAccess(db);
   } catch (err) {

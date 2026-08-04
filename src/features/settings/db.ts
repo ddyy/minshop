@@ -43,6 +43,7 @@ export type SettingKey =
   | 'announcement' // storefront announcement bar text; absent/empty = bar hidden
   | 'announcement_href' // optional link for the announcement bar
   | 'email_from' // sender address; absent = build-time default
+  | 'store_url' // origin last seen serving a settlement, so the cron can build order links
   | 'email_from_name' // sender display name; absent = store name
   | 'email_notify_to' // owner "new order" alert recipient; absent = store.config.ts notifyTo
   | 'turnstile_enabled' // '1' = bot challenge on (admin login + customer sign-in); absent = off
