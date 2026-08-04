@@ -21,6 +21,30 @@ Other commands: `npm run dev` (astro dev), `npm run preview` (wrangler dev =
 production mode, for testing middleware/auth), `npm run db:migrate` (local D1),
 `npm test`.
 
+### Inspecting local data: use Local Explorer, not the CLI
+
+Any local dev server (`npm run dev`, `npm run preview`) serves Cloudflare's
+Local Explorer — a UI at `/cdn-cgi/explorer` and a self-describing REST API at
+`/cdn-cgi/explorer/api` covering D1, KV, R2, Durable Objects and Workflows.
+It reads the same local state the app does, with no setup.
+
+Prefer it over `npx wrangler d1 execute --local` for reads and fixture setup:
+that spawns a process each time (~1.2s) where this is an HTTP call (~0.02s) —
+roughly 70x, which is the difference between checking state freely and avoiding
+it. `GET /cdn-cgi/explorer/api` returns the OpenAPI spec, so the endpoints are
+discoverable rather than memorized. The D1 database id is the binding name:
+
+```sh
+curl -s localhost:4321/cdn-cgi/explorer/api/d1/database/DB/raw \
+  -H 'content-type: application/json' \
+  -d '{"sql":"SELECT status, COUNT(*) FROM orders GROUP BY status"}'
+```
+
+Local only, and unauthenticated on the dev origin — it is never exposed on a
+deployed Worker, but do not bind a dev server to a public interface. Anything
+touching `--remote` still goes through wrangler. The API reports itself as
+version `0.0.1`, so use it for working loops, not as the basis of a test gate.
+
 ## Customizing a cloned shop
 
 Use the narrowest customization surface that fits the change:
