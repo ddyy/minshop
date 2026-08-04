@@ -44,6 +44,7 @@ jobs:
             -e 's/__DB_NAME__/minshop-check-db/g' \
             -e 's/__DB_ID__/00000000-0000-0000-0000-000000000000/g' \
             -e 's/__BUCKET__/minshop-check-images/g' \
+            -e 's/__FILES_BUCKET__/minshop-check-files/g' \
             wrangler.template.jsonc > wrangler.jsonc
 
       - name: Run complete verification
@@ -116,6 +117,7 @@ jobs:
             -e 's/__DB_NAME__/minshop-check-db/g' \
             -e 's/__DB_ID__/00000000-0000-0000-0000-000000000000/g' \
             -e 's/__BUCKET__/minshop-check-images/g' \
+            -e 's/__FILES_BUCKET__/minshop-check-files/g' \
             wrangler.template.jsonc > wrangler.jsonc
 
       - name: Verify the theme builds and honours the contract

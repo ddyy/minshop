@@ -177,12 +177,41 @@ describe('deploy.mjs stays on the executor', () => {
 });
 
 describe('private deliverable provisioning', () => {
+  // Asserts the INVARIANT (deliverables live in their own bucket), not the
+  // literal default name: CI overwrites wrangler.jsonc by rendering the
+  // template, so this file is not necessarily the committed one at test time.
+  const bucketFor = (config, binding) =>
+    config.match(
+      new RegExp(`"binding"\\s*:\\s*"${binding}"[\\s\\S]*?"bucket_name"\\s*:\\s*"([^"]+)"`),
+    )?.[1] ?? null;
+
   it('binds a distinct private bucket in both deployment configs', () => {
     const committed = readFileSync('wrangler.jsonc', 'utf8');
     const template = readFileSync('wrangler.template.jsonc', 'utf8');
-    expect(committed).toMatch(/"binding"\s*:\s*"FILES"[\s\S]*?"bucket_name"\s*:\s*"minshop-files"/);
-    expect(template).toMatch(/"binding"\s*:\s*"FILES"[\s\S]*?"bucket_name"\s*:\s*"__FILES_BUCKET__"/);
+    for (const config of [committed, template]) {
+      const images = bucketFor(config, 'BUCKET');
+      const files = bucketFor(config, 'FILES');
+      expect(files).toBeTruthy();
+      expect(files).not.toBe(images);
+    }
+    expect(bucketFor(template, 'FILES')).toBe('__FILES_BUCKET__');
     expect(template).toMatch(/never enable r2\.dev or attach a custom domain/i);
+  });
+
+  // wrangler rejects an unsubstituted placeholder as a bucket name, and the
+  // theme jobs render the template themselves — so a placeholder added here but
+  // not to the workflow only fails in CI, after a push. Pin the two together.
+  it('substitutes every template placeholder in CI', () => {
+    const placeholders = [
+      ...new Set(readFileSync('wrangler.template.jsonc', 'utf8').match(/__[A-Z_]+__/g) ?? []),
+    ];
+    const workflow = readFileSync('.github/workflows/verify.yml', 'utf8');
+    expect(placeholders.length).toBeGreaterThan(0);
+    for (const placeholder of placeholders) {
+      // Both render sites must cover it: the verify job and the theme matrix.
+      const substitutions = workflow.split(`s/${placeholder}/`).length - 1;
+      expect(substitutions, `${placeholder} is not substituted at both render sites`).toBe(2);
+    }
   });
 
   it('records the per-instance bucket and preserves that record if deletion fails', () => {
