@@ -78,6 +78,7 @@ export function orderConfirmationEmail(
   const num = orderReference(order.public_id, order.id, cfg.orderNumber);
   const money = (cents: number) => formatPrice(cents, order.currency);
   const orderUrl = guestOrderUrl ?? null;
+  const hasDigital = items.some((item) => Boolean(item.file_key));
 
   const rows = items.map(
     (it) => `${it.name} × ${it.quantity}: ${money(it.price_cents * it.quantity)}`,
@@ -93,6 +94,7 @@ export function orderConfirmationEmail(
     ...(order.discount_cents > 0 ? [`Discount: -${money(order.discount_cents)}`] : []),
     ...(order.tax_cents > 0 ? [`Tax: ${money(order.tax_cents)}`] : []),
     `Total: ${money(order.amount_total_cents)}`,
+    ...(hasDigital && orderUrl ? [``, `Your download is ready.`] : []),
     ...(orderUrl ? [``, `View your order: ${orderUrl}`] : []),
   ].join('\n');
 
@@ -109,7 +111,11 @@ export function orderConfirmationEmail(
           amount: money(it.price_cents * it.quantity),
         })),
         totalRows(order, money),
-      ) + (orderUrl ? emailButton(orderUrl, 'View your order') : ''),
+      ) +
+      (hasDigital && orderUrl
+        ? `<p style="margin:20px 0 0;font-size:14px;">Your download is ready.</p>`
+        : '') +
+      (orderUrl ? emailButton(orderUrl, 'View your order') : ''),
     footer: `Questions about this order? Just reply to this email.`,
   });
 

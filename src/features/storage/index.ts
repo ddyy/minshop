@@ -8,3 +8,8 @@ export type { StorageProvider } from './provider';
 export function getStorage(): StorageProvider {
   return createR2Storage(env.BUCKET);
 }
+
+/** Private deliverables. This bucket must never have r2.dev/custom-domain access. */
+export function getFileStorage(): StorageProvider {
+  return createR2Storage(env.FILES);
+}

@@ -31,9 +31,20 @@ image_bucket="$(node -e '
   if (!match) throw new Error("BUCKET binding is missing a bucket_name");
   process.stdout.write(match[1]);
 ')"
+files_bucket="$(node -e '
+  const config = require("node:fs").readFileSync("wrangler.jsonc", "utf8");
+  const match = config.match(/"binding"\s*:\s*"FILES"[\s\S]*?"bucket_name"\s*:\s*"([^"]+)"/);
+  if (!match) throw new Error("FILES binding is missing a bucket_name");
+  process.stdout.write(match[1]);
+')"
 npx wrangler r2 object put "$image_bucket/media/cache-header-fixture.svg" \
   --local --persist-to "$state_dir" --file public/favicon.svg \
   --content-type image/svg+xml >/dev/null
+npx wrangler r2 object put "$files_bucket/deliverables/integration/guide.txt" \
+  --local --persist-to "$state_dir" --file README.md \
+  --content-type text/plain --cache-control 'private, no-store' >/dev/null
+npx wrangler d1 execute DB --local --persist-to "$state_dir" \
+  --command "UPDATE products SET file_key = 'deliverables/integration/guide.txt', file_name = 'integration-guide.txt', file_mime = 'text/plain', file_size_bytes = 1 WHERE slug = 'sample-tee';" >/dev/null
 # Fixture rows need valid public_ids (hex ⊂ the Crockford alphabet) — the
 # public serializers refuse rows without one.
 npx wrangler d1 execute DB --local --persist-to "$state_dir" \
@@ -232,7 +243,8 @@ assert_cache_control / "$public_cache" HEAD
 
 for path in \
   /cart /checkout /express /payment-setup /partials/cart-count \
-  /account /account/login /order/not-a-token /pay/not-an-id \
+  /account /account/login /order/not-a-token /order/not-a-token/status \
+  /order/not-a-token/download/itm_k7m2qx8vn6 /pay/not-an-id \
   /admin /api/admin/products /api/internal/cache-purge /api/cart /api/checkout
 do
   assert_cache_control "$path" "$private_cache"
@@ -428,6 +440,14 @@ checkout="$(curl --max-time 30 --fail --silent --show-error \
   -H "origin: http://127.0.0.1:$test_port" \
   --data '{"items":[{"slug":"sample-tee","quantity":1}],"method":"demo","ship_to":{"email":"integration@example.com","name":"Integration Test","line1":"1 Test St","city":"Testville","postal":"12345","country":"US"}}' \
   "http://127.0.0.1:$test_port/api/checkout")"
+status_path="$(node -e 'const b=JSON.parse(process.argv[1]); if (!b.order_status_url) process.exit(1); process.stdout.write(new URL(b.order_status_url).pathname)' "$checkout")"
+confirming="$(curl --max-time 30 --fail --silent --show-error -H 'Accept:' "http://127.0.0.1:$test_port$status_path")"
+confirming_item_id="$(node -e '
+  const b=JSON.parse(process.argv[1]);
+  if (b.status !== "confirming") throw new Error(`expected confirming, got ${b.status}`);
+  if (!b.items?.[0]?.item_public_id?.startsWith("itm_")) throw new Error("confirming item has no itm_ identity");
+  process.stdout.write(b.items[0].item_public_id);
+' "$confirming")"
 stock_after_demo_hold="$(npx wrangler d1 execute DB --local --persist-to "$state_dir" --json \
   --command "SELECT stock FROM products WHERE slug = 'sample-tee';" |
   node -e 'let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(String(JSON.parse(s)[0].results[0].stock)))')"
@@ -532,6 +552,35 @@ reservation_status="$(npx wrangler d1 execute DB --local --persist-to "$state_di
   node -e 'let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(String(JSON.parse(s)[0].results[0].status)))')"
 if [[ "$reservation_status" != "settled" ]]; then
   echo "D1 integration failed: demo reservation ended as $reservation_status, expected settled" >&2
+  exit 1
+fi
+
+status_headers="$state_dir/status-headers.txt"
+paid_status="$(curl --max-time 30 --fail --silent --show-error --dump-header "$status_headers" "http://127.0.0.1:$test_port$status_path")"
+download_path="$(node -e '
+  const b=JSON.parse(process.argv[1]);
+  if (b.status !== "paid") throw new Error(`expected paid, got ${b.status}`);
+  if (b.items?.[0]?.item_public_id !== process.argv[2]) throw new Error("item identity changed at settlement");
+  if (!b.items[0].download_url) throw new Error("paid deliverable has no download URL");
+  process.stdout.write(new URL(b.items[0].download_url).pathname);
+' "$paid_status" "$confirming_item_id")"
+if ! tr -d '\r' <"$status_headers" | grep -qi '^cache-control: private, no-store$'; then
+  echo "D1 integration failed: status response was cacheable" >&2
+  exit 1
+fi
+download_headers="$state_dir/download-headers.txt"
+curl --max-time 30 --fail --silent --show-error --dump-header "$download_headers" \
+  --output "$state_dir/downloaded-guide.txt" "http://127.0.0.1:$test_port$download_path"
+cmp README.md "$state_dir/downloaded-guide.txt"
+if ! tr -d '\r' <"$download_headers" | grep -qi '^content-disposition: attachment; filename="integration-guide.txt"'; then
+  echo "D1 integration failed: download did not use its snapshotted filename" >&2
+  exit 1
+fi
+download_count="$(npx wrangler d1 execute DB --local --persist-to "$state_dir" --json \
+  --command "SELECT downloads FROM order_items WHERE public_id = '$confirming_item_id';" |
+  node -e 'let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(String(JSON.parse(s)[0].results[0].downloads)))')"
+if [[ "$download_count" != "1" ]]; then
+  echo "D1 integration failed: download counter was $download_count" >&2
   exit 1
 fi
 

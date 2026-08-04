@@ -45,6 +45,7 @@ declare namespace Cloudflare {
   interface Env {
     DB: import('@cloudflare/workers-types').D1Database;
     BUCKET: import('@cloudflare/workers-types').R2Bucket;
+    FILES: import('@cloudflare/workers-types').R2Bucket;
     // Native edge counters for anonymous credential and paid-provider abuse.
     // Optional in the type so an older custom config fails open during upgrade;
     // the provisioning template and active project config declare them.

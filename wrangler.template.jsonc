@@ -57,7 +57,11 @@
       "migrations_dir": "migrations"
     }
   ],
-  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "__BUCKET__" }],
+  "r2_buckets": [
+    { "binding": "BUCKET", "bucket_name": "__BUCKET__" },
+    // Private deliverables: never enable r2.dev or attach a custom domain.
+    { "binding": "FILES", "bucket_name": "__FILES_BUCKET__" }
+  ],
   "vars": {
     "STORE_NAME": "My Shop",
     "TIME_ZONE": "UTC"

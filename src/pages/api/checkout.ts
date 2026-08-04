@@ -35,13 +35,10 @@ import { getConfig } from '../../config';
 import {
   reserveInventory,
   releaseInventoryReservation,
-  type ReservationItem,
 } from '../../features/orders/reservations';
+import { reservationItems, type LineDraft } from '../../features/orders/reservationItems.ts';
 import { purgeStockProductCache } from '../../features/cache/purge';
-import {
-  entitlementWriterActive,
-  lifecycleActive,
-} from '../../features/digitalDelivery/rollout.ts';
+import { lifecycleActive } from '../../features/digitalDelivery/rollout.ts';
 import { mintLightningOrder } from '../../features/payments/lightning-provider';
 import { getLightningBackend } from '../../features/payments/lightning';
 
@@ -75,34 +72,8 @@ function parseShipTo(raw: unknown): ShipTo | null {
   return { email, name, line1, line2: s('line2') || null, city, state: s('state') || null, postal, country };
 }
 
-interface LineDraft {
-  product: Product;
-  qty: number;
-  name: string; // composed: product + variant + extras
-  unitPriceCents: number; // variant/base + extras
-  availableStock: number; // variant stock if a variant, else product stock
-  variantId: number | null;
-}
-
 const MAX_CHECKOUT_LINES = 50;
 const MAX_JSON_BYTES = 64 * 1024;
-
-const reservationItems = (lines: LineDraft[]): ReservationItem[] =>
-  lines.map((line) => ({
-    productId: line.product.id,
-    variantId: line.variantId,
-    name: line.name,
-    priceCents: line.unitPriceCents,
-    quantity: line.qty,
-    ...(entitlementWriterActive() && line.product.file_key
-      ? {
-          fileKey: line.product.file_key,
-          fileName: line.product.file_name,
-          fileMime: line.product.file_mime,
-          fileSizeBytes: line.product.file_size_bytes,
-        }
-      : {}),
-  }));
 
 function reservationTtlSeconds(method: PaymentMethod): number {
   if (method === 'demo') return DEMO_CHECKOUT_TTL_SECONDS;

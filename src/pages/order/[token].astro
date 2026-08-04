@@ -90,6 +90,32 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
         <p class="mt-4 text-lg font-semibold">
           Total: {formatPrice(order.amount_total_cents, order.currency)}
         </p>
+        {items.some((item) => item.file_key) && isAccessToken(token) && (
+          <section class="mt-8 rounded-lg border border-line bg-surface p-5">
+            <h2 class="font-serif text-2xl">Downloads</h2>
+            <ul class="mt-3 space-y-3">
+              {items.filter((item) => item.file_key && item.public_id).map((item) => (
+                <li class="flex flex-wrap items-center justify-between gap-3">
+                  <span>
+                    <strong>{item.file_name ?? item.name}</strong>
+                    {item.file_mime && <small class="ml-2 text-muted">{item.file_mime}</small>}
+                    {item.file_size_bytes != null && (
+                      <small class="ml-2 text-muted">{Math.ceil(item.file_size_bytes / 1024)} KB</small>
+                    )}
+                  </span>
+                  {order.refunded_cents >= order.amount_total_cents ? (
+                    <span class="text-sm text-muted">Unavailable after refund</span>
+                  ) : (
+                    <a
+                      href={`/order/${token}/download/${item.public_id}`}
+                      class="rounded-md bg-brand px-4 py-2 text-sm font-medium text-on-brand hover:bg-brand-hover"
+                    >Download</a>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         {paymentLabel && (
           <p class="mt-1 text-sm text-muted">Paid with {paymentLabel}</p>
         )}

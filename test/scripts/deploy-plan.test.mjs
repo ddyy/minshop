@@ -175,3 +175,24 @@ describe('deploy.mjs stays on the executor', () => {
     expect(wranglerCalls.length).toBe(inOps.length);
   });
 });
+
+describe('private deliverable provisioning', () => {
+  it('binds a distinct private bucket in both deployment configs', () => {
+    const committed = readFileSync('wrangler.jsonc', 'utf8');
+    const template = readFileSync('wrangler.template.jsonc', 'utf8');
+    expect(committed).toMatch(/"binding"\s*:\s*"FILES"[\s\S]*?"bucket_name"\s*:\s*"minshop-files"/);
+    expect(template).toMatch(/"binding"\s*:\s*"FILES"[\s\S]*?"bucket_name"\s*:\s*"__FILES_BUCKET__"/);
+    expect(template).toMatch(/never enable r2\.dev or attach a custom domain/i);
+  });
+
+  it('records the per-instance bucket and preserves that record if deletion fails', () => {
+    const provision = readFileSync('scripts/provision-cf.sh', 'utf8');
+    const destroy = readFileSync('scripts/destroy-cf.sh', 'utf8');
+    expect(provision).toContain('FILES_BUCKET="${SLUG}-files"');
+    expect(provision).toContain('echo "FILES_BUCKET=$FILES_BUCKET"');
+    expect(destroy).toContain("recorded_files_bucket=");
+    expect(destroy).toContain('if [[ "$files_bucket_deleted" == "1" ]]');
+    expect(destroy).toContain('RESIDUAL_RESOURCE=private-files');
+    expect(destroy).toContain('CLEANUP_COMMAND=npx wrangler r2 bucket delete $FILES_BUCKET');
+  });
+});

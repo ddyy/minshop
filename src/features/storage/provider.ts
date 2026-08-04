@@ -10,7 +10,12 @@ export interface StoredObject {
 }
 
 export interface StorageProvider {
-  put(key: string, data: ArrayBuffer, contentType: string): Promise<void>;
+  put(
+    key: string,
+    data: ArrayBuffer,
+    contentType: string,
+    options?: { cacheControl?: string },
+  ): Promise<void>;
   get(key: string): Promise<StoredObject | null>;
   delete(key: string): Promise<void>;
 }

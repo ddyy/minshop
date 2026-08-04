@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # Provision + deploy a FRESH, fully-independent minshop instance:
-#   its own D1 database, R2 bucket, Worker, and secrets (AUTH_SECRET + SECRETS_KEK).
+#   its own D1 database, public-image and private-file R2 buckets, Worker, and
+#   secrets (AUTH_SECRET + SECRETS_KEK).
 #   FREE-PLAN default — optional integrations (Vectorize/AI, Images, send_email) are
 #   opt-in via wrangler.template.jsonc (see the comments there).
 #
@@ -27,6 +28,7 @@ cd "$ROOT"
 W="npx --yes wrangler"
 DB_NAME="${SLUG}-db"
 BUCKET="${SLUG}-images"
+FILES_BUCKET="${SLUG}-files"
 META=".instances/${SLUG}.env"
 mkdir -p .instances
 
@@ -52,6 +54,9 @@ echo "    database_id=$DB_ID"
 
 echo "▸ [2/5] Creating R2 bucket '$BUCKET'…"
 $W r2 bucket create "$BUCKET"
+echo "    Creating private digital-file bucket '$FILES_BUCKET'…"
+$W r2 bucket create "$FILES_BUCKET"
+echo "    Keep this bucket private: do not enable r2.dev or attach a custom domain."
 
 # FREE-PLAN DEFAULT: D1 + R2 only. Semantic search (Workers AI + Vectorize) is
 # opt-in: create the index and add its bindings to wrangler.template.jsonc (see
@@ -65,6 +70,7 @@ sed -e "s/__NAME__/$SLUG/g" \
     -e "s/__DB_NAME__/$DB_NAME/g" \
     -e "s/__DB_ID__/$DB_ID/g" \
     -e "s/__BUCKET__/$BUCKET/g" \
+    -e "s/__FILES_BUCKET__/$FILES_BUCKET/g" \
     wrangler.template.jsonc > wrangler.jsonc
 
 echo "▸ [4/5] Applying migrations + building…"
@@ -80,7 +86,7 @@ openssl rand -base64 32 | $W secret put AUTH_SECRET
 openssl rand -base64 32 | $W secret put SECRETS_KEK
 
 # Record what was created so destroy-cf.sh can find it.
-{ echo "SLUG=$SLUG"; echo "DB_NAME=$DB_NAME"; echo "DB_ID=$DB_ID"; echo "BUCKET=$BUCKET"; } > "$META"
+{ echo "SLUG=$SLUG"; echo "DB_NAME=$DB_NAME"; echo "DB_ID=$DB_ID"; echo "BUCKET=$BUCKET"; echo "FILES_BUCKET=$FILES_BUCKET"; } > "$META"
 
 cat <<EOF
 

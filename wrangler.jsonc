@@ -80,6 +80,11 @@
 		{
 			"binding": "BUCKET",
 			"bucket_name": "minshop-images"
+		},
+		{
+			"binding": "FILES",
+			// Private deliverables: never enable r2.dev or attach a custom domain.
+			"bucket_name": "minshop-files"
 		}
 	],
 	// Optional integrations — uncomment + redeploy to enable (see README → Search,

@@ -26,8 +26,8 @@ import {
 import {
   reserveInventory,
   releaseInventoryReservation,
-  type ReservationItem,
 } from '../features/orders/reservations';
+import { reservationItems } from '../features/orders/reservationItems.ts';
 import { purgeStockProductCache } from '../features/cache/purge';
 
 const cfg = getConfig();
@@ -255,13 +255,7 @@ if (submitted) {
           // settled order, and the access token is the only thing guest URLs
           // carry. Reservations keep using the ord_ public id.
           const { publicId, accessToken } = await claimOrderIdentity(env.DB);
-          const reservedItems: ReservationItem[] = lines.map((line) => ({
-            productId: line.product.id,
-            variantId: line.variantId,
-            name: line.name,
-            priceCents: line.unitPriceCents,
-            quantity: line.qty,
-          }));
+          const reservedItems = reservationItems(lines);
           const reservationTtl =
             rail === 'demo'
               ? DEMO_CHECKOUT_TTL_SECONDS
