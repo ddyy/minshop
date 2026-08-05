@@ -21,7 +21,6 @@ const input = (overrides: Partial<ShellInput> = {}): ShellInput => ({
   searchQuery: '',
   cartEnabled: true,
   accountsEnabled: false,
-  blogEnabled: false,
   ...overrides,
 });
 
@@ -183,28 +182,19 @@ describe('the store-owned header', () => {
     expect(on).toContain('href="/account"');
   });
 
-  it('renders the blog destination when the feature is built in', async () => {
-    const off = await render(Header, buildShellModel(input({ blogEnabled: false })));
-    const on = await render(Header, buildShellModel(input({ blogEnabled: true })));
-
-    expect(off).not.toContain('href="/blog"');
-    expect(on).toContain('href="/blog"');
-  });
-
   it('keeps every destination reachable with all of them enabled at once', async () => {
     const html = await render(
       Header,
       buildShellModel(
         input({
           accountsEnabled: true,
-          blogEnabled: true,
           cartEnabled: true,
           headerItems: [menuItem('About', '/pages/about')],
         }),
       ),
     );
 
-    for (const href of ['/account', '/blog', '/cart', '/pages/about']) {
+    for (const href of ['/account', '/cart', '/pages/about']) {
       expect(html).toContain(`href="${href}"`);
     }
     // Search is REACHABLE, not necessarily a link. The default hides its input
@@ -255,14 +245,15 @@ describe('an independently authored shell', () => {
         announcement: 'Free shipping',
         headerItems: [menuItem('About', '/pages/about')],
         accountsEnabled: true,
-        blogEnabled: true,
       }),
     );
     const html = await render(AltHeader, model);
 
     expect(html).toContain('alt-shell');
     expect(html).toContain('Free shipping');
-    expect(html).toContain('Journal');
+    // Same model field, different structure: this shell gives account its own
+    // element and class rather than the default's inline nav link.
+    expect(html).toContain('alt-shell__account');
     // Behavior-bearing hooks survive a completely different composition,
     // because they live in the controls rather than in the template.
     expect(html).toContain('data-cart-open');

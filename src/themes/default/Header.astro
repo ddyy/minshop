@@ -71,7 +71,6 @@ const { model } = Astro.props;
       class="ml-auto flex min-w-0 items-center gap-4 text-xs uppercase tracking-widest text-muted sm:gap-6"
     >
       <StoreNav links={model.headerLinks} />
-      {model.blog.enabled && <a href={model.blog.href} class="hover:text-brand">Blog</a>}
       {/* Search input is desktop-only; give mobile a link to the search page. */}
       <a href={model.search.action} class="hover:text-brand sm:hidden">Search</a>
       {model.cart.enabled && <StoreCartControl href={model.cart.href} />}

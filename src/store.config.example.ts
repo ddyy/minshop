@@ -12,7 +12,7 @@ import type { DeepPartial, SiteConfig } from './config';
 export const storeOverrides: DeepPartial<SiteConfig> = {
   // currency: 'usd',                // ISO 4217, lowercase
   //
-  // features: { blog: false, reviews: false },
+  // features: { accounts: false },  // magic-link customer login
   //
   // images: { maxWidth: 1000 },      // optimization on/off lives in Admin
   //

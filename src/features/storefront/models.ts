@@ -79,9 +79,6 @@ export interface StorefrontShellModel {
   search: { action: string; query: string };
   cart: { enabled: boolean; href: string };
   account: { enabled: boolean; href: string };
-  /** Build-time feature, not a merchant setting — but it renders in the same
-   *  navigation row, so the template needs to know. */
-  blog: { enabled: boolean; href: string };
 }
 
 /** One sort control. `current` marks the field the list is ordered by; clicking

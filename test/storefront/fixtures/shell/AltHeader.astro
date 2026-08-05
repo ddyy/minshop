@@ -43,7 +43,6 @@ const { model } = Astro.props;
   <div class="alt-shell__row">
     <nav aria-label="Primary" class="alt-shell__nav">
       <StoreNav links={model.headerLinks} />
-      {model.blog.enabled && <a href={model.blog.href}>Journal</a>}
     </nav>
     <StoreSearch action={model.search.action} query={model.search.query} class="alt-shell__search" />
   </div>

@@ -28,7 +28,6 @@ export interface ShellInput {
   searchQuery: string;
   cartEnabled: boolean;
   accountsEnabled: boolean;
-  blogEnabled: boolean;
 }
 
 const toLink = (item: MenuItem): StorefrontLink => ({ text: item.text, href: item.href });
@@ -54,6 +53,5 @@ export function buildShellModel(input: ShellInput): StorefrontShellModel {
     search: { action: '/search', query: input.searchQuery },
     cart: { enabled: input.cartEnabled, href: '/cart' },
     account: { enabled: input.accountsEnabled, href: '/account' },
-    blog: { enabled: input.blogEnabled, href: '/blog' },
   };
 }

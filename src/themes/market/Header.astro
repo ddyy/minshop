@@ -67,7 +67,6 @@ const link = 'text-xs font-semibold text-[color:var(--market-muted)] hover:text-
         class="hidden min-w-0 items-center gap-4 lg:flex"
         disclosureClass="relative order-last lg:hidden"
       />
-      {model.blog.enabled && <a href={model.blog.href} class={link}>Blog</a>}
       {model.account.enabled && <StoreAccountControl href={model.account.href} class={link} />}
       {
         model.cart.enabled && (
