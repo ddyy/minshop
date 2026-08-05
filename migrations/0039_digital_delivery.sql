@@ -33,15 +33,27 @@ CREATE INDEX IF NOT EXISTS idx_order_item_ids_order
 -- Keep the durable registry and row assignment in the same SQLite statement.
 -- Runtime reservation code may claim first; INSERT OR IGNORE makes that path
 -- idempotent while the owner check rejects a cross-order collision.
+--
+-- The guard uses `SELECT RAISE(ABORT, …) WHERE EXISTS (…)` rather than a
+-- CASE expression, and no comment appears between BEGIN and the body's close:
+-- `wrangler d1 migrations apply --remote` splits the file itself and locates a
+-- trigger's close by scanning for that keyword followed by a semicolon. Any
+-- earlier occurrence inside the body — a CASE's own close, or even a comment
+-- that mentions one — truncates the trigger, and D1 rejects the remainder with
+-- "incomplete input: SQLITE_ERROR". Local apply and `d1 execute --remote
+-- --file` both parse it correctly, so this only ever fails against a real
+-- remote database. Reproduced on wrangler 4.115.0 and 4.118.0; pinned by
+-- test/scripts/migrations-remote-safe.test.mjs.
 CREATE TRIGGER IF NOT EXISTS trg_order_item_public_id_insert
 BEFORE INSERT ON order_items
 WHEN NEW.public_id IS NOT NULL
 BEGIN
-  SELECT CASE WHEN EXISTS (
-    SELECT 1 FROM order_item_ids i
-    JOIN orders o ON o.id = NEW.order_id
-    WHERE i.public_id = NEW.public_id AND i.order_public_id <> o.public_id
-  ) THEN RAISE(ABORT, 'order item public ID belongs to another order') END;
+  SELECT RAISE(ABORT, 'order item public ID belongs to another order')
+   WHERE EXISTS (
+     SELECT 1 FROM order_item_ids i
+     JOIN orders o ON o.id = NEW.order_id
+     WHERE i.public_id = NEW.public_id AND i.order_public_id <> o.public_id
+   );
   INSERT OR IGNORE INTO order_item_ids (public_id, order_public_id)
     SELECT NEW.public_id, public_id FROM orders WHERE id = NEW.order_id;
 END;
@@ -50,11 +62,12 @@ CREATE TRIGGER IF NOT EXISTS trg_order_item_public_id_update
 BEFORE UPDATE OF public_id ON order_items
 WHEN NEW.public_id IS NOT NULL
 BEGIN
-  SELECT CASE WHEN EXISTS (
-    SELECT 1 FROM order_item_ids i
-    JOIN orders o ON o.id = NEW.order_id
-    WHERE i.public_id = NEW.public_id AND i.order_public_id <> o.public_id
-  ) THEN RAISE(ABORT, 'order item public ID belongs to another order') END;
+  SELECT RAISE(ABORT, 'order item public ID belongs to another order')
+   WHERE EXISTS (
+     SELECT 1 FROM order_item_ids i
+     JOIN orders o ON o.id = NEW.order_id
+     WHERE i.public_id = NEW.public_id AND i.order_public_id <> o.public_id
+   );
   INSERT OR IGNORE INTO order_item_ids (public_id, order_public_id)
     SELECT NEW.public_id, public_id FROM orders WHERE id = NEW.order_id;
 END;
