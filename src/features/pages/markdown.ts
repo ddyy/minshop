@@ -1,5 +1,5 @@
 import MarkdownIt from 'markdown-it';
-import type Token from 'markdown-it/lib/token.mjs';
+import type { MarkdownIt as MarkdownItInstance, Token } from 'markdown-it';
 import { mediaUrl } from '../media/url.ts';
 
 /**
@@ -85,13 +85,14 @@ export interface RenderOptions {
  * of stored content.
  */
 function installImageRule(
-  instance: MarkdownIt,
+  instance: MarkdownItInstance,
   baseUrl: string,
   dimensions?: RenderOptions['dimensions'],
 ): void {
   instance.renderer.rules.image = (tokens, idx, options, _env, self) => {
     const token = tokens[idx];
-    const src = token.attrGet('src') ?? '';
+    // attrGet is typed string | number since markdown-it 15; src is always a string.
+    const src = String(token.attrGet('src') ?? '');
     const key = localKeyFromSrc(src, baseUrl);
     if (key) token.attrSet('src', mediaUrl(key, baseUrl));
     // markdown-it's DEFAULT image rule fills `alt` from the token's inline
@@ -185,7 +186,7 @@ export function extractMediaKeys(markdown: string, options: RenderOptions = {}):
   const walk = (tokens: ReturnType<typeof md.parse>) => {
     for (const token of tokens) {
       if (token.type === 'image') {
-        const key = localKeyFromSrc(token.attrGet('src') ?? '', baseUrl);
+        const key = localKeyFromSrc(String(token.attrGet('src') ?? ''), baseUrl);
         if (key) keys.add(key);
       }
       if (token.children?.length) walk(token.children);
