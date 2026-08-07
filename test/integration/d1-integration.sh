@@ -213,18 +213,25 @@ assert_cache_control() {
   local method="${3:-GET}"
   local headers="$state_dir/cache-headers.txt"
 
+  local status
   if [[ "$method" == "HEAD" ]]; then
-    curl --max-time 30 --silent --head --output /dev/null --dump-header "$headers" \
-      "http://127.0.0.1:$test_port$path"
+    status="$(curl --max-time 30 --silent --head --output /dev/null --dump-header "$headers" \
+      --write-out '%{http_code}' \
+      "http://127.0.0.1:$test_port$path")"
   else
-    curl --max-time 30 --silent --output /dev/null --dump-header "$headers" \
-      "http://127.0.0.1:$test_port$path"
+    status="$(curl --max-time 30 --silent --output /dev/null --dump-header "$headers" \
+      --write-out '%{http_code}' \
+      "http://127.0.0.1:$test_port$path")"
   fi
 
   local actual
   actual="$(tr -d '\r' <"$headers" | awk 'tolower($0) ~ /^cache-control:/ { sub(/^[^:]+:[[:space:]]*/, ""); print; exit }')"
   if [[ "$actual" != "$expected" ]]; then
-    echo "D1 integration failed: $method $path cache-control was '$actual' (expected '$expected')" >&2
+    echo "D1 integration failed: $method $path cache-control was '$actual' (expected '$expected'; HTTP status $status)" >&2
+    echo "--- response headers ---" >&2
+    tr -d '\r' <"$headers" >&2
+    echo "--- last 80 lines of wrangler dev log ---" >&2
+    tail -n 80 "$worker_log" >&2
     exit 1
   fi
 }
