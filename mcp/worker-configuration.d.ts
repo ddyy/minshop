@@ -5,6 +5,7 @@ interface __BaseEnv_Env {
 	DB: D1Database;
 	MCP_TOKEN: string;
 	STOREFRONT_URL: string;
+	MCP_RATE_LIMITER?: import("@cloudflare/workers-types").RateLimit;
 	STORE_MCP: DurableObjectNamespace<import("./src/index").StoreMcp>;
 }
 declare namespace Cloudflare {

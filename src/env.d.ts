@@ -69,6 +69,8 @@ declare namespace Cloudflare {
     // Absolute base URL for product images (e.g. an R2 custom domain) so they
     // bypass the Worker's /images route. Absent = serve via /images.
     IMAGE_BASE_URL?: string;
+    /** This store's MCP endpoint, advertised in llms.txt. Unset = not advertised. */
+    MCP_URL?: string;
     // Stable HTTPS origin for absolute URLs embedded in public cached responses.
     // Set when a custom domain is the sole ingress; fresh workers.dev instances
     // omit it and use their request origin until a custom domain is attached.

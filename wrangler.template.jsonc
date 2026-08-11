@@ -69,5 +69,11 @@
     // route and unlocks on-demand delivery in Admin); connect a public custom
     // domain to the bucket first. See README.
     // "IMAGE_BASE_URL": "https://images.example.com"
+    //
+    // This store's MCP endpoint, if you deployed the optional mcp/ Worker.
+    // llms.txt advertises it to agents only when set — leave it unset and
+    // nothing is advertised, rather than pointing at an endpoint that is not
+    // there. See README → MCP server.
+    // "MCP_URL": "https://your-mcp-host/mcp"
   }
 }

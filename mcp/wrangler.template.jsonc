@@ -19,6 +19,18 @@
   "observability": { "enabled": true },
   // Buyer tools proxy the storefront's public JSON API; point this at the store.
   "vars": { "STOREFRONT_URL": "https://__NAME__.workers.dev" },
+  // The buyer tier is unauthenticated, and this Worker is the only place the
+  // real client IP is visible (buyer tools proxy the storefront server-side).
+  "unsafe": {
+    "bindings": [
+      {
+        "name": "MCP_RATE_LIMITER",
+        "type": "ratelimit",
+        "namespace_id": "2001",
+        "simple": { "limit": 30, "period": 60 }
+      }
+    ]
+  },
   // McpAgent is Durable-Object-backed (holds the MCP session).
   "durable_objects": {
     "bindings": [{ "name": "STORE_MCP", "class_name": "StoreMcp" }]

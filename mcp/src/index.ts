@@ -535,6 +535,28 @@ export default {
         operator = true;
       }
 
+      // Throttle the buyer tier. This Worker is the ONLY component that sees the
+      // real client: buyer tools proxy the storefront over public HTTPS without
+      // forwarding cf-connecting-ip, so the storefront's per-IP limiter collapses
+      // every MCP buyer into one bucket — which both fails to throttle any single
+      // caller and lets one of them 429 all the others. Limit here, where the
+      // address is real. Operator sessions hold a secret and are not throttled.
+      if (!operator && env.MCP_RATE_LIMITER) {
+        const client = request.headers.get('cf-connecting-ip')?.trim() || 'unknown-client';
+        try {
+          const { success } = await env.MCP_RATE_LIMITER.limit({ key: `mcp:${client}` });
+          if (!success) {
+            return new Response('Too many requests. Try again shortly.', {
+              status: 429,
+              headers: { 'retry-after': '60', 'cache-control': 'no-store' },
+            });
+          }
+        } catch {
+          // A limiter outage must not take the store offline; the storefront's
+          // own checkout limiter is still downstream of every buyer purchase.
+        }
+      }
+
       // The SDK reads session props off the ExecutionContext (the same channel the
       // Workers OAuth Provider uses). Cloudflare's types declare `props` readonly,
       // so assign through Object.assign rather than casting the readonly away.

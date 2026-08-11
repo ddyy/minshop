@@ -609,6 +609,10 @@ The tier is fixed when the session opens and carried into the Durable Object as 
 
 **Why buyer tools proxy the public JSON API** rather than querying D1: checkout needs reservations, provider adapters, and the secret vault, none of which this Worker has. Routing every buyer tool through the public API also bounds the tier by construction — it can only reach public URLs, so it cannot expose admin data even by mistake. Set `STOREFRONT_URL` to the storefront's origin.
 
+**Rate limiting lives here, not downstream.** The buyer tier is unauthenticated, and this Worker is the only component that sees the real caller — buyer tools reach the storefront over public HTTPS without forwarding `cf-connecting-ip`, so the storefront's per-IP limiter would collapse every MCP buyer into a single bucket: no per-caller throttle, and one busy client 429ing all the others. The `MCP_RATE_LIMITER` binding (30 requests/60s by default) keys on the address this Worker actually sees. Operator sessions hold a secret and are not throttled.
+
+**Discovery:** set `MCP_URL` on the *storefront* to this endpoint and it is advertised in `llms.txt`, so an agent that finds the store also finds the MCP server. Unset, nothing is advertised — the storefront cannot derive a separate Worker's hostname, and many instances never deploy one.
+
 **Identifiers are prefixed public IDs** (server version 2.0.0, a breaking change from 1.x): every tool takes and returns public IDs, never database row IDs. `get_product`/`update_product` take a `prod_…` ID (a slug also works as a convenience); `get_order`/`fulfill_order` take an `ord_…` ID (legacy hex/UUID order public IDs are still accepted). Numeric IDs are rejected with a clear error. Results are projected DTOs: `id` is the public ID (refunds keep their preserved legacy UUIDs), orders carry a customer-facing `reference` (the token part of `ord_<token>`), and `create_product`/`update_product` return `{ id, slug }`.
 
 The two list tools accept `limit` and `offset` and return the page alongside `total`, `limit`, and `offset`, so clients can walk large catalogs and order histories without one oversized response.

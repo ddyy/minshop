@@ -47,6 +47,16 @@ export const GET: APIRoute = async ({ url }) => {
   // context an agent needs that the catalog itself doesn't carry.
   const pageLines = pages.map((p) => `- [${linkText(p.title)}](${origin}/pages/${p.slug})`);
 
+  // Optional: this store's MCP endpoint, when one is deployed. The MCP server is
+  // a SEPARATE Worker whose hostname the storefront cannot derive — they share a
+  // database, not a config — and many instances never deploy it. So it is
+  // advertised only when MCP_URL is set; unset means llms.txt says nothing,
+  // rather than pointing agents at an endpoint that does not exist.
+  const mcpUrl = (env.MCP_URL ?? '').trim();
+  const mcpLine = mcpUrl
+    ? `\n- [Model Context Protocol endpoint](${mcpUrl}): streamable HTTP. Browse and purchase need no credentials — \`browse_products\`, \`get_product_details\`, \`payment_methods\`, \`create_checkout\`, \`check_order_status\`. Same checkout as the JSON endpoints above.`
+    : '';
+
   const body = `# ${storeName}
 
 > ${storeName} is an online store you can browse and purchase from programmatically. All prices are in ${currency.toUpperCase()}. This file follows the llms.txt convention (https://llmstxt.org). Catalog and category links are live; an agent can complete a purchase via the JSON checkout endpoint under "For agents".
@@ -62,7 +72,7 @@ ${pageLines.length > 0 ? `\n## Pages\n${pageLines.join('\n')}\n` : ''}
 - [Browse the catalog as JSON](${origin}/api/products): \`GET\` (\`?q=\`, \`?limit=\`, \`?offset=\`) → products with prefixed public IDs (\`id: "prod_…"\`; the detail route \`/api/products/<slug>\` adds variants \`var_…\` and extras \`xtra_…\`).
 - [Create a checkout](${origin}/api/checkout): \`POST\` with \`Content-Type: application/json\`, body \`{ "items": [{ "product_id": "prod_…", "quantity": number, "variant_id"?: "var_…", "extra_ids"?: ["xtra_…"] }], "method"?: string }\` → \`{ "checkout_url": string, "order_status_url": string }\`. IDs are the catalog's prefixed public IDs; \`slug\` is accepted in place of \`product_id\` as a convenience. Numeric IDs are rejected with 400. Pricing and stock are resolved server-side; CORS is open for browser-based callers. Poll \`order_status_url\` for \`confirming | expired | paid | refunded\`; a paid item may include a token-protected \`download_url\`. After submitting payment, keep polling through \`expired\` until \`paid\` or HTTP 410 because verified settlement can arrive late.
 - [Search the catalog](${origin}/search?q=): append a query, e.g. \`/search?q=leather\`. Keyword + semantic matching.
-- [Sitemap](${origin}/sitemap.xml): every product, category, and page URL.
+- [Sitemap](${origin}/sitemap.xml): every product, category, and page URL.${mcpLine}
 `;
 
   return new Response(body, {

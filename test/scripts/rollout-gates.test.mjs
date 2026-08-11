@@ -149,3 +149,27 @@ describe('digital-delivery rollout gates', () => {
     expect(countOf(source(path), needle)).toBe(expected);
   });
 });
+
+/**
+ * llms.txt advertises the MCP endpoint only when MCP_URL is set. The MCP server
+ * is a separate, optional Worker whose hostname the storefront cannot derive, so
+ * a default would point agents at something that does not exist.
+ */
+describe('optional MCP advertisement', () => {
+  const llms = source('src/pages/llms.txt.ts');
+
+  it('renders the MCP line only from a configured MCP_URL', () => {
+    expect(llms).toMatch(/const mcpUrl = \(env\.MCP_URL \?\? ''\)\.trim\(\)/);
+    // Falsy MCP_URL must contribute the empty string, never a placeholder host.
+    expect(llms).toMatch(/: '';/);
+    expect(llms).not.toMatch(/mcp\.example\.com|your-mcp-host['"`]/);
+  });
+
+  it('gates the buyer tier behind a rate limiter keyed on the real client', () => {
+    const mcp = source('mcp/src/index.ts');
+    // Only this Worker sees the buyer's address; the storefront sees ours.
+    expect(mcp).toMatch(/if \(!operator && env\.MCP_RATE_LIMITER\)/);
+    expect(mcp).toMatch(/cf-connecting-ip/);
+    expect(mcp).toMatch(/key: `mcp:\$\{client\}`/);
+  });
+});
