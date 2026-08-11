@@ -218,22 +218,42 @@ assert_cache_control() {
   local headers="$state_dir/cache-headers.txt"
   local body="$state_dir/cache-body.txt"
 
-  local status
-  if [[ "$method" == "HEAD" ]]; then
-    status="$(curl --max-time 30 --silent --head --output /dev/null --dump-header "$headers" \
-      --write-out '%{http_code}' \
-      "http://127.0.0.1:$test_port$path")"
-    : >"$body"
-  else
-    status="$(curl --max-time 30 --silent --output "$body" --dump-header "$headers" \
-      --write-out '%{http_code}' \
-      "http://127.0.0.1:$test_port$path")"
+  # `wrangler dev` occasionally drops a connection under CI load ("Error: Network
+  # connection lost."), which curl reports as a TRANSPORT failure — no response at
+  # all. Retry only that. A completed exchange is never retried, however bad its
+  # status: retrying a genuine 500 would turn a real regression into a flake in
+  # the other direction, which is the more expensive mistake.
+  local status curl_rc attempt
+  for attempt in 1 2 3; do
+    if [[ "$method" == "HEAD" ]]; then
+      status="$(curl --max-time 30 --silent --head --output /dev/null --dump-header "$headers" \
+        --write-out '%{http_code}' \
+        "http://127.0.0.1:$test_port$path")" && curl_rc=0 || curl_rc=$?
+      : >"$body"
+    else
+      status="$(curl --max-time 30 --silent --output "$body" --dump-header "$headers" \
+        --write-out '%{http_code}' \
+        "http://127.0.0.1:$test_port$path")" && curl_rc=0 || curl_rc=$?
+    fi
+    [[ "$curl_rc" == 0 ]] && break
+    if (( attempt < 3 )); then
+      echo "  (retrying $method $path — curl exit $curl_rc, no response)" >&2
+      sleep 1
+    fi
+  done
+
+  if [[ "$curl_rc" != 0 ]]; then
+    echo "D1 integration failed: $method $path — no response after 3 attempts (curl exit $curl_rc)." >&2
+    echo "  A transport failure, not an HTTP status. See the wrangler log below." >&2
+    echo "--- last 80 lines of wrangler dev log ---" >&2
+    tail -n 80 "$worker_log" >&2
+    exit 1
   fi
 
   local actual
   actual="$(tr -d '\r' <"$headers" | awk 'tolower($0) ~ /^cache-control:/ { sub(/^[^:]+:[[:space:]]*/, ""); print; exit }')"
   if [[ "$actual" != "$expected" ]]; then
-    echo "D1 integration failed: $method $path cache-control was '$actual' (expected '$expected'; HTTP status $status)" >&2
+    echo "D1 integration failed: $method $path cache-control was '$actual' (expected '$expected'; HTTP status $status, curl exit $curl_rc)" >&2
     echo "--- response headers ---" >&2
     tr -d '\r' <"$headers" >&2
     echo "--- response body (first 500 bytes) ---" >&2
