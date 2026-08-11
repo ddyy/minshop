@@ -17,6 +17,8 @@
   "compatibility_date": "2026-07-20",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
+  // Buyer tools proxy the storefront's public JSON API; point this at the store.
+  "vars": { "STOREFRONT_URL": "https://__NAME__.workers.dev" },
   // McpAgent is Durable-Object-backed (holds the MCP session).
   "durable_objects": {
     "bindings": [{ "name": "STORE_MCP", "class_name": "StoreMcp" }]

@@ -4,6 +4,7 @@
 interface __BaseEnv_Env {
 	DB: D1Database;
 	MCP_TOKEN: string;
+	STOREFRONT_URL: string;
 	STORE_MCP: DurableObjectNamespace<import("./src/index").StoreMcp>;
 }
 declare namespace Cloudflare {

@@ -183,12 +183,130 @@ const NUMERIC_ORDER_ERROR =
  * Version 2.0.0: breaking identifier change — all tools take and return
  * prefixed public IDs (prod_/ord_/rfnd_…); numeric row IDs are rejected.
  */
-export class StoreMcp extends McpAgent<Env, Record<string, never>, Record<string, never>> {
+/**
+ * Which tool tier a session was opened in. Decided once by the fetch handler
+ * and carried into the Durable Object as props, so it cannot change mid-session:
+ * a buyer session stays a buyer session for its lifetime.
+ */
+export interface SessionProps extends Record<string, unknown> {
+  operator: boolean;
+}
+
+export class StoreMcp extends McpAgent<Env, Record<string, never>, SessionProps> {
   server = new McpServer({ name: 'minshop', version: '2.0.0' });
   initialState = {};
 
+  /**
+   * Buyer tools proxy the storefront's PUBLIC JSON API rather than querying D1.
+   * That is deliberate: checkout needs reservations, provider adapters, and the
+   * secret vault, none of which this Worker has — and routing every buyer tool
+   * through the public API bounds the tier's blast radius by construction. A
+   * buyer tool cannot leak admin data because it can only reach public URLs.
+   */
+  private async storefront(path: string, init?: RequestInit): Promise<unknown> {
+    const base = this.env.STOREFRONT_URL?.replace(/\/+$/, '');
+    if (!base) throw new Error('STOREFRONT_URL is not configured for this Worker.');
+    const response = await fetch(`${base}${path}`, init);
+    const text = await response.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { error: `Storefront returned ${response.status}`, body: text.slice(0, 500) };
+    }
+  }
+
   async init() {
     const db = this.env.DB;
+
+    // --- buyer tier: always registered, no token required ---
+    this.server.registerTool(
+      'browse_products',
+      {
+        description:
+          'Search or list products a shopper can buy. Active, in-stock-aware public ' +
+          'catalog with prod_… public IDs, prices, and absolute URLs.',
+        inputSchema: {
+          q: z.string().optional().describe('Search query; omit to list'),
+          limit: z.number().int().min(1).max(100).optional(),
+          offset: z.number().int().min(0).optional(),
+        },
+      },
+      async ({ q, limit, offset }) => {
+        const params = new URLSearchParams();
+        if (q) params.set('q', q);
+        if (limit != null) params.set('limit', String(limit));
+        if (offset != null) params.set('offset', String(offset));
+        const qs = params.toString();
+        return result(await this.storefront(`/api/products${qs ? `?${qs}` : ''}`));
+      },
+    );
+
+    this.server.registerTool(
+      'get_product_details',
+      {
+        description: 'Full public detail for one product, by its storefront slug.',
+        inputSchema: { slug: z.string().min(1).describe('Product slug from browse_products') },
+      },
+      async ({ slug }) =>
+        result(await this.storefront(`/api/products/${encodeURIComponent(slug)}`)),
+    );
+
+    this.server.registerTool(
+      'payment_methods',
+      {
+        description: 'Which payment rails this store accepts, and its default.',
+        inputSchema: {},
+      },
+      async () => result(await this.storefront('/api/checkout')),
+    );
+
+    this.server.registerTool(
+      'create_checkout',
+      {
+        description:
+          'Start a purchase. Returns checkout_url, order_status_url, and — on the ' +
+          'lightning rail — a payable BOLT11 invoice an agent can settle with no human. ' +
+          'Poll order_status_url until it reports paid.',
+        inputSchema: {
+          items: z
+            .array(
+              z.object({
+                product_id: z.string().optional().describe('prod_… public ID'),
+                slug: z.string().optional(),
+                variant_id: z.string().optional().describe('var_… public ID'),
+                quantity: z.number().int().min(1).default(1),
+              }),
+            )
+            .min(1),
+          method: z.string().optional().describe('One of payment_methods; omit for the default'),
+          discount_code: z.string().optional(),
+          ship_to: z.record(z.string(), z.string()).optional().describe('Required for physical goods'),
+        },
+      },
+      async (args) =>
+        result(
+          await this.storefront('/api/checkout', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(args),
+          }),
+        ),
+    );
+
+    this.server.registerTool(
+      'check_order_status',
+      {
+        description:
+          'Poll a checkout using the order_status_url token from create_checkout. ' +
+          'Reports confirming/paid/refunded and any download URLs for digital goods.',
+        inputSchema: { token: z.string().min(1).describe('The otk_… token from order_status_url') },
+      },
+      async ({ token }) =>
+        result(await this.storefront(`/order/${encodeURIComponent(token)}/status`)),
+    );
+
+    // --- operator tier: only when a valid MCP_TOKEN was presented ---
+    if (!this.props?.operator) return;
 
     // --- reads ---
     this.server.registerTool(
@@ -393,20 +511,41 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname.startsWith('/mcp')) {
-      // Bearer-token gate. Fail-closed: no token configured → no access.
-      const expected = env.MCP_TOKEN;
-      if (!expected) {
-        return new Response('MCP not configured: set the MCP_TOKEN secret.', { status: 503 });
+      // Two tiers, decided here and carried into the session as props.
+      //
+      // No Authorization header  -> buyer tier: browse + checkout, public data only.
+      // Valid Bearer MCP_TOKEN   -> operator tier: adds order/revenue reads and writes.
+      // Invalid Bearer           -> 401, NOT a silent downgrade. A client that meant
+      //                             to authenticate must not quietly get fewer tools
+      //                             and discover it as "tool not found" three calls later.
+      //
+      // MCP_TOKEN unset means the operator tier is unavailable — the store can still
+      // sell to agents. That is a deliberate change from failing the whole server
+      // closed: the buyer tier exposes nothing the public JSON API does not.
+      const auth = request.headers.get('Authorization');
+      let operator = false;
+      if (auth) {
+        const expected = env.MCP_TOKEN;
+        if (!expected) {
+          return new Response('Operator tools unavailable: MCP_TOKEN is not set.', { status: 503 });
+        }
+        if (!(await secureEqual(auth, `Bearer ${expected}`))) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+        operator = true;
       }
-      const auth = request.headers.get('Authorization') ?? '';
-      if (!(await secureEqual(auth, `Bearer ${expected}`))) {
-        return new Response('Unauthorized', { status: 401 });
-      }
+
+      // The SDK reads session props off the ExecutionContext (the same channel the
+      // Workers OAuth Provider uses). Cloudflare's types declare `props` readonly,
+      // so assign through Object.assign rather than casting the readonly away.
+      Object.assign(ctx, { props: { operator } satisfies SessionProps });
       return StoreMcp.serve('/mcp', { binding: 'STORE_MCP' }).fetch(request, env, ctx);
     }
 
-    return new Response('minshop MCP server — POST /mcp (streamable HTTP, bearer auth).', {
-      status: 404,
-    });
+    return new Response(
+      'minshop MCP server — POST /mcp (streamable HTTP). Browse and checkout need no ' +
+        'auth; operator tools need Authorization: Bearer <MCP_TOKEN>.',
+      { status: 404 },
+    );
   },
 } satisfies ExportedHandler<Env>;

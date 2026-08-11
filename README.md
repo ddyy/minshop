@@ -5,7 +5,7 @@
 [![npm downloads](https://img.shields.io/npm/dm/create-minshop)](https://www.npmjs.com/package/create-minshop)
 [![License: MIT](https://img.shields.io/github/license/ddyy/minshop)](LICENSE)
 
-An open-source store an agent can pay for itself. Agents read the catalog and pay a Lightning invoice with no human in the loop; people check out the normal way with Stripe. Merchants can run it over MCP too.
+An open-source store an agent can pay for itself. Agents read the catalog and pay a Lightning invoice with no human in the loop — over plain JSON or over MCP; people check out the normal way with Stripe. Merchants can run the store over MCP too.
 
 It's a small, server-rendered store for Cloudflare Workers (D1 + R2) with a full admin, multiple payment rails, and an optional MCP server, within the free tier to start. No brand is baked in: store name and time zone are set during onboarding, so it clones cleanly as a template.
 
@@ -76,7 +76,7 @@ A few decisions in here are worth reading even if you never deploy a store:
 - **Cache invalidation follows what shoppers can see.** Cached pages carry `shell`, `catalog`, and per-product tags. Admin writes purge only the affected tags, and stock changes purge a product only when it crosses In stock / Low stock / Sold out, not on every checkout reservation. The page shell stays shared even for cookied shoppers because the one personal detail, the cart count, loads from a small private fragment.
 - **Provider keys are write-only.** Stripe, Lightning, and email credentials are entered in Admin, encrypted under a KEK before they reach D1, and never displayed again. The Worker itself needs exactly two secrets.
 - **Refactors are gated by equivalence tests.** The Vitest suite (70 test files) renders `.astro` components through AstroContainer and includes contract tests plus rendering baselines, so template extractions have to prove they didn't change the output a customer sees.
-- **The same store serves people and agents.** Catalog and checkout are exposed as HTML, as JSON (`/api/products`, `/api/checkout`), and over MCP, so an agent can browse the catalog and settle a Lightning invoice with no human in the loop.
+- **The same store serves people and agents.** Catalog and checkout are exposed as HTML, as JSON (`/api/products`, `/api/checkout`), and over MCP — all three reach the same checkout, so an agent can browse the catalog and settle a Lightning invoice with no human in the loop.
 
 ## Stack
 
@@ -576,19 +576,44 @@ How it works: `/account/login` emails a single-use, 15-min link → `/account/ve
 
 In local dev the magic link is also logged to the server console, so you can test without email delivery.
 
-## MCP server (operate the store from an assistant)
+## MCP server (shop it, or operate it, from an assistant)
 
-`mcp/` is a **standalone Cloudflare Worker** that exposes store operations as MCP tools, so compatible MCP clients can run the store conversationally — "what was revenue this week?", "mark order h5tm8qp3vn shipped", "create a product". It binds the **same D1** as the storefront and **reuses `features/*/db.ts`** (no duplicated logic).
+`mcp/` is a **standalone Cloudflare Worker** exposing the store as MCP tools, in **two tiers decided by whether a token is presented**:
+
+| Tier | Auth | What it can do |
+|---|---|---|
+| **Buyer** | none | Browse the catalog and complete a purchase |
+| **Operator** | `Authorization: Bearer <MCP_TOKEN>` | The buyer tools, plus orders, revenue, and writes |
+
+**Connecting.** Both tiers are the same URL; the tier follows the header.
+
+```json
+{
+  "mcpServers": {
+    "shop":  { "url": "https://your-mcp-host/mcp" },
+    "store": { "url": "https://your-mcp-host/mcp",
+               "headers": { "Authorization": "Bearer <MCP_TOKEN>" } }
+  }
+}
+```
+
+The live demo is `https://demo-mcp.minshop.dev/mcp` — the buyer tier is open, so an MCP client can browse and buy from it with no configuration beyond that URL.
+
+**Buyer tools:** `browse_products`, `get_product_details`, `payment_methods`, `create_checkout`, `check_order_status`. `create_checkout` returns an `order_status_url` and, on the Lightning rail, a payable BOLT11 invoice — so an agent with a wallet can complete a purchase and poll for its downloads with no human in the loop.
+
+**Operator tools** (added by a valid token): `list_products`, `get_product`, `list_orders`, `get_order`, `order_stats`, `daily_totals` (reads) + `create_product`, `update_product`, `fulfill_order` (writes).
+
+The tier is fixed when the session opens and carried into the Durable Object as props, so a session cannot escalate mid-flight. Unregistered tools are not merely refused — they are absent from `tools/list` and unreachable by name.
 
 **Why a separate Worker** (own `mcp/package.json`, own `node_modules`): the Astro adapter owns the storefront Worker's entry, and the Agents SDK pulls in workerd/miniflare deps that perturb Astro's build if hoisted into the root tree. Keeping it a sibling Worker isolates both.
 
-**Tools:** `list_products`, `get_product`, `list_orders`, `get_order`, `order_stats`, `daily_totals` (reads) + `create_product`, `update_product`, `fulfill_order` (writes).
+**Why buyer tools proxy the public JSON API** rather than querying D1: checkout needs reservations, provider adapters, and the secret vault, none of which this Worker has. Routing every buyer tool through the public API also bounds the tier by construction — it can only reach public URLs, so it cannot expose admin data even by mistake. Set `STOREFRONT_URL` to the storefront's origin.
 
 **Identifiers are prefixed public IDs** (server version 2.0.0, a breaking change from 1.x): every tool takes and returns public IDs, never database row IDs. `get_product`/`update_product` take a `prod_…` ID (a slug also works as a convenience); `get_order`/`fulfill_order` take an `ord_…` ID (legacy hex/UUID order public IDs are still accepted). Numeric IDs are rejected with a clear error. Results are projected DTOs: `id` is the public ID (refunds keep their preserved legacy UUIDs), orders carry a customer-facing `reference` (the token part of `ord_<token>`), and `create_product`/`update_product` return `{ id, slug }`.
 
 The two list tools accept `limit` and `offset` and return the page alongside `total`, `limit`, and `offset`, so clients can walk large catalogs and order histories without one oversized response.
 
-**Auth:** a bearer token. Set `MCP_TOKEN`; clients send `Authorization: Bearer <token>`. Unset = the server returns 503 (fail-closed). (Cloudflare's Workers OAuth Provider is the upgrade for scoped/multi-user access.)
+**Auth:** a bearer token gates the *operator* tier only. Set `MCP_TOKEN`; operator clients send `Authorization: Bearer <token>`. An invalid token is a 401, never a silent downgrade to buyer tools. With `MCP_TOKEN` unset the operator tier is unavailable (503 if a header is presented) while the buyer tier keeps working — a store with no token can still sell to agents. (Cloudflare's Workers OAuth Provider is the upgrade for scoped/multi-user operator access.)
 
 ```sh
 cd mcp && npm install && cd ..
