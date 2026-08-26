@@ -1,5 +1,6 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import { withPublicId } from '../ids/publicId.ts';
+import { publicProductVisibilitySql } from '../auth/memberAccess';
 
 export interface Product {
   id: number;
@@ -18,6 +19,8 @@ export interface Product {
   /** 0 = digital/no fulfillment: excluded from shipment weight and from the
    *  missing-weight check, so a mixed cart can still check out. */
   requires_shipping: number;
+  /** 1 = requires a member session in selective access mode. */
+  members_only: number;
   file_key: string | null;
   file_name: string | null;
   file_mime: string | null;
@@ -38,6 +41,7 @@ export interface ProductFields {
   active: number;
   weight_grams: number | null;
   requires_shipping: number;
+  members_only: number;
 }
 
 /** Full input for create/update — form fields plus resolved image key + slug. */
@@ -52,10 +56,12 @@ export async function listProducts(
   limit: number,
   offset = 0,
   orderBy = 'created_at DESC',
+  opts: { publicOnly?: boolean } = {},
 ): Promise<Product[]> {
+  const visibility = opts.publicOnly ? ` AND ${publicProductVisibilitySql('products')}` : '';
   const { results } = await db
     .prepare(
-      `SELECT * FROM products WHERE active = 1 ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
+      `SELECT * FROM products WHERE active = 1${visibility} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
     )
     .bind(limit, offset)
     .all<Product>();
@@ -63,9 +69,13 @@ export async function listProducts(
 }
 
 /** Total active products (for pagination). */
-export async function countProducts(db: D1Database): Promise<number> {
+export async function countProducts(
+  db: D1Database,
+  opts: { publicOnly?: boolean } = {},
+): Promise<number> {
+  const visibility = opts.publicOnly ? ` AND ${publicProductVisibilitySql('products')}` : '';
   const row = await db
-    .prepare('SELECT COUNT(*) AS n FROM products WHERE active = 1')
+    .prepare(`SELECT COUNT(*) AS n FROM products WHERE active = 1${visibility}`)
     .first<{ n: number }>();
   return row?.n ?? 0;
 }
@@ -394,11 +404,11 @@ export async function createProduct(db: D1Database, p: ProductInput): Promise<nu
   return withPublicId('product', async (publicId) => {
     const row = await db
       .prepare(
-        `INSERT INTO products (name, slug, description, price_cents, currency, image_key, stock, active, weight_grams, requires_shipping, public_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO products (name, slug, description, price_cents, currency, image_key, stock, active, weight_grams, requires_shipping, members_only, public_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING id`,
       )
-      .bind(p.name, p.slug, p.description, p.price_cents, p.currency, p.image_key, p.stock, p.active, p.weight_grams, p.requires_shipping, publicId)
+      .bind(p.name, p.slug, p.description, p.price_cents, p.currency, p.image_key, p.stock, p.active, p.weight_grams, p.requires_shipping, p.members_only, publicId)
       .first<{ id: number }>();
     return row!.id;
   });
@@ -409,10 +419,10 @@ export async function updateProduct(db: D1Database, id: number, p: ProductInput)
     .prepare(
       `UPDATE products
          SET name = ?, slug = ?, description = ?, price_cents = ?, currency = ?, image_key = ?, stock = ?, active = ?,
-             weight_grams = ?, requires_shipping = ?
+             weight_grams = ?, requires_shipping = ?, members_only = ?
        WHERE id = ?`,
     )
-    .bind(p.name, p.slug, p.description, p.price_cents, p.currency, p.image_key, p.stock, p.active, p.weight_grams, p.requires_shipping, id)
+    .bind(p.name, p.slug, p.description, p.price_cents, p.currency, p.image_key, p.stock, p.active, p.weight_grams, p.requires_shipping, p.members_only, id)
     .run();
 }
 

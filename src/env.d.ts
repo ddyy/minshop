@@ -38,6 +38,8 @@ declare namespace App {
     /** Resolved header/footer navigation, batched with settings so uncached
      *  routes (/cart, /checkout, /account) pay no extra round trip. */
     menus?: import('./features/navigation/db').Menus;
+    /** Valid member_session cookie for the current request (access codes). */
+    memberAuthenticated?: boolean;
   }
 }
 

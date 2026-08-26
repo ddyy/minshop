@@ -57,6 +57,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     name: parsed.data.name,
     slug,
     parent_id: parentId,
+    members_only: parsed.data.members_only,
   });
   await purgeCacheTags([CACHE_TAG.catalog]);
   return redirect('/admin/categories', 303);

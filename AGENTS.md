@@ -196,6 +196,10 @@ To swap/add a provider, write one adapter file + wire the factory:
   `payments/index.ts`; add its key as a `SecretName` in `features/secrets/store.ts`
   (stored encrypted in D1 via the admin vault — provider keys are NOT env vars) and
   a `SecretField` in the settings Payments card.
+- **Member access:** Admin → Member access sets `member_access_mode` (`off` /
+  `store` / `selective`). Codes live in `member_access_codes` (plaintext in D1 for admin
+  reference; legacy rows may still use hashed `code_hash` only); product/
+  category `members_only` flags apply in selective mode. Sessions use `AUTH_SECRET`.
 - **A Lightning backend:** implement `LightningBackend` in
   `features/payments/lightning/<name>.ts`; add a case to `getLightningBackend()`.
 - **A shipping zone/rate:** edit `shipping.zones` in `config.ts` default (or

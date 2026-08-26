@@ -42,9 +42,12 @@ export function sitemapLocs(
 // URL-safe (a-z0-9-), so no XML escaping is needed.
 export const GET: APIRoute = async ({ url, locals }) => {
   const origin = publicOrigin(url.origin, env.CANONICAL_ORIGIN);
-  const total = await countProducts(env.DB);
-  const products = total > 0 ? await listProducts(env.DB, total, 0) : [];
-  const categories = await listCategories(env.DB);
+  const publicOnly = (locals.settings?.memberAccessMode ?? 'off') === 'selective';
+  const total = await countProducts(env.DB, { publicOnly });
+  const products = total > 0 ? await listProducts(env.DB, total, 0, 'created_at DESC', { publicOnly }) : [];
+  const categories = (await listCategories(env.DB)).filter(
+    (c) => !publicOnly || c.members_only !== 1,
+  );
   const pages = await listPublishedPages(env.DB);
 
   const locs = sitemapLocs(origin, locals.settings?.homePage, { categories, products, pages });

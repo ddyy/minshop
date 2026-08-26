@@ -204,6 +204,12 @@ const inputClass =
     Active (visible in storefront)
   </label>
 
+  <label class="flex items-center gap-2 text-sm">
+    <input name="members_only" type="checkbox" checked={product ? product.members_only === 1 : false} class="h-4 w-4" />
+    Members only
+    <span class="font-normal text-faint">(requires an access code when Member access is set to Selected)</span>
+  </label>
+
   <input type="hidden" name="currency" value={defaultCurrency} />
 
   <div class="flex gap-3 pt-2">

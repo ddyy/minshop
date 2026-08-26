@@ -1,0 +1,138 @@
+---
+import { env } from 'cloudflare:workers';
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { setSetting } from '../../features/settings/db';
+import type { MemberAccessMode } from '../../features/auth/memberAccess';
+
+interface CodeRow {
+  id: number;
+  code: string | null;
+  label: string;
+  enabled: number;
+  created_at: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+}
+
+let flash: string | null = null;
+let error: string | null = Astro.url.searchParams.get('error');
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const action = String(form.get('_action') ?? '');
+  if (action === 'save_mode') {
+    const mode = String(form.get('member_access_mode') ?? '') as MemberAccessMode;
+    if (mode !== 'off' && mode !== 'store' && mode !== 'selective') {
+      error = 'Choose a valid access mode.';
+    } else {
+      await setSetting(env.DB, 'member_access_mode', mode === 'off' ? null : mode);
+      return Astro.redirect('/admin/member-access?saved=mode', 303);
+    }
+  } else if (action === 'create') {
+    const label = String(form.get('label') ?? '').trim();
+    const code = String(form.get('code') ?? '').trim();
+    const expires = String(form.get('expires_at') ?? '').trim() || null;
+    if (!label || !code || code.length > 256) {
+      return Astro.redirect('/admin/member-access?error=Enter+a+label+and+access+code', 303);
+    }
+    await env.DB.prepare(
+      'INSERT INTO member_access_codes (code, code_hash, label, expires_at) VALUES (?, ?, ?, ?)',
+    )
+      .bind(code, '', label, expires)
+      .run();
+    return Astro.redirect('/admin/member-access?saved=code', 303);
+  } else if (action === 'toggle') {
+    const id = Number(form.get('id'));
+    if (Number.isInteger(id) && id > 0) {
+      await env.DB.prepare(
+        'UPDATE member_access_codes SET enabled = CASE enabled WHEN 1 THEN 0 ELSE 1 END WHERE id = ?',
+      )
+        .bind(id)
+        .run();
+    }
+    return Astro.redirect('/admin/member-access', 303);
+  }
+}
+
+const mode = Astro.locals.settings?.memberAccessMode ?? 'off';
+const { results } = await env.DB.prepare(
+  'SELECT id, code, label, enabled, created_at, expires_at, last_used_at FROM member_access_codes ORDER BY created_at DESC',
+).all<CodeRow>();
+const saved = Astro.url.searchParams.get('saved');
+if (saved === 'mode') flash = 'Access mode saved.';
+if (saved === 'code') flash = 'Access code created.';
+---
+
+<AdminLayout title="Member access" active="members">
+  <div class="mb-8">
+    <p class="text-xs uppercase tracking-[0.2em] text-gray-400">Storefront access</p>
+    <h1 class="mt-2 font-serif text-3xl tracking-tight">Member access</h1>
+    <p class="mt-2 max-w-2xl text-sm leading-6 text-gray-500">
+      Optional gate for members’ clubs and local groups. Off by default. Access codes are stored
+      in plaintext so you can copy them for members; treat this page like any other admin screen.
+      Disabling a code invalidates sessions issued from it. Sessions are signed with
+      <code>AUTH_SECRET</code>.
+    </p>
+  </div>
+
+  {error && <p role="alert" class="mb-5 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
+  {flash && <p class="mb-5 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">{flash}</p>}
+
+  <form method="post" class="mb-10 rounded-lg border border-line bg-white p-5">
+    <input type="hidden" name="_action" value="save_mode" />
+    <p class="text-sm font-medium">Access mode</p>
+    <div class="mt-3 space-y-3 text-sm">
+      <label class="flex gap-3">
+        <input type="radio" name="member_access_mode" value="off" checked={mode === 'off'} class="mt-1" />
+        <span><span class="font-medium">Off</span> — public storefront (default).</span>
+      </label>
+      <label class="flex gap-3">
+        <input type="radio" name="member_access_mode" value="store" checked={mode === 'store'} class="mt-1" />
+        <span><span class="font-medium">Entire store</span> — visitors must enter a code before browsing or buying.</span>
+      </label>
+      <label class="flex gap-3">
+        <input type="radio" name="member_access_mode" value="selective" checked={mode === 'selective'} class="mt-1" />
+        <span><span class="font-medium">Selected products &amp; categories</span> — public catalog; items marked Members only require a code.</span>
+      </label>
+    </div>
+    <button class="mt-5 rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-hover">Save mode</button>
+  </form>
+
+  <h2 class="mb-3 text-lg font-bold">Access codes</h2>
+  <form method="post" class="mb-10 grid gap-4 rounded-lg border border-line bg-white p-5 sm:grid-cols-2">
+    <input type="hidden" name="_action" value="create" />
+    <label class="text-sm font-medium">Label<input name="label" required placeholder="Club members" class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 font-normal" /></label>
+    <label class="text-sm font-medium">Expiry (optional)<input name="expires_at" type="datetime-local" class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 font-normal" /></label>
+    <label class="text-sm font-medium sm:col-span-2">New access code<input name="code" type="text" maxlength="256" required autocomplete="off" spellcheck="false" class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 font-mono font-normal" /></label>
+    <div class="sm:col-span-2"><button class="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-hover">Create code</button></div>
+  </form>
+
+  <div class="overflow-x-auto rounded-lg border border-line bg-white">
+    <table class="w-full text-left text-sm">
+      <thead class="border-b border-line bg-gray-50 text-xs uppercase tracking-wider text-gray-500">
+        <tr><th class="px-4 py-3">Label</th><th class="px-4 py-3">Code</th><th class="px-4 py-3">Status</th><th class="px-4 py-3">Last used</th><th class="px-4 py-3">Expires</th><th class="px-4 py-3"></th></tr>
+      </thead>
+      <tbody class="divide-y divide-line">
+        {(results ?? []).map((row) => (
+          <tr>
+            <td class="px-4 py-3 font-medium">{row.label}</td>
+            <td class="px-4 py-3 font-mono text-gray-700">{row.code ?? '—'}</td>
+            <td class="px-4 py-3">{row.enabled ? 'Enabled' : 'Disabled'}</td>
+            <td class="px-4 py-3 text-gray-500">{row.last_used_at || 'Never'}</td>
+            <td class="px-4 py-3 text-gray-500">{row.expires_at || 'Never'}</td>
+            <td class="px-4 py-3 text-right">
+              <form method="post">
+                <input type="hidden" name="_action" value="toggle" />
+                <input type="hidden" name="id" value={row.id} />
+                <button class="text-brand hover:underline">{row.enabled ? 'Disable' : 'Enable'}</button>
+              </form>
+            </td>
+          </tr>
+        ))}
+        {(results ?? []).length === 0 && (
+          <tr><td colspan="6" class="px-4 py-8 text-center text-gray-500">No member codes yet.</td></tr>
+        )}
+      </tbody>
+    </table>
+  </div>
+</AdminLayout>

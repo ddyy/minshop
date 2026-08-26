@@ -23,6 +23,10 @@ import CatalogSort from '../../features/storefront/controls/CatalogSort.astro';
 import { buildSortModel } from '../../features/storefront/catalog';
 import { catalogPath } from '../../features/settings/home';
 import { addCacheTags, productCacheTags } from '../../features/cache/tags';
+import {
+  hideMembersOnlyProducts,
+  memberLoginRedirect,
+} from '../../features/auth/memberAccess';
 
 const { slug } = Astro.params;
 const category = slug ? await getCategoryBySlug(env.DB, slug) : null;
@@ -30,6 +34,19 @@ const category = slug ? await getCategoryBySlug(env.DB, slug) : null;
 if (!category) {
   return new Response('Not found', { status: 404 });
 }
+
+if (
+  category.members_only === 1 &&
+  hideMembersOnlyProducts(Astro.locals.settings, Astro.locals.memberAuthenticated)
+) {
+  Astro.response.headers.set('cache-control', 'private, no-store');
+  return Astro.redirect(memberLoginRedirect(Astro.url, Astro.url.pathname), 303);
+}
+
+const publicOnly = hideMembersOnlyProducts(
+  Astro.locals.settings,
+  Astro.locals.memberAuthenticated,
+);
 
 const { sort, dir } = parseStoreSortQuery(
   Astro.url.searchParams.get('sort'),
@@ -41,16 +58,25 @@ const PAGE_SIZE = 24;
 const [trail, categories, total] = await Promise.all([
   ancestors(env.DB, category.id),
   listCategories(env.DB),
-  countProductsInCategory(env.DB, category.id),
+  countProductsInCategory(env.DB, category.id, { publicOnly }),
 ]);
-const subcats = childrenOf(categories, category.id);
+const subcats = childrenOf(categories, category.id).filter(
+  (c) => !publicOnly || c.members_only !== 1,
+);
 const { page, offset, totalPages } = paginate(
   Astro.url.searchParams,
   total,
   PAGE_SIZE,
   MAX_PUBLIC_PAGE,
 );
-const products = await productsInCategory(env.DB, category.id, PAGE_SIZE, offset, order);
+const products = await productsInCategory(
+  env.DB,
+  category.id,
+  PAGE_SIZE,
+  offset,
+  order,
+  { publicOnly },
+);
 addCacheTags(Astro.response.headers, productCacheTags(products.map((product) => product.public_id)));
 // Presentation models are built here, where the store's image settings are
 // known; only the first card is the LCP image.

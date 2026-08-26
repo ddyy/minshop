@@ -318,6 +318,18 @@ Two ports, nested: the outer `PaymentProvider` (stripe / lightning / opennode) a
 
 **Limitations (Lightning).** **Tax** and promo codes are still Stripe-Checkout features and are skipped on the Lightning path — to charge tax on a non-Stripe rail you'd compute it yourself (e.g. Stripe's Tax *Calculation* API) and add it to the total. No automatic refunds (Lightning can't reverse in place). Invoices are priced in sats from a BTC spot rate fetched at checkout (`payments.lightning.rateUrl`, default Coinbase — no key).
 
+## Member access
+
+Optional gate for members’ clubs and local groups (**Admin → Member access**), off by default:
+
+| Mode | Behaviour |
+|---|---|
+| **Off** | Public storefront (default). |
+| **Entire store** | Visitors enter a shared access code at `/login` before browsing or buying. Webhooks and admin stay reachable. |
+| **Selected products & categories** | Public catalog; products/categories marked *Members only* require a code. |
+
+Codes are stored in plaintext in D1 so admins can copy them for members (legacy hashed rows still work); sessions are signed with `AUTH_SECRET`. Disabling a code invalidates sessions minted from it.
+
 ### Running phoenixd (recommended self-hosted backend)
 
 [phoenixd](https://phoenix.acinq.co/server) is ACINQ's self-custodial headless daemon — no full Bitcoin node, no manual channel management (ACINQ is the LSP), mainnet (real sats).
