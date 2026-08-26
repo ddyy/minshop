@@ -1,6 +1,7 @@
 -- Optional members’ access codes (Admin → Member access).
--- Mode lives in settings (`member_access_mode`); codes are hashed at rest.
--- products.members_only / categories.members_only apply in selective mode.
+-- Mode lives in settings (`member_access_mode`); codes are stored in plaintext
+-- for admin reference (migration 0041). products.members_only / categories.members_only
+-- apply in selective mode.
 
 CREATE TABLE IF NOT EXISTS member_access_codes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

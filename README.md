@@ -328,7 +328,7 @@ Optional gate for members’ clubs and local groups (**Admin → Member access**
 | **Entire store** | Visitors enter a shared access code at `/login` before browsing or buying. Webhooks and admin stay reachable. |
 | **Selected products & categories** | Public catalog; products/categories marked *Members only* require a code. |
 
-Codes are hashed (PBKDF2) in D1; sessions are signed with `AUTH_SECRET`. Disabling a code invalidates sessions minted from it.
+Codes are stored in plaintext in D1 so admins can copy them for members (legacy hashed rows still work); sessions are signed with `AUTH_SECRET`. Disabling a code invalidates sessions minted from it.
 
 ### Running phoenixd (recommended self-hosted backend)
 

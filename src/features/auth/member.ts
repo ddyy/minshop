@@ -65,15 +65,26 @@ export async function memberSessionCodeId(
   return constantTimeEqual(signature, expected) ? id : null;
 }
 
+export async function memberCodeMatches(
+  input: string,
+  stored: { code: string | null; code_hash: string },
+): Promise<boolean> {
+  if (stored.code && constantTimeEqual(input, stored.code)) return true;
+  if (stored.code_hash && stored.code_hash !== '' && (await verifyMemberCode(input, stored.code_hash))) {
+    return true;
+  }
+  return false;
+}
+
 export async function authenticateMemberCode(db: D1Database, code: string): Promise<number | null> {
   const { results } = await db
     .prepare(
-      `SELECT id, code_hash FROM member_access_codes
+      `SELECT id, code, code_hash FROM member_access_codes
        WHERE enabled = 1 AND (expires_at IS NULL OR expires_at > datetime('now'))`,
     )
-    .all<{ id: number; code_hash: string }>();
+    .all<{ id: number; code: string | null; code_hash: string }>();
   for (const row of results ?? []) {
-    if (await verifyMemberCode(code, row.code_hash)) {
+    if (await memberCodeMatches(code, row)) {
       await db
         .prepare("UPDATE member_access_codes SET last_used_at = datetime('now') WHERE id = ?")
         .bind(row.id)
