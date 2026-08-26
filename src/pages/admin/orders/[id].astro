@@ -25,6 +25,12 @@ import { shouldSendCustomerOrderEmail } from '../../../features/email/orderPolic
 import RefundPanel from '../../../features/refunds/RefundPanel.astro';
 import { formatWeight } from '../../../features/shipping/weight';
 import { parseOrderOrLegacyPublicId } from '../../../features/ids/publicId';
+import {
+  deliveryMethodLabel,
+  fulfillActionLabel,
+  fulfillmentStatusLabel,
+  unfulfillActionLabel,
+} from '../../../features/orders/fulfillmentLabels';
 
 // The route param is the order public ID — ord_ or a preserved legacy shape
 // (hex32/UUID). Numeric row ids are not accepted.
@@ -335,7 +341,8 @@ const willEmailCustomer =
       fulfilled ? (
         <div class="space-y-2 text-sm">
           <p>
-            <span class="font-medium text-green-700">Fulfilled</span>
+            <span class="font-medium text-green-700">{fulfillmentStatusLabel(order.fulfillment_status, order.delivery_method)}</span>
+            <span class="text-gray-400"> · {deliveryMethodLabel(order.delivery_method)}</span>
             {order.fulfilled_at && <span class="text-gray-400"> · {formatDate(order.fulfilled_at, undefined, timeZone)}</span>}
           </p>
           {order.tracking_number && (
@@ -360,12 +367,17 @@ const willEmailCustomer =
           <form method="POST" action={`/api/admin/orders/${order.public_id}`}>
             <input type="hidden" name="_action" value="unfulfill" />
             <button type="submit" class="text-xs uppercase tracking-widest text-gray-400 hover:text-red-600">
-              Mark unfulfilled
+              {unfulfillActionLabel(order.delivery_method)}
             </button>
           </form>
         </div>
       ) : (
         <div class="space-y-6">
+          <p class="text-sm text-gray-600">
+            <span class="font-medium text-gray-800">{fulfillmentStatusLabel(order.fulfillment_status, order.delivery_method)}</span>
+            <span class="text-gray-400"> · {deliveryMethodLabel(order.delivery_method)}</span>
+            {order.shipping_label && <span class="text-gray-400"> · {order.shipping_label}</span>}
+          </p>
           {canLabel && (
             <div class="rounded-md border border-line bg-white/60 p-4 text-sm">
               <p class="mb-3 text-xs uppercase tracking-widest text-gray-400">Buy shipping label</p>
@@ -554,7 +566,7 @@ const willEmailCustomer =
             type="submit"
             class="rounded-md bg-brand px-5 py-2 font-medium text-white hover:bg-brand-hover"
           >
-            Mark as fulfilled
+            {fulfillActionLabel(order.delivery_method)}
           </button>
         </form>
         </div>
