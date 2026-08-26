@@ -56,7 +56,7 @@ MCP dependencies. Use `--no-install` to only scaffold the files, or
 - **Search** — FTS5 full-text (bm25, prefix match, typo-correct), no JS — or optional **semantic search** via Workers AI + Vectorize (see [Search](#search))
 - **Categories** — nested (arbitrary-depth tree), many-to-many with products; storefront category pages with breadcrumbs + sub-category drill-down (recursive descendant queries)
 - **Admin** — products, categories, pages, media, orders, customers, fulfillment, CSV export, and runtime store settings
-- **Payments** — Stripe Checkout, self-hosted Bitcoin Lightning (phoenixd or LNbits), hosted OpenNode, or a built-in demo rail; configure enabled methods and the default in Admin (see [Payments](#payments))
+- **Payments** — Stripe Checkout, PayPal, self-hosted Bitcoin Lightning (phoenixd or LNbits), hosted OpenNode, or a built-in demo rail; configure enabled methods and the default in Admin (see [Payments](#payments))
 - **Shipping** — merchant-managed zones, flat **or weight-banded** rates, and free-over-threshold rules, edited in Admin with no redeploy; supported checkout flows capture the address, chosen service, and shipping cost on the order
 - **Discount codes** — promo-code field enabled from Admin; codes are created/managed in the Stripe Dashboard, and the applied discount is captured onto the order
 - **Tax** — sales tax / VAT via Stripe Tax (off by default — **activate Stripe Tax in the Dashboard first**); computed from the customer address and captured onto the order
@@ -70,7 +70,7 @@ MCP dependencies. Use `--no-install` to only scaffold the files, or
 
 A few decisions in here are worth reading even if you never deploy a store:
 
-- **Payments sit behind a port.** Checkout and webhook routes depend on a `PaymentProvider` interface rather than any one vendor. Stripe, Lightning (phoenixd or LNbits), OpenNode, and the demo rail are adapters, so adding a rail is one adapter plus its webhook route. Storage works the same way (`StorageProvider`, with R2 as the adapter).
+- **Payments sit behind a port.** Checkout and webhook routes depend on a `PaymentProvider` interface rather than any one vendor. Stripe, PayPal, Lightning (phoenixd or LNbits), OpenNode, and the demo rail are adapters, so adding a rail is one adapter plus its webhook route. Storage works the same way (`StorageProvider`, with R2 as the adapter).
 - **HTML first, JS as enhancement.** Pages render on the server and ship near-zero client JavaScript. Cart, search, and checkout all work with JS disabled; the cart drawer and live search are progressive enhancements layered on plain forms.
 - **Search without a search service.** Full-text search runs on SQLite FTS5 inside D1, with bm25 ranking, prefix matching, and typo correction. Semantic search (Workers AI + Vectorize) is an optional flag, not a dependency.
 - **Cache invalidation follows what shoppers can see.** Cached pages carry `shell`, `catalog`, and per-product tags. Admin writes purge only the affected tags, and stock changes purge a product only when it crosses In stock / Low stock / Sold out, not on every checkout reservation. The page shell stays shared even for cookied shoppers because the one personal detail, the cart count, loads from a small private fragment.
@@ -86,7 +86,7 @@ A few decisions in here are worth reading even if you never deploy a store:
 | Styling | Tailwind CSS v4 (`@tailwindcss/vite`) |
 | Data | Cloudflare D1 (SQLite) — products, orders |
 | Images | Cloudflare R2 — zero egress |
-| Payments | Stripe Checkout, Bitcoin Lightning (phoenixd / LNbits), OpenNode, or demo |
+| Payments | Stripe Checkout, PayPal, Bitcoin Lightning (phoenixd / LNbits), OpenNode, or demo |
 
 ## Quick start (local)
 
@@ -308,15 +308,18 @@ Checkout and the webhook depend on a `PaymentProvider` port (`src/features/payme
 |---|---|---|
 | `stripe` *(default)* | Hosted card checkout | paste the secret key + webhook signing secret |
 | `lightning` | Bitcoin Lightning via a **self-hosted** node — minshop mints a BOLT11 invoice and renders its own `/pay` page (QR + `lightning:` link), then confirms settlement | run **phoenixd** or **LNbits** (below); enter its URL + key |
+| `paypal` | Hosted PayPal Checkout (Orders API v2) — redirect + capture on return / webhook | paste REST client id, secret, and webhook id; optional sandbox API URL |
 | `opennode` | **Hosted** Lightning checkout (custodial processor) — redirect + webhook, like Stripe | paste the OpenNode API key |
 
-Two ports, nested: the outer `PaymentProvider` (stripe / lightning / opennode) and an inner `LightningBackend` (phoenixd / lnbits) shared by the self-rendered flow. Adding another node is one adapter file.
+Two ports, nested: the outer `PaymentProvider` (stripe / lightning / paypal / opennode) and an inner `LightningBackend` (phoenixd / lnbits) shared by the self-rendered flow. Adding another node is one adapter file.
 
-**How settlement is trusted.** Lightning webhooks are treated as an untrusted *nudge* — on receipt minshop **re-polls the node** for the payment (the authority), so a forged webhook can't fake a sale. The `/pay` page also settles on load by polling, so it works even with no public webhook (e.g. local dev). Orders stay "paid-only": unpaid invoices live in a `pending_payments` table, never in `orders`.
+**How settlement is trusted.** Lightning webhooks are treated as an untrusted *nudge* — on receipt minshop **re-polls the node** for the payment (the authority), so a forged webhook can't fake a sale. The `/pay` page also settles on load by polling, so it works even with no public webhook (e.g. local dev). PayPal verifies webhook signatures with PayPal's verify-webhook-signature API, and the return URL captures the order as a parallel settle path (amount/currency checked against the pending row). Orders stay "paid-only": unpaid checkouts live in a `pending_payments` table, never in `orders`.
 
-**Shipping (in-app rails).** When shipping is enabled, the Lightning, OpenNode, and Demo carts route through minshop's own `/checkout` page — a server-rendered address + shipping-option step priced from the Admin-managed zones (see [Shipping](#shipping-and-order-email)) — so the invoice total includes shipping and the address + email land on the order, same as Stripe. The Demo rail arrives with a sample address prefilled (it ships nowhere; the step exists to exercise the real rate configuration). Programmatic checkout accepts the same address as a `ship_to` object. (Stripe keeps its own hosted address/shipping collection, unchanged.)
+**Shipping (in-app rails).** When shipping is enabled, the Lightning, PayPal, OpenNode, and Demo carts route through minshop's own `/checkout` page — a server-rendered address + shipping-option step priced from the Admin-managed zones (see [Shipping](#shipping-and-order-email)) — so the invoice total includes shipping and the address + email land on the order, same as Stripe. The Demo rail arrives with a sample address prefilled (it ships nowhere; the step exists to exercise the real rate configuration). Programmatic checkout accepts the same address as a `ship_to` object. (Stripe keeps its own hosted address/shipping collection, unchanged.)
 
 **Limitations (Lightning).** **Tax** and promo codes are still Stripe-Checkout features and are skipped on the Lightning path — to charge tax on a non-Stripe rail you'd compute it yourself (e.g. Stripe's Tax *Calculation* API) and add it to the total. No automatic refunds (Lightning can't reverse in place). Invoices are priced in sats from a BTC spot rate fetched at checkout (`payments.lightning.rateUrl`, default Coinbase — no key).
+
+**PayPal setup.** Create a REST app in the [PayPal Developer Dashboard](https://developer.paypal.com/), point a webhook at `https://<your-host>/api/webhook/paypal` for `PAYMENT.CAPTURE.COMPLETED`, and paste the client id, secret, and webhook id into **Settings → Payments → PayPal**. For sandbox, set the API URL to `https://api-m.sandbox.paypal.com` (blank = live). PayPal refunds are supported from the admin order page.
 
 ### Running phoenixd (recommended self-hosted backend)
 
@@ -344,7 +347,7 @@ src/
     pages/      Markdown pages: rendering, slugs, layout presets, save/media sync
     products/   catalog data, forms, inventory, image handling
     orders/     order data, reservations, tracking
-    payments/   provider port + Stripe, Lightning, OpenNode, demo adapters
+    payments/   provider port + Stripe, PayPal, Lightning, OpenNode, demo adapters
     settings/   runtime D1 settings
     storage/    provider port + R2 adapter
   pages/
@@ -387,7 +390,7 @@ Most settings are **runtime** — changed in **`/admin/settings`**, stored in a 
 - **General** — store name.
 - **Features** — cart/checkout, "Buy now", discounts, tax, customer accounts, shipping, and upload optimization.
 - **Images** — original delivery or responsive Cloudflare on-demand transformations.
-- **Payments** — one card per rail (Stripe / Lightning / OpenNode / Demo): its on/off toggle, config (node URLs, default rail), and keys.
+- **Payments** — one card per rail (Stripe / Lightning / PayPal / OpenNode / Demo): its on/off toggle, config (node URLs, default rail), and keys.
 - **Email** — on/off, provider (Resend / Cloudflare), from-address, key, send-test button.
 - **Bot protection** — Turnstile toggle + sitekey + secret.
 - **Search** — keyword (FTS5) vs semantic (Workers AI + Vectorize) + reindex.

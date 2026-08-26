@@ -300,6 +300,9 @@ if (Astro.request.method === 'POST') {
   } else if (action === 'save_opennode') {
     await setSetting(env.DB, 'opennode_api_url', String(form.get('opennode_api_url') ?? '').trim() || null);
     await applySecrets(['opennode_api_key']);
+  } else if (action === 'save_paypal') {
+    await setSetting(env.DB, 'paypal_api_url', String(form.get('paypal_api_url') ?? '').trim() || null);
+    await applySecrets(['paypal_client_id', 'paypal_client_secret', 'paypal_webhook_id']);
   }
   // Admin saves are deliberately coarse and infrequent. Purge both public
   // dependency roots after the write rather than risk a newly added setting
@@ -444,6 +447,7 @@ const featureRows = baseFeatureRows.map((row) => ({
 const paymentMethods: { m: PaymentMethod; label: string }[] = [
   { m: 'stripe', label: 'Card (Stripe)' },
   { m: 'lightning', label: 'Lightning' },
+  { m: 'paypal', label: 'PayPal' },
   { m: 'opennode', label: 'Bitcoin (OpenNode)' },
   { m: 'demo', label: 'Demo checkout' },
 ];
@@ -460,6 +464,7 @@ const payments = {
   lnbitsUrl: settings.lnbitsUrl ?? '',
   phoenixdUrl: settings.phoenixdUrl ?? '',
   opennodeApiUrl: settings.opennodeApiUrl ?? '',
+  paypalApiUrl: settings.paypalApiUrl ?? '',
 };
 
 // Encrypted key vault (features/secrets). Keys are write-only — stored AES-GCM in
@@ -1053,6 +1058,34 @@ const sections = [
             </label>
             <SecretField name="phoenixd_password" label="phoenixd password" hint="http-password-limited-access" storedInD1={inD1('phoenixd_password')} vault={vault} required={payments.lightningBackend === 'phoenixd'} requiredWhen="phoenixd" />
           </div>
+          {vault && (
+            <button type="submit" class="mt-1 rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover">
+              Save
+            </button>
+          )}
+        </form>
+      </div>
+
+      {/* PayPal */}
+      <div class="rounded-lg border border-gray-200 bg-white p-4">
+        <div class="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <p class="font-medium">PayPal</p>
+            <p class={pmMap.paypal.installed ? 'text-xs text-gray-500' : 'text-xs text-amber-700'}>
+              {pmMap.paypal.installed ? 'Live' : 'Add client id, secret, and webhook id to go live'}
+            </p>
+          </div>
+          {pmMap.paypal.installed && <MethodToggle method="paypal" enabled={pmMap.paypal.enabled} label="PayPal" />}
+        </div>
+        <form method="POST" class="space-y-3 border-t border-gray-100 pt-3">
+          <input type="hidden" name="_action" value="save_paypal" />
+          <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-gray-400">
+            API URL
+            <input type="url" name="paypal_api_url" value={payments.paypalApiUrl} placeholder="(blank = live) — sandbox: https://api-m.sandbox.paypal.com" class="w-full max-w-xl rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none" />
+          </label>
+          <SecretField name="paypal_client_id" label="Client ID" hint="from the PayPal Developer Dashboard" storedInD1={inD1('paypal_client_id')} vault={vault} />
+          <SecretField name="paypal_client_secret" label="Client secret" hint="REST app secret" storedInD1={inD1('paypal_client_secret')} vault={vault} />
+          <SecretField name="paypal_webhook_id" label="Webhook ID" hint="from the webhook you pointed at /api/webhook/paypal" storedInD1={inD1('paypal_webhook_id')} vault={vault} />
           {vault && (
             <button type="submit" class="mt-1 rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover">
               Save

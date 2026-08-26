@@ -134,6 +134,7 @@ const destination = stripeDestination(
 
 const heading = isBuyNow ? 'Buy now' : 'Checkout';
 const METHOD: Record<string, { label: string; hint: string }> = {
+  paypal: { label: 'Pay with PayPal', hint: 'Secure checkout with PayPal' },
   stripe: { label: 'Pay with card', hint: 'Visa, Mastercard, Apple Pay & more' },
   lightning: { label: 'Pay with Lightning ⚡', hint: 'Instant — from any Lightning wallet' },
   opennode: { label: 'Pay with Bitcoin', hint: 'On-chain or Lightning (OpenNode)' },

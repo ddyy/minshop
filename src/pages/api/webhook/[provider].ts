@@ -10,7 +10,7 @@ import { recordPaidWebhookOrder } from '../../../features/orders/recordWebhook';
 
 export const prerender = false;
 
-const METHODS: PaymentMethod[] = ['stripe', 'lightning', 'opennode'];
+const METHODS: PaymentMethod[] = ['stripe', 'lightning', 'opennode', 'paypal'];
 
 // Per-provider webhook: POST /api/webhook/<method>. Lets multiple rails run at
 // once — each posts to its OWN path, because a single endpoint can only verify

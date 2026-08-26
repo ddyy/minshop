@@ -43,6 +43,7 @@ export const ORDER_STATUS_OPTIONS: { value: OrderStatusFilter; label: string }[]
 export const ORDER_METHOD_OPTIONS: { value: string; label: string }[] = [
   { value: 'stripe', label: 'Card (Stripe)' },
   { value: 'lightning', label: 'Lightning' },
+  { value: 'paypal', label: 'PayPal' },
   { value: 'opennode', label: 'Bitcoin (OpenNode)' },
   { value: 'demo', label: 'Demo' },
 ];

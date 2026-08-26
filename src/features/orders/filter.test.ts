@@ -20,7 +20,7 @@ describe('parseOrderFilters', () => {
   });
 
   it('drops values that are not on the whitelist', () => {
-    const f = parse('status=bogus&fulfillment=maybe&method=paypal&review=yes');
+    const f = parse('status=bogus&fulfillment=maybe&method=venmo&review=yes');
     expect(f).toEqual({ status: null, fulfillment: null, method: null, review: false });
   });
 

@@ -6,6 +6,7 @@ import { createStripeProvider } from './stripe';
 import { createLightningProvider } from './lightning-provider';
 import { getLightningBackend } from './lightning';
 import { createOpenNodeProvider } from './opennode';
+import { createPayPalProvider } from './paypal';
 import { createDemoProvider } from './demo';
 import { getSecret, vaultReady } from '../secrets/store';
 
@@ -13,20 +14,27 @@ export type { PaymentProvider } from './provider';
 export {
   STRIPE_CHECKOUT_TTL_SECONDS,
   OPENNODE_CHECKOUT_TTL_SECONDS,
+  PAYPAL_CHECKOUT_TTL_SECONDS,
   RESERVATION_EXPIRY_GRACE_SECONDS,
 } from './provider';
 export { DEMO_CHECKOUT_TTL_SECONDS } from './demo';
 
 // 'demo' is a first-class method — a simulated checkout that's ALWAYS offered
 // (records a real, demo-tagged order). The real rails work only when configured.
-export type PaymentMethod = 'stripe' | 'lightning' | 'opennode' | 'demo';
-const ALL_METHODS: PaymentMethod[] = ['stripe', 'lightning', 'opennode'];
+export type PaymentMethod = 'stripe' | 'lightning' | 'opennode' | 'paypal' | 'demo';
+const ALL_METHODS: PaymentMethod[] = ['stripe', 'lightning', 'opennode', 'paypal'];
 // The buttons always presented at checkout. Each real rail works if configured,
 // else its button leads to setup instructions; demo always works.
-const OFFERED: PaymentMethod[] = ['stripe', 'lightning', 'demo'];
+const OFFERED: PaymentMethod[] = ['stripe', 'lightning', 'paypal', 'demo'];
 
 export function isPaymentMethod(value: string): value is PaymentMethod {
-  return value === 'stripe' || value === 'lightning' || value === 'opennode' || value === 'demo';
+  return (
+    value === 'stripe' ||
+    value === 'lightning' ||
+    value === 'opennode' ||
+    value === 'paypal' ||
+    value === 'demo'
+  );
 }
 
 /**
@@ -45,6 +53,8 @@ export function isMethodAvailable(
   switch (method) {
     case 'stripe':
       return has('stripe_secret_key') && has('stripe_webhook_secret');
+    case 'paypal':
+      return has('paypal_client_id') && has('paypal_client_secret') && has('paypal_webhook_id');
     case 'opennode':
       return has('opennode_api_key');
     case 'lightning':
@@ -95,7 +105,7 @@ export function enabledMethods(
 }
 
 /**
- * Methods the checkout UI shows as buttons — Card, Lightning, Demo (plus any
+ * Methods the checkout UI shows as buttons — Card, Lightning, PayPal, Demo (plus any
  * other configured rail, e.g. OpenNode), minus any the admin disabled. Unlike
  * enabledMethods, this keeps UNconfigured-but-not-disabled real rails so they can
  * render a "set this up" link. May be EMPTY when the admin disables everything —
@@ -109,7 +119,9 @@ export function offeredMethods(
   const extra = ALL_METHODS.filter(
     (m) => !OFFERED.includes(m) && isMethodAvailable(m, settings, vault),
   );
-  return (['stripe', 'lightning', ...extra, 'demo'] as PaymentMethod[]).filter((m) => !off.has(m));
+  return (['stripe', 'lightning', 'paypal', ...extra, 'demo'] as PaymentMethod[]).filter(
+    (m) => !off.has(m),
+  );
 }
 
 /**
@@ -124,6 +136,18 @@ export async function getPaymentProvider(method?: PaymentMethod): Promise<Paymen
   const m = method ?? settings.paymentProvider;
   if (m === 'demo') return createDemoProvider(env.DB);
   switch (m) {
+    case 'paypal': {
+      const clientId = await getSecret(env.DB, 'paypal_client_id');
+      const clientSecret = await getSecret(env.DB, 'paypal_client_secret');
+      const webhookId = await getSecret(env.DB, 'paypal_webhook_id');
+      if (!clientId || !clientSecret || !webhookId) throw new Error('PayPal is not fully configured.');
+      return createPayPalProvider(env.DB, {
+        clientId,
+        clientSecret,
+        webhookId,
+        apiBase: settings.paypalApiUrl ?? undefined,
+      });
+    }
     case 'lightning':
       // Self-hosted Lightning (phoenixd / LNbits) behind a self-rendered pay page.
       return createLightningProvider(env.DB, await getLightningBackend());

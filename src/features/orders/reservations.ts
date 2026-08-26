@@ -283,7 +283,7 @@ export async function reserveInventory(
   publicId: string,
   items: ReservationItem[],
   ttlSeconds: number,
-  paymentMethod: 'stripe' | 'opennode' | 'lightning' | 'demo',
+  paymentMethod: 'stripe' | 'paypal' | 'opennode' | 'lightning' | 'demo',
   purger?: StockTransitionPurger,
   release: DigitalDeliveryRelease = DIGITAL_DELIVERY_RELEASE,
 ): Promise<boolean> {

@@ -115,7 +115,7 @@ To swap/add a provider, write one adapter file + wire the factory:
 
 | Port | Where | Factory | Adapters |
 |---|---|---|---|
-| `PaymentProvider` | `payments/provider.ts` | `payments/index.ts` | stripe, opennode, lightning |
+| `PaymentProvider` | `payments/provider.ts` | `payments/index.ts` | stripe, paypal, opennode, lightning |
 | `LightningBackend` | `payments/lightning/backend.ts` | `payments/lightning/index.ts` | phoenixd, lnbits |
 | `ShippingCalculator` | `shipping/calculator.ts` | (config-rates) | carrier rates (future) |
 | `StorageProvider` | `storage/provider.ts` | `storage/index.ts` | r2 |
