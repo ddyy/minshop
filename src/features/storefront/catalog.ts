@@ -115,6 +115,8 @@ export interface CatalogPageOptions {
   currency: string;
   eyebrow: string;
   heading: string;
+  /** Omit members-only products (selective access, anonymous visitors). */
+  publicOnly?: boolean;
 }
 
 export async function loadCatalogPage(
@@ -126,15 +128,19 @@ export async function loadCatalogPage(
     options.searchParams.get('dir'),
   );
   const order = orderByClause(sort, dir);
+  const listOpts = { publicOnly: !!options.publicOnly };
 
-  const [total, categories] = await Promise.all([countProducts(db), listCategories(db)]);
+  const [total, categories] = await Promise.all([
+    countProducts(db, listOpts),
+    listCategories(db),
+  ]);
   const { page, offset, totalPages } = paginate(
     options.searchParams,
     total,
     PAGE_SIZE,
     MAX_PUBLIC_PAGE,
   );
-  const products = await listProducts(db, PAGE_SIZE, offset, order);
+  const products = await listProducts(db, PAGE_SIZE, offset, order, listOpts);
 
   addCacheTags(
     options.responseHeaders,
@@ -144,7 +150,9 @@ export async function loadCatalogPage(
   return {
     eyebrow: options.eyebrow,
     heading: options.heading,
-    categories: childrenOf(categories, null).map((category) => ({
+    categories: childrenOf(categories, null)
+      .filter((category) => !options.publicOnly || category.members_only !== 1)
+      .map((category) => ({
       text: category.name,
       href: `/categories/${category.slug}`,
     })),

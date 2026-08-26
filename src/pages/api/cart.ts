@@ -6,6 +6,12 @@ import { getProductByPublicId } from '../../features/products/db';
 import { listVariants, getExtrasByPublicIds } from '../../features/products/variants';
 import { parsePublicId } from '../../features/ids/publicId.ts';
 import { getStoreSettings } from '../../features/settings/db';
+import {
+  hideMembersOnlyProducts,
+  memberLoginRedirect,
+  productRequiresMemberAccess,
+} from '../../features/auth/memberAccess';
+import { memberSessionCodeId, memberCodeIsActive } from '../../features/auth/member';
 
 export const prerender = false;
 
@@ -18,8 +24,9 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
   const action = String(form.get('_action'));
   const cart = readCart(cookies);
   const partial = request.headers.get('x-partial') === '1';
+  const settings = await getStoreSettings(env.DB);
   // Cart switched off in Settings → browse-only; refuse all cart mutations.
-  if (!(await getStoreSettings(env.DB)).cartEnabled) {
+  if (!settings.cartEnabled) {
     return partial ? new Response(null, { status: 204 }) : redirect('/', 303);
   }
   const done = () =>
@@ -46,6 +53,22 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
   const product = productPublicId ? await getProductByPublicId(env.DB, productPublicId) : null;
   if (!product || !product.active || !product.public_id) return done();
 
+  let memberAuthenticated = false;
+  if (env.AUTH_SECRET) {
+    const codeId = await memberSessionCodeId(
+      cookies.get('member_session')?.value,
+      env.AUTH_SECRET,
+      Date.now() / 1000,
+    );
+    memberAuthenticated = !!(codeId && (await memberCodeIsActive(env.DB, codeId)));
+  }
+  if (
+    hideMembersOnlyProducts(settings, memberAuthenticated) &&
+    (await productRequiresMemberAccess(env.DB, product.id))
+  ) {
+    if (partial) return new Response(null, { status: 401 });
+    return redirect(memberLoginRedirect(url, `/products/${product.slug}`), 303);
+  }
   // Variant is required when the product has any.
   const variants = await listVariants(env.DB, product.id);
   let variantPublicId: string | null = null;

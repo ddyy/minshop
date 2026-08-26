@@ -3,6 +3,7 @@ import { env } from 'cloudflare:workers';
 import Catalog from '#theme/Catalog.astro';
 import { loadCatalogPage } from '../storefront/catalog';
 import { getConfig } from '../../config';
+import { hideMembersOnlyProducts } from '../auth/memberAccess';
 
 /**
  * The catalog list. Mounted at `/` and at `/products` — the store needs a URL
@@ -21,6 +22,10 @@ interface Props {
 }
 
 const { eyebrow = 'Shop', heading = 'All products' } = Astro.props;
+const publicOnly = hideMembersOnlyProducts(
+  Astro.locals.settings,
+  Astro.locals.memberAuthenticated,
+);
 
 const model = await loadCatalogPage(env.DB, {
   base: Astro.url.pathname,
@@ -31,6 +36,7 @@ const model = await loadCatalogPage(env.DB, {
   delivery: Astro.locals.settings?.imageDelivery,
   eyebrow,
   heading,
+  publicOnly,
 });
 ---
 

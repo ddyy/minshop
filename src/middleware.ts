@@ -27,6 +27,11 @@ import {
 import { addCacheTags, responseCacheTags } from './features/cache/tags';
 import { normalizeSearchQuery } from './features/search/query';
 import { isForbiddenFormOrigin } from './features/auth/formOrigin';
+import {
+  isMemberPublicPath,
+  memberAccessMode,
+} from './features/auth/memberAccess';
+import { memberCodeIsActive, memberSessionCodeId } from './features/auth/member';
 
 /**
  * Admin auth gate. Protects BOTH the admin UI (`/admin/*`) and the admin API
@@ -54,6 +59,9 @@ import { isForbiddenFormOrigin } from './features/auth/formOrigin';
  * wizard-set password is the built-in alternative. See README → Admin auth. JWT
  * verification lives in features/auth/access.ts; session signing in
  * features/auth/session.ts.
+ *
+ * Optional members’ access (Admin → Member access) may gate the storefront when
+ * mode is `store`. Selective product/category gates are enforced in those routes.
  */
 function isProtected(pathname: string): boolean {
   return (
@@ -61,6 +69,15 @@ function isProtected(pathname: string): boolean {
     pathname.startsWith('/admin/') ||
     pathname === '/api/admin' ||
     pathname.startsWith('/api/admin/')
+  );
+}
+
+/** API and HTML paths that may need member_access_mode without a prior settings load. */
+function needsMemberSettings(pathname: string): boolean {
+  return (
+    pathname.startsWith('/api/') ||
+    pathname === '/login' ||
+    (!pathname.startsWith('/_') && !pathname.startsWith('/partials/'))
   );
 }
 
@@ -155,7 +172,41 @@ async function gate(context: APIContext, next: MiddlewareNext): Promise<Response
     }
   }
 
-  if (!isProtected(context.url.pathname)) return next();
+  // Optional members’ access. Resolve the session on storefront requests; when
+  // mode is `store`, require it before any non-public path (webhooks/admin stay open).
+  if (!isProtected(path)) {
+    const settings =
+      context.locals.settings ??
+      (needsMemberSettings(path)
+        ? await getStoreSettings(env.DB).catch(() => undefined)
+        : undefined);
+    const mode = memberAccessMode(settings);
+    if (mode !== 'off' && env.AUTH_SECRET) {
+      const codeId = await memberSessionCodeId(
+        context.cookies.get('member_session')?.value,
+        env.AUTH_SECRET,
+        Date.now() / 1000,
+      );
+      context.locals.memberAuthenticated = !!(
+        codeId && (await memberCodeIsActive(env.DB, codeId))
+      );
+    } else {
+      context.locals.memberAuthenticated = false;
+    }
+
+    if (mode === 'store' && !isMemberPublicPath(path) && !context.locals.memberAuthenticated) {
+      if (!env.AUTH_SECRET) {
+        return new Response('Member access is enabled but AUTH_SECRET is not set.', { status: 503 });
+      }
+      if (path.startsWith('/api/')) {
+        return new Response('Member access required.', { status: 401 });
+      }
+      const next = `${path}${context.url.search}`;
+      return context.redirect(`/login?next=${encodeURIComponent(next)}`, 303);
+    }
+
+    return next();
+  }
 
   // 1. Localhost dev has no Access edge — don't lock yourself out.
   if (import.meta.env.DEV) return next();

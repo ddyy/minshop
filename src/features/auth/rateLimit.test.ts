@@ -7,7 +7,7 @@ import {
 } from './rateLimit';
 
 describe('rateLimitBucket', () => {
-  it.each(['/admin/login', '/account/login'])('limits auth POST %s', (path) => {
+  it.each(['/admin/login', '/account/login', '/api/member-login'])('limits auth POST %s', (path) => {
     expect(rateLimitBucket('POST', path)).toBe('auth');
   });
 

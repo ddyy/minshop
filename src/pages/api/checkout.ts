@@ -27,6 +27,12 @@ import {
   DEMO_CHECKOUT_TTL_SECONDS,
 } from '../../features/payments';
 import { getStoreSettings } from '../../features/settings/db';
+import {
+  hideMembersOnlyProducts,
+  memberLoginRedirect,
+  productRequiresMemberAccess,
+} from '../../features/auth/memberAccess';
+import { memberCodeIsActive, memberSessionCodeId } from '../../features/auth/member';
 import { createConfigRatesCalculator } from '../../features/shipping/calculator';
 import { shippingFor } from '../../features/shipping/effective';
 import { shipmentWeightFor } from '../../features/shipping/lines';
@@ -210,6 +216,24 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
   const requestedRaw = String(form.get('method') ?? '').trim();
   const requested = requestedRaw as PaymentMethod;
   const settings = await getStoreSettings(env.DB);
+
+  let memberAuthenticated = false;
+  if (env.AUTH_SECRET) {
+    const codeId = await memberSessionCodeId(
+      cookies.get('member_session')?.value,
+      env.AUTH_SECRET,
+      Date.now() / 1000,
+    );
+    memberAuthenticated = !!(codeId && (await memberCodeIsActive(env.DB, codeId)));
+  }
+  if (hideMembersOnlyProducts(settings, memberAuthenticated)) {
+    for (const line of lines) {
+      if (await productRequiresMemberAccess(env.DB, line.product.id)) {
+        return redirect(memberLoginRedirect(url, '/cart'), 303);
+      }
+    }
+  }
+
   if (
     requestedRaw &&
     requestedRaw !== 'demo' &&

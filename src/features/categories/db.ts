@@ -1,6 +1,7 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import type { Product } from '../products/db';
 import { withPublicId } from '../ids/publicId.ts';
+import { publicProductVisibilitySql } from '../auth/memberAccess';
 
 export interface Category {
   id: number;
@@ -8,6 +9,7 @@ export interface Category {
   slug: string;
   parent_id: number | null;
   public_id: string | null;
+  members_only: number;
   created_at: string;
 }
 
@@ -29,6 +31,7 @@ export interface CategoryFields {
   name: string;
   slug: string;
   parent_id: number | null;
+  members_only: number;
 }
 
 export async function listCategories(db: D1Database): Promise<Category[]> {
@@ -71,8 +74,10 @@ export async function getCategoriesByPublicIds(
 export async function createCategory(db: D1Database, c: CategoryFields): Promise<number> {
   return withPublicId('category', async (publicId) => {
     const row = await db
-      .prepare('INSERT INTO categories (name, slug, parent_id, public_id) VALUES (?, ?, ?, ?) RETURNING id')
-      .bind(c.name, c.slug, c.parent_id, publicId)
+      .prepare(
+        'INSERT INTO categories (name, slug, parent_id, members_only, public_id) VALUES (?, ?, ?, ?, ?) RETURNING id',
+      )
+      .bind(c.name, c.slug, c.parent_id, c.members_only, publicId)
       .first<{ id: number }>();
     return row!.id;
   });
@@ -80,8 +85,8 @@ export async function createCategory(db: D1Database, c: CategoryFields): Promise
 
 export async function updateCategory(db: D1Database, id: number, c: CategoryFields): Promise<void> {
   await db
-    .prepare('UPDATE categories SET name = ?, slug = ?, parent_id = ? WHERE id = ?')
-    .bind(c.name, c.slug, c.parent_id, id)
+    .prepare('UPDATE categories SET name = ?, slug = ?, parent_id = ?, members_only = ? WHERE id = ?')
+    .bind(c.name, c.slug, c.parent_id, c.members_only, id)
     .run();
 }
 
@@ -261,7 +266,9 @@ export async function productsInCategory(
   limit: number,
   offset = 0,
   orderBy = 'created_at DESC',
+  opts: { publicOnly?: boolean } = {},
 ): Promise<Product[]> {
+  const visibility = opts.publicOnly ? ` AND ${publicProductVisibilitySql('p')}` : '';
   const { results } = await db
     .prepare(
       `WITH RECURSIVE sub(id) AS (
@@ -271,7 +278,7 @@ export async function productsInCategory(
        )
        SELECT DISTINCT p.* FROM products p
        JOIN product_categories pc ON pc.product_id = p.id
-       WHERE pc.category_id IN (SELECT id FROM sub) AND p.active = 1
+       WHERE pc.category_id IN (SELECT id FROM sub) AND p.active = 1${visibility}
        ORDER BY ${orderBy}
        LIMIT ?2 OFFSET ?3`,
     )
@@ -284,7 +291,9 @@ export async function productsInCategory(
 export async function countProductsInCategory(
   db: D1Database,
   categoryId: number,
+  opts: { publicOnly?: boolean } = {},
 ): Promise<number> {
+  const visibility = opts.publicOnly ? ` AND ${publicProductVisibilitySql('p')}` : '';
   const row = await db
     .prepare(
       `WITH RECURSIVE sub(id) AS (
@@ -294,7 +303,7 @@ export async function countProductsInCategory(
        )
        SELECT COUNT(DISTINCT p.id) AS n FROM products p
        JOIN product_categories pc ON pc.product_id = p.id
-       WHERE pc.category_id IN (SELECT id FROM sub) AND p.active = 1`,
+       WHERE pc.category_id IN (SELECT id FROM sub) AND p.active = 1${visibility}`,
     )
     .bind(categoryId)
     .first<{ n: number }>();

@@ -6,6 +6,12 @@ import { loadProductDetail } from '../../features/storefront/productDetail';
 import { getConfig } from '../../config';
 import { publicOrigin } from '../../features/http/origin';
 import { addCacheTags, productCacheTags } from '../../features/cache/tags';
+import {
+  hideMembersOnlyProducts,
+  memberLoginRedirect,
+  productRequiresMemberAccess,
+} from '../../features/auth/memberAccess';
+import { getProductBySlug } from '../../features/products/db';
 
 const loaded = await loadProductDetail(env.DB, {
   slug: Astro.params.slug,
@@ -22,6 +28,16 @@ const loaded = await loadProductDetail(env.DB, {
 // them is a presentation decision, and all of them are easy to break silently.
 if (loaded.status === 'not_found') {
   return new Response('Not found', { status: 404 });
+}
+
+if (hideMembersOnlyProducts(Astro.locals.settings, Astro.locals.memberAuthenticated)) {
+  const product = Astro.params.slug
+    ? await getProductBySlug(env.DB, Astro.params.slug)
+    : null;
+  if (product && (await productRequiresMemberAccess(env.DB, product.id))) {
+    Astro.response.headers.set('cache-control', 'private, no-store');
+    return Astro.redirect(memberLoginRedirect(Astro.url, Astro.url.pathname), 303);
+  }
 }
 
 const { model, purchase, seo } = loaded;

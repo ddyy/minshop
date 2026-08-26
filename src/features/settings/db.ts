@@ -53,6 +53,7 @@ export type SettingKey =
   | 'lnbits_url' // LNbits node URL (the invoice/read key is in the vault)
   | 'phoenixd_url' // phoenixd node URL (the password is in the vault)
   | 'opennode_api_url' // OpenNode API base override (testnet); absent = live default
+  | 'member_access_mode' // 'off' | 'store' | 'selective'; absent = off
   | `enc:${string}`; // AES-GCM-encrypted secret (see features/secrets/store.ts), e.g. 'enc:stripe_secret_key'. Never loaded as plaintext into locals.
 
 /** The storefront features that can be flipped at runtime (default on). */
@@ -129,6 +130,8 @@ export interface StoreSettings {
   phoenixdUrl: string | null;
   /** OpenNode API base override (testnet), or null for the live default. */
   opennodeApiUrl: string | null;
+  /** Members’ access: off | entire store | selected products/categories. Default off. */
+  memberAccessMode: 'off' | 'store' | 'selective';
 }
 
 /** One setting value, or null if unset. */
@@ -226,6 +229,10 @@ export function parseStoreSettings(
     lnbitsUrl: map.get('lnbits_url') ?? null,
     phoenixdUrl: map.get('phoenixd_url') ?? null,
     opennodeApiUrl: map.get('opennode_api_url') ?? null,
+    memberAccessMode:
+      map.get('member_access_mode') === 'store' ? 'store'
+      : map.get('member_access_mode') === 'selective' ? 'selective'
+      : 'off',
   };
 }
 

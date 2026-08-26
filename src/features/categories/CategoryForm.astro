@@ -51,6 +51,12 @@ const inputClass =
     </select>
   </div>
 
+  <label class="flex items-center gap-2 text-sm">
+    <input name="members_only" type="checkbox" checked={category ? category.members_only === 1 : false} class="h-4 w-4" />
+    Members only
+    <span class="font-normal text-faint">(category page + its products need an access code in Selected mode)</span>
+  </label>
+
   <div class="flex gap-3 pt-2">
     <button type="submit" class="rounded-md bg-brand px-5 py-2 font-medium text-on-brand hover:bg-brand-hover">
       {submitLabel}

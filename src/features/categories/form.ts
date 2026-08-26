@@ -6,6 +6,7 @@ export interface ParsedCategoryForm {
   slugInput: string;
   /** cat_ public ID from the parent selector; resolved to a row id at the boundary. */
   parentPublicId: string | null;
+  members_only: number;
 }
 
 export function parseCategoryForm(
@@ -24,5 +25,5 @@ export function parseCategoryForm(
     if (!parentPublicId) return { error: 'Invalid parent category.' };
   }
 
-  return { data: { name, slugInput, parentPublicId } };
+  return { data: { name, slugInput, parentPublicId, members_only: form.get('members_only') != null ? 1 : 0 } };
 }
