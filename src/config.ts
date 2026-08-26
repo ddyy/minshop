@@ -115,12 +115,14 @@ export interface SiteConfig {
    * - 'lightning' — Bitcoin Lightning via a self-hosted node (phoenixd / LNbits);
    *                 minshop mints a BOLT11 invoice and renders its own /pay page.
    * - 'opennode'  — hosted Lightning checkout (OpenNode; custodial processor).
+   * - 'paypal'    — hosted PayPal Checkout (Orders API v2); shipping collected in-app.
    * Overridable per-environment via the PAYMENT_PROVIDER var (wrangler.jsonc).
-   * NOTE: the Lightning flows are total-of-line-items only — shipping address,
-   * Stripe Tax, and promo codes are Stripe-Checkout features and are skipped.
+   * NOTE: the Lightning / PayPal / OpenNode flows are total-of-line-items only —
+   * shipping address is collected in-app; Stripe Tax and promo codes are
+   * Stripe-Checkout features and are skipped on those rails.
    */
   payments: {
-    provider: 'stripe' | 'lightning' | 'opennode';
+    provider: 'stripe' | 'lightning' | 'opennode' | 'paypal';
     lightning: {
       /** Which self-hosted node mints invoices when provider is 'lightning'. */
       backend: 'phoenixd' | 'lnbits';
@@ -238,7 +240,7 @@ function defaultConfig(): SiteConfig {
     payments: {
       // Build-time defaults; Admin → Settings → Payments overlays the rail + node
       // choice at runtime (payment_provider / lightning_backend in D1).
-      provider: 'stripe', // 'stripe' (cards) | 'lightning' (self-hosted BTC) | 'opennode'
+      provider: 'stripe', // 'stripe' (cards) | 'lightning' | 'opennode' | 'paypal'
       lightning: {
         backend: 'phoenixd', // 'phoenixd' | 'lnbits'
         invoiceExpiryMinutes: 15,

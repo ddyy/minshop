@@ -24,6 +24,7 @@ const ready = (m: string) => m === "demo" || (!!settings && isMethodAvailable(m 
 const firstReady = methods.find(ready);
 const methodRows = methods.map((m) => ({ m, ready: ready(m), primary: m === firstReady }));
 const METHOD: Record<string, { label: string; hint: string; setupHint: string }> = {
+  paypal: { label: 'Pay with PayPal', hint: 'Secure checkout with PayPal', setupHint: 'Set up PayPal' },
   stripe: { label: 'Pay with card', hint: 'Visa, Mastercard, Apple Pay & more', setupHint: 'Set up card payments' },
   lightning: { label: 'Pay with Lightning ⚡', hint: 'Instant — from any Lightning wallet', setupHint: 'Set up Lightning' },
   opennode: { label: 'Pay with Bitcoin', hint: 'On-chain or Lightning (OpenNode)', setupHint: 'Set up OpenNode' },

@@ -2,10 +2,10 @@ import type { D1Database } from '@cloudflare/workers-types';
 import type { PaidOrderInput, OrderItemInput, ShippingAddress } from '../../orders/db';
 
 /**
- * Pending Lightning payments — the in-flight state between minting a BOLT11
- * invoice and the customer paying it. NOT an order until settled (see
- * migrations/0014). Used only by the self-rendered backends (phoenixd / LNbits);
- * OpenNode also uses it because its webhook cannot echo application state.
+ * Pending payments — the in-flight state between starting checkout and settlement.
+ * NOT an order until settled (see migrations/0014). Used by self-rendered Lightning
+ * (phoenixd / LNbits), and by hosted rails (OpenNode, PayPal) whose webhooks cannot
+ * echo the full cart/shipping snapshot.
  */
 export interface PendingPayment {
   id: number;

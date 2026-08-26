@@ -20,6 +20,7 @@ import { getLightningBackend } from '../features/payments/lightning';
 import { mintLightningOrder } from '../features/payments/lightning-provider';
 import {
   DEMO_CHECKOUT_TTL_SECONDS,
+  PAYPAL_CHECKOUT_TTL_SECONDS,
   isMethodAvailable,
   getPaymentProvider,
 } from '../features/payments';
@@ -38,15 +39,15 @@ const fld = (name: string) => (form?.get(name) ?? '').toString().trim();
 /**
  * The in-app shipping checkout, shared by every rail that cannot collect a
  * destination on its own hosted page: Lightning has no hosted page at all,
- * OpenNode's ignores addresses, and Demo has none. Stripe skips this — it collects
- * the address itself, after the session is created.
+ * PayPal and OpenNode ignore addresses on their hosted flows, and Demo has none.
+ * Stripe skips this — it collects the address itself, after the session is created.
  *
  * Gate on the chosen rail being AVAILABLE (configured), not on it being the
  * default, so the method picker can route here whatever the store's default is.
  * The rail arrives as a query param on the first hop and as a hidden field across
  * the address → shipping steps (the forms post to a bare /checkout).
  */
-const IN_APP_RAILS = ['lightning', 'opennode', 'demo'] as const;
+const IN_APP_RAILS = ['paypal', 'lightning', 'opennode', 'demo'] as const;
 type InAppRail = (typeof IN_APP_RAILS)[number];
 const requestedRail = (fld('method') || Astro.url.searchParams.get('method') || '').trim();
 const rail: InAppRail = (IN_APP_RAILS as readonly string[]).includes(requestedRail)
@@ -159,6 +160,7 @@ const editAddressHref = (() => {
   return `/checkout?${params}`;
 })();
 const RAIL_LABEL: Record<InAppRail, string> = {
+  paypal: 'Pay with PayPal',
   lightning: 'Pay with Lightning',
   opennode: 'Pay with Bitcoin',
   demo: 'Place demo order',
@@ -259,6 +261,8 @@ if (submitted) {
           const reservationTtl =
             rail === 'demo'
               ? DEMO_CHECKOUT_TTL_SECONDS
+              : rail === 'paypal'
+                ? PAYPAL_CHECKOUT_TTL_SECONDS + 5 * 60
               : cfg.payments.lightning.invoiceExpiryMinutes * 60 + 5 * 60;
           const reserved = await reserveInventory(
             env.DB,
