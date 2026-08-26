@@ -30,6 +30,10 @@ import {
   truncatePublicId,
   PUBLIC_ID_TOKEN_LENGTH,
 } from '../../../features/ids/publicId';
+import {
+  deliveryMethodLabel,
+  fulfillmentStatusLabel,
+} from '../../../features/orders/fulfillmentLabels';
 
 // Order lookup: a bare 10-char token, a full ord_<token> (or preserved legacy
 // public ID), or a legacy calculated number via order_reference_aliases. The
@@ -354,8 +358,9 @@ const listError = Astro.url.searchParams.get('error');
                     ? 'bg-green-50 text-green-700 ring-green-200'
                     : 'bg-white text-gray-500 ring-line'
                 }`}
+                title={deliveryMethodLabel(o.delivery_method)}
               >
-                {o.fulfillment_status === 'fulfilled' ? 'Fulfilled' : 'Unfulfilled'}
+                {fulfillmentStatusLabel(o.fulfillment_status, o.delivery_method)}
               </span>
             </td>
             <td data-label="When" class="py-3 text-gray-500">{formatDate(o.created_at, undefined, timeZone)}</td>
