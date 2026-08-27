@@ -474,6 +474,14 @@ const willEmailCustomer =
                       <span class="block text-xs uppercase tracking-widest text-gray-400">Ship from — name</span>
                       <input name="from_name" value={shipFrom.name ?? ''} required class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
                     </label>
+                    <label class="block sm:col-span-2">
+                      <span class="block text-xs uppercase tracking-widest text-gray-400">Email</span>
+                      <input name="from_email" type="email" value={shipFrom.email ?? ''} class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                    </label>
+                    <label class="block">
+                      <span class="block text-xs uppercase tracking-widest text-gray-400">Phone</span>
+                      <input name="from_phone" type="tel" value={shipFrom.phone ?? ''} class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                    </label>
                     <label class="block sm:col-span-3">
                       <span class="block text-xs uppercase tracking-widest text-gray-400">Street</span>
                       <input name="from_street1" value={shipFrom.street1 ?? ''} required class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
@@ -519,7 +527,8 @@ const willEmailCustomer =
                   </button>
                   <p class="text-xs text-gray-500">
                     Address and box size are remembered for the next label. Weight is prefilled
-                    from the order’s recorded shipment weight when there is one.
+                    from the order’s recorded shipment weight when there is one. Email and phone
+                    are required for Transglobal Express.
                   </p>
                 </form>
               )}

@@ -17,6 +17,9 @@ export interface ShipFrom {
   state: string;
   zip: string;
   country: string; // ISO alpha-2
+  /** Required by some carriers (e.g. Transglobal Express). */
+  email?: string;
+  phone?: string;
 }
 
 /** Outer box dimensions. Imperial weight units imply inches; metric → cm. */
@@ -77,6 +80,10 @@ export interface LabelQuoteInput {
   parcel: ParcelInput;
   weightUnit: WeightUnit;
   orderPublicId?: string | null;
+  /** Declared goods value in major currency units (needed by TGE GetQuote). */
+  consignmentValueMajor?: number;
+  /** ISO currency for consignmentValueMajor (TGE customs; quotes still settle in GBP). */
+  currency?: string;
 }
 
 /**
@@ -93,6 +100,8 @@ export interface LabelProvider {
   purchase(
     rate: LabelRate,
     orderPublicId?: string | null,
+    /** Opaque id from fetchRates — required by adapters that book from a quote (e.g. TGE). */
+    shipmentId?: string,
   ): Promise<LabelResult<PurchasedLabel>>;
   findTransactionForRate(
     rateId: string,
@@ -139,7 +148,10 @@ export function parseParcelForm(
 /** Default carrier-code mapping for common aggregator names. */
 export function defaultCarrierCodeFor(provider: string): string {
   const p = provider.toLowerCase();
-  for (const code of ['usps', 'ups', 'fedex', 'dhl']) {
+  if (p.includes('royal mail')) return 'royal_mail';
+  if (p.includes('dpd')) return 'dpd';
+  if (p.includes('evri') || p.includes('hermes')) return 'evri';
+  for (const code of ['usps', 'ups', 'fedex', 'dhl', 'tnt']) {
     if (p.includes(code)) return code;
   }
   return 'other';

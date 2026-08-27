@@ -44,6 +44,7 @@ import { getStoreSettings } from '../../../../features/settings/db';
 import { shouldSendCustomerOrderEmail } from '../../../../features/email/orderPolicy';
 import { getPaymentProvider, type PaymentMethod } from '../../../../features/payments';
 import { formatPrice } from '../../../../config';
+import { toMajorUnits } from '../../../../money';
 import { parseOrderOrLegacyPublicId, parsePublicId } from '../../../../features/ids/publicId';
 
 export const prerender = false;
@@ -460,6 +461,8 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
         state: String(form.get('from_state') ?? '').trim(),
         zip: String(form.get('from_zip') ?? '').trim(),
         country: String(form.get('from_country') ?? '').trim().toUpperCase(),
+        email: String(form.get('from_email') ?? '').trim() || undefined,
+        phone: String(form.get('from_phone') ?? '').trim() || undefined,
       };
       if (!from.name || !from.street1 || !from.city || !from.zip || from.country.length !== 2) {
         return fail('Fill in the complete ship-from address (2-letter country).');
@@ -502,6 +505,8 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
         parcel: parsed.parcel,
         weightUnit: settings.weightUnit,
         orderPublicId: existing.public_id,
+        consignmentValueMajor: toMajorUnits(existing.amount_total_cents, existing.currency),
+        currency: existing.currency,
       });
       if (!rates.ok) return fail(rates.error);
       // The quote binds to THIS order in D1. Refusal means a purchase is in
@@ -532,7 +537,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
       return fail('That rate is no longer offered. Fetch rates again.');
     }
 
-    const bought = await labels.purchase(rate, existing.public_id);
+    const bought = await labels.purchase(rate, existing.public_id, claim.shipmentId);
     if (!bought.ok) {
       if (bought.uncertain) {
         // The charge MAY have landed. Park it — never auto-retry a purchase —
