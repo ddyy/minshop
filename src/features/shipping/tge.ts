@@ -12,6 +12,7 @@
  * Docs: https://services3.transglobalexpress.co.uk/Documentation/
  */
 
+import type { CustomsDeclaration } from './customs.ts';
 import {
   defaultCarrierCodeFor,
   distanceUnitFor,
@@ -139,6 +140,18 @@ function tgeAddress(
   };
 }
 
+/** Pure: map shared customs lines onto TGE CommodityDetails (kg + major value). */
+export function tgeCommodityDetails(customs: CustomsDeclaration): Record<string, unknown>[] {
+  return customs.items.map((line) => ({
+    CommodityCode: line.hsCode,
+    CommodityDescription: line.description,
+    CountryOfOrigin: { CountryCode: line.originCountry },
+    NumberOfUnits: line.quantity,
+    UnitValue: line.unitValueMajor,
+    UnitWeight: gramsToKg(line.unitWeightGrams),
+  }));
+}
+
 /** Pure: GetQuote request body (credentials filled by the caller). */
 export function buildTgeQuotePayload(
   from: ShipFrom,
@@ -148,12 +161,29 @@ export function buildTgeQuotePayload(
   consignmentValueMajor: number,
   currency: string,
   orderPublicId?: string | null,
+  customs?: CustomsDeclaration,
 ): Record<string, unknown> {
   const email = (from.email ?? '').trim();
   const phone = (from.phone ?? '').trim();
   const toEmail = (to.email ?? email).trim() || email;
   // Delivery phone is mandatory for TGE; reuse ship-from when the order has none.
   const toPhone = phone;
+  const collection = {
+    ...tgeAddress(
+      from.name,
+      from.street1,
+      null,
+      from.city,
+      from.state || null,
+      from.zip,
+      from.country,
+      email,
+      phone,
+      false,
+    ),
+    ...(customs?.eori && { EORINumber: customs.eori }),
+    ...(customs?.vatNumber && { VATNumber: customs.vatNumber }),
+  };
   return {
     Shipment: {
       Consignment: {
@@ -168,21 +198,14 @@ export function buildTgeQuotePayload(
             Length: toCm(parcel.length, weightUnit),
             Width: toCm(parcel.width, weightUnit),
             Height: toCm(parcel.height, weightUnit),
+            ...(customs &&
+              customs.items.length > 0 && {
+                CommodityDetails: tgeCommodityDetails(customs),
+              }),
           },
         ],
       },
-      CollectionAddress: tgeAddress(
-        from.name,
-        from.street1,
-        null,
-        from.city,
-        from.state || null,
-        from.zip,
-        from.country,
-        email,
-        phone,
-        false,
-      ),
+      CollectionAddress: collection,
       DeliveryAddress: tgeAddress(
         to.name,
         to.line1,
@@ -328,6 +351,16 @@ export async function fetchTgeRates(
     return { ok: false, error: 'Transglobal Express needs a positive consignment value for the quote.' };
   }
   const env = credentials.environment ?? 'live';
+  if (
+    input.from.country.toUpperCase() !== input.to.country.toUpperCase() &&
+    (!input.customs || input.customs.items.length === 0)
+  ) {
+    return {
+      ok: false,
+      error:
+        'International Transglobal quotes need a customs declaration — set HS code and country of origin on each product.',
+    };
+  }
   const result = await tgePost(
     endpoints(env).quote,
     credentials,
@@ -339,6 +372,7 @@ export async function fetchTgeRates(
       value,
       input.currency ?? 'GBP',
       input.orderPublicId,
+      input.customs,
     ),
   );
   if (!result.ok) return result;

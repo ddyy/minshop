@@ -18,6 +18,12 @@ export interface Product {
   /** 0 = digital/no fulfillment: excluded from shipment weight and from the
    *  missing-weight check, so a mixed cart can still check out. */
   requires_shipping: number;
+  /** Harmonized System code for international labels (digits; nullable). */
+  hs_code: string | null;
+  /** ISO alpha-2 country of manufacture / origin for customs. */
+  country_of_origin: string | null;
+  /** Short customs description; null → use product name at label time. */
+  customs_description: string | null;
   file_key: string | null;
   file_name: string | null;
   file_mime: string | null;
@@ -38,6 +44,9 @@ export interface ProductFields {
   active: number;
   weight_grams: number | null;
   requires_shipping: number;
+  hs_code: string | null;
+  country_of_origin: string | null;
+  customs_description: string | null;
 }
 
 /** Full input for create/update — form fields plus resolved image key + slug. */
@@ -179,15 +188,21 @@ export async function setRelatedIds(
     .run();
 }
 
-export async function getProductsByIds(db: D1Database, ids: number[]): Promise<Product[]> {
-  if (ids.length === 0) return [];
-  const placeholders = ids.map(() => '?').join(',');
+export async function getProductsByIds(
+  db: D1Database,
+  ids: number[],
+  opts: { activeOnly?: boolean } = {},
+): Promise<Product[]> {
+  const unique = [...new Set(ids.filter((id) => Number.isFinite(id) && id > 0))];
+  if (unique.length === 0) return [];
+  const placeholders = unique.map(() => '?').join(',');
+  const activeClause = opts.activeOnly === false ? '' : ' AND active = 1';
   const { results } = await db
-    .prepare(`SELECT * FROM products WHERE id IN (${placeholders}) AND active = 1`)
-    .bind(...ids)
+    .prepare(`SELECT * FROM products WHERE id IN (${placeholders})${activeClause}`)
+    .bind(...unique)
     .all<Product>();
   const byId = new Map((results ?? []).map((p) => [p.id, p]));
-  return ids.map((id) => byId.get(id)).filter((p): p is Product => p !== undefined);
+  return unique.map((id) => byId.get(id)).filter((p): p is Product => p !== undefined);
 }
 
 /** Active products for many public IDs in one cart-resolution read. */
@@ -394,11 +409,26 @@ export async function createProduct(db: D1Database, p: ProductInput): Promise<nu
   return withPublicId('product', async (publicId) => {
     const row = await db
       .prepare(
-        `INSERT INTO products (name, slug, description, price_cents, currency, image_key, stock, active, weight_grams, requires_shipping, public_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO products (name, slug, description, price_cents, currency, image_key, stock, active, weight_grams, requires_shipping, hs_code, country_of_origin, customs_description, public_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING id`,
       )
-      .bind(p.name, p.slug, p.description, p.price_cents, p.currency, p.image_key, p.stock, p.active, p.weight_grams, p.requires_shipping, publicId)
+      .bind(
+        p.name,
+        p.slug,
+        p.description,
+        p.price_cents,
+        p.currency,
+        p.image_key,
+        p.stock,
+        p.active,
+        p.weight_grams,
+        p.requires_shipping,
+        p.hs_code,
+        p.country_of_origin,
+        p.customs_description,
+        publicId,
+      )
       .first<{ id: number }>();
     return row!.id;
   });
@@ -409,10 +439,25 @@ export async function updateProduct(db: D1Database, id: number, p: ProductInput)
     .prepare(
       `UPDATE products
          SET name = ?, slug = ?, description = ?, price_cents = ?, currency = ?, image_key = ?, stock = ?, active = ?,
-             weight_grams = ?, requires_shipping = ?
+             weight_grams = ?, requires_shipping = ?, hs_code = ?, country_of_origin = ?, customs_description = ?
        WHERE id = ?`,
     )
-    .bind(p.name, p.slug, p.description, p.price_cents, p.currency, p.image_key, p.stock, p.active, p.weight_grams, p.requires_shipping, id)
+    .bind(
+      p.name,
+      p.slug,
+      p.description,
+      p.price_cents,
+      p.currency,
+      p.image_key,
+      p.stock,
+      p.active,
+      p.weight_grams,
+      p.requires_shipping,
+      p.hs_code,
+      p.country_of_origin,
+      p.customs_description,
+      id,
+    )
     .run();
 }
 

@@ -8,8 +8,10 @@ import {
   parseTgeRates,
   pickTgeLabel,
   splitPersonName,
+  tgeCommodityDetails,
 } from './tge';
 import type { LabelRate } from './labelProvider';
+import type { CustomsDeclaration } from './customs';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -75,6 +77,40 @@ describe('buildTgeQuotePayload', () => {
     const pkg = (body.Shipment as { Consignment: { Packages: Array<{ Length: number }> } })
       .Consignment.Packages[0]!;
     expect(pkg.Length).toBeCloseTo(25.4, 5);
+  });
+
+  it('embeds commodity details and EORI for international', () => {
+    const customs: CustomsDeclaration = {
+      currency: 'GBP',
+      eori: 'GB123',
+      vatNumber: 'GB456',
+      items: [
+        {
+          description: 'Tee',
+          quantity: 2,
+          unitValueMajor: 12.5,
+          unitWeightGrams: 200,
+          hsCode: '610910',
+          originCountry: 'GB',
+        },
+      ],
+    };
+    const intlTo = { ...to, country: 'FR' };
+    const body = buildTgeQuotePayload(from, intlTo, parcel, 'g', 25, 'GBP', 'ord_1', customs);
+    const shipment = body.Shipment as {
+      Consignment: { Packages: Array<{ CommodityDetails: unknown[] }> };
+      CollectionAddress: { EORINumber?: string; VATNumber?: string };
+    };
+    expect(shipment.CollectionAddress.EORINumber).toBe('GB123');
+    expect(shipment.CollectionAddress.VATNumber).toBe('GB456');
+    expect(shipment.Consignment.Packages[0]!.CommodityDetails).toEqual(
+      tgeCommodityDetails(customs),
+    );
+    expect(tgeCommodityDetails(customs)[0]).toMatchObject({
+      CommodityCode: '610910',
+      UnitWeight: 0.2,
+      NumberOfUnits: 2,
+    });
   });
 });
 

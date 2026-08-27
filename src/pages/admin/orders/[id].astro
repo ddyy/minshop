@@ -3,6 +3,12 @@ import { env } from 'cloudflare:workers';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { formatPrice, formatDate, getConfig } from '../../../config';
 import { getOrderByPublicId, listOrderItemsWithImages, listOrderInventoryExceptions } from '../../../features/orders/db';
+import { getProductsByIds } from '../../../features/products/db';
+import {
+  buildCustomsDeclaration,
+  needsCustomsDeclaration,
+  type CustomsProductFields,
+} from '../../../features/shipping/customs';
 import { orderReference } from '../../../features/orders/number';
 import { CARRIERS, carrierName, trackingUrl } from '../../../features/orders/tracking';
 import { getEmailProvider } from '../../../features/email';
@@ -96,6 +102,8 @@ const labelUncertain =
   (labelRecord?.status === 'purchasing' && isPurchaseStale(labelRecord));
 let shipFrom: Partial<ShipFrom> = {};
 let parcelDefault: Partial<{ length: number; width: number; height: number }> = {};
+let customsEori = '';
+let customsVat = '';
 if (canLabel) {
   try {
     shipFrom = JSON.parse((await getSetting(env.DB, 'ship_from')) ?? '{}');
@@ -103,6 +111,8 @@ if (canLabel) {
   try {
     parcelDefault = JSON.parse((await getSetting(env.DB, 'parcel_default')) ?? '{}');
   } catch {}
+  customsEori = (await getSetting(env.DB, 'customs_eori')) ?? '';
+  customsVat = (await getSetting(env.DB, 'customs_vat')) ?? '';
 }
 const dimUnit = distanceUnitFor(weightUnit);
 const parcelWeightValue =
@@ -136,11 +146,45 @@ const ship = order.ship_address
       country: string | null;
     })
   : null;
-// Domestic-only for now: international labels need a customs declaration this
-// flow doesn't collect. Warn on the page only when the saved origin makes the
-// mismatch knowable; the POST enforces it regardless.
 const labelInternational =
-  !!shipFrom.country && !!ship?.country && shipFrom.country.toUpperCase() !== ship.country.toUpperCase();
+  !!shipFrom.country && !!ship?.country && needsCustomsDeclaration(shipFrom.country, ship.country);
+
+let customsReady = true;
+let customsGaps: string[] = [];
+if (canLabel && labelInternational) {
+  const products = await getProductsByIds(
+    env.DB,
+    items.map((i) => i.product_id).filter((pid): pid is number => pid != null),
+    { activeOnly: false },
+  );
+  const productsById = new Map<number, CustomsProductFields>(
+    products.map((p) => [
+      p.id,
+      {
+        hs_code: p.hs_code,
+        country_of_origin: p.country_of_origin,
+        customs_description: p.customs_description,
+        weight_grams: p.weight_grams,
+        requires_shipping: p.requires_shipping,
+      },
+    ]),
+  );
+  const built = buildCustomsDeclaration({
+    lines: items.map((i) => ({
+      name: i.name,
+      price_cents: i.price_cents,
+      quantity: i.quantity,
+      product_id: i.product_id,
+    })),
+    productsById,
+    currency: order.currency,
+    parcelWeightGrams: order.shipping_weight_grams ?? 500,
+  });
+  if (!built.ok) {
+    customsReady = false;
+    customsGaps = built.missing;
+  }
+}
 // Whether fulfillment will actually email the customer — demo orders never do,
 // there may be no address on file, and email itself may be unconfigured (no
 // provider key). The UI must not promise a send that would be skipped.
@@ -412,13 +456,23 @@ const willEmailCustomer =
                     </a>
                   )}
                 </p>
-              ) : labelInternational && labelRates.length === 0 ? (
-                <p class="text-gray-600">
-                  This order ships to {ship?.country} but your saved ship-from address is in{' '}
-                  {shipFrom.country} — international labels aren’t supported yet (they need a
-                  customs declaration). Buy the label in your carrier dashboard, then record the
-                  tracking number below.
-                </p>
+              ) : labelInternational && !customsReady && labelRates.length === 0 ? (
+                <div class="space-y-2 text-gray-600">
+                  <p>
+                    This order ships to {ship?.country} from {shipFrom.country} — international
+                    labels need HS codes and country of origin on each product before rates can be
+                    fetched.
+                  </p>
+                  <ul class="list-disc space-y-1 pl-5 text-sm text-red-700">
+                    {customsGaps.map((g) => (
+                      <li>{g}</li>
+                    ))}
+                  </ul>
+                  <p class="text-xs text-gray-500">
+                    Edit the products, then return here. Or buy the label in your carrier dashboard
+                    and record tracking below.
+                  </p>
+                </div>
               ) : (
                 <Fragment>
               {labelRecord?.status === 'failed' && labelRecord.error && (
@@ -518,6 +572,18 @@ const willEmailCustomer =
                       <span class="block text-xs uppercase tracking-widest text-gray-400">Packed weight ({weightUnit})</span>
                       <input name="parcel_weight" value={parcelWeightValue} required inputmode="decimal" class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
                     </label>
+                    <label class="block sm:col-span-2">
+                      <span class="block text-xs uppercase tracking-widest text-gray-400">Exporter EORI (optional)</span>
+                      <input name="customs_eori" value={customsEori} class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                    </label>
+                    <label class="block">
+                      <span class="block text-xs uppercase tracking-widest text-gray-400">VAT number (optional)</span>
+                      <input name="customs_vat" value={customsVat} class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                    </label>
+                    <p class="sm:col-span-3 text-xs text-gray-500">
+                      For international labels, customs lines use each product’s HS code, origin,
+                      and description (set on the product edit page). EORI/VAT are remembered.
+                    </p>
                   </div>
                   <button
                     type="submit"

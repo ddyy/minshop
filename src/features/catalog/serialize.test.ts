@@ -20,6 +20,9 @@ const base: Product = {
   variant_label: null,
   weight_grams: null,
   requires_shipping: 1,
+  hs_code: null,
+  country_of_origin: null,
+  customs_description: null,
   related_ids: null,
   created_at: '2026-06-18 00:00:00',
 };

@@ -7,13 +7,20 @@ import {
   unfulfillOrder,
   type ShippingAddress,
   resolveInventoryException,
+  listOrderItems,
 } from '../../../../features/orders/db';
+import { getProductsByIds } from '../../../../features/products/db';
 import { setSetting } from '../../../../features/settings/db';
 import {
   getLabelProvider,
   parseParcelForm,
   type ShipFrom,
 } from '../../../../features/shipping/labels.ts';
+import {
+  buildCustomsDeclaration,
+  needsCustomsDeclaration,
+  type CustomsProductFields,
+} from '../../../../features/shipping/customs.ts';
 import {
   claimPurchase,
   discardLabelAttempt,
@@ -467,14 +474,6 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
       if (!from.name || !from.street1 || !from.city || !from.zip || from.country.length !== 2) {
         return fail('Fill in the complete ship-from address (2-letter country).');
       }
-      // Domestic only, for now: an international label needs a customs
-      // declaration (contents, values, phone numbers) this flow does not
-      // collect, so the provider would refuse or the parcel would stall at export.
-      if (from.country !== shipTo.country.toUpperCase()) {
-        return fail(
-          `International labels aren’t supported yet (this order ships to ${shipTo.country.toUpperCase()}). Buy this label in your carrier dashboard, then record the tracking number here.`,
-        );
-      }
       const settings = await getStoreSettings(env.DB);
       const parsed = parseParcelForm(
         {
@@ -487,6 +486,51 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
       );
       if (!parsed.parcel) return fail(parsed.error ?? 'Check the parcel fields.');
 
+      const eori = String(form.get('customs_eori') ?? '').trim();
+      const vatNumber = String(form.get('customs_vat') ?? '').trim();
+
+      let customs = undefined;
+      if (needsCustomsDeclaration(from.country, shipTo.country)) {
+        const orderItems = await listOrderItems(env.DB, id);
+        const products = await getProductsByIds(
+          env.DB,
+          orderItems.map((i) => i.product_id).filter((pid): pid is number => pid != null),
+          { activeOnly: false },
+        );
+        const productsById = new Map<number, CustomsProductFields>(
+          products.map((p) => [
+            p.id,
+            {
+              hs_code: p.hs_code,
+              country_of_origin: p.country_of_origin,
+              customs_description: p.customs_description,
+              weight_grams: p.weight_grams,
+              requires_shipping: p.requires_shipping,
+            },
+          ]),
+        );
+        const built = buildCustomsDeclaration({
+          lines: orderItems.map((i) => ({
+            name: i.name,
+            price_cents: i.price_cents,
+            quantity: i.quantity,
+            product_id: i.product_id,
+          })),
+          productsById,
+          currency: existing.currency,
+          parcelWeightGrams: parsed.parcel.weightGrams,
+          eori: eori || undefined,
+          vatNumber: vatNumber || undefined,
+          certifySigner: from.name,
+        });
+        if (!built.ok) {
+          return fail(
+            `International labels need customs data on each product: ${built.missing.join(' ')}`,
+          );
+        }
+        customs = built.declaration;
+      }
+
       // Remember for next time regardless of whether a label gets bought.
       await setSetting(env.DB, 'ship_from', JSON.stringify(from));
       await setSetting(
@@ -498,6 +542,8 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
           height: parsed.parcel.height,
         }),
       );
+      await setSetting(env.DB, 'customs_eori', eori);
+      await setSetting(env.DB, 'customs_vat', vatNumber);
 
       const rates = await labels.fetchRates({
         from,
@@ -507,6 +553,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
         orderPublicId: existing.public_id,
         consignmentValueMajor: toMajorUnits(existing.amount_total_cents, existing.currency),
         currency: existing.currency,
+        customs,
       });
       if (!rates.ok) return fail(rates.error);
       // The quote binds to THIS order in D1. Refusal means a purchase is in

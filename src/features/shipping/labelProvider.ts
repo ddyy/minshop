@@ -7,6 +7,7 @@
  * routes and labelStore stay provider-agnostic.
  */
 
+import type { CustomsDeclaration } from './customs.ts';
 import { toGrams, type WeightParseResult, type WeightUnit } from './weight.ts';
 
 /** The store's return / collection address. */
@@ -84,6 +85,11 @@ export interface LabelQuoteInput {
   consignmentValueMajor?: number;
   /** ISO currency for consignmentValueMajor (TGE customs; quotes still settle in GBP). */
   currency?: string;
+  /**
+   * Required for cross-border labels. Built from product HS/origin fields;
+   * adapters map onto Shippo customs declarations or TGE CommodityDetails.
+   */
+  customs?: CustomsDeclaration;
 }
 
 /**

@@ -19,6 +19,7 @@ import {
   type ReconcileOutcome,
   type ShipFrom,
 } from './labelProvider.ts';
+import type { CustomsDeclaration } from './customs.ts';
 import type { WeightUnit } from './weight.ts';
 
 const SHIPPO_BASE = 'https://api.goshippo.com';
@@ -32,6 +33,35 @@ interface ShippoAddress {
   zip: string;
   country: string;
   email?: string;
+  phone?: string;
+}
+
+/** Pure: Shippo customs/declarations body from our shared declaration. */
+export function buildShippoCustomsPayload(customs: CustomsDeclaration): Record<string, unknown> {
+  const items = customs.items.map((line) => {
+    const netWeight = Math.max(1, line.unitWeightGrams * line.quantity);
+    return {
+      description: line.description,
+      quantity: line.quantity,
+      net_weight: String(netWeight),
+      mass_unit: 'g',
+      value_amount: String(Math.round(line.unitValueMajor * line.quantity * 100) / 100),
+      value_currency: customs.currency,
+      origin_country: line.originCountry,
+      hs_code: line.hsCode,
+    };
+  });
+  return {
+    contents_type: 'MERCHANDISE',
+    non_delivery_option: 'RETURN',
+    certify: true,
+    certify_signer: (customs.certifySigner ?? 'Store').slice(0, 50),
+    incoterm: 'DDU',
+    items,
+    ...(customs.eori && {
+      exporter_identification: { number: customs.eori, type: 'EORI' },
+    }),
+  };
 }
 
 /** Build the create-shipment payload. Pure, so tests can pin the wire shape. */
@@ -41,6 +71,7 @@ export function buildShipmentPayload(
   parcel: ParcelInput,
   weightUnit: WeightUnit,
   orderPublicId?: string | null,
+  customsDeclarationId?: string | null,
 ): Record<string, unknown> {
   const addressFrom: ShippoAddress = {
     name: from.name,
@@ -49,6 +80,8 @@ export function buildShipmentPayload(
     state: from.state,
     zip: from.zip,
     country: from.country.toUpperCase(),
+    ...(from.email && { email: from.email }),
+    ...(from.phone && { phone: from.phone }),
   };
   const addressTo: ShippoAddress = {
     name: to.name,
@@ -75,6 +108,7 @@ export function buildShipmentPayload(
     ],
     async: false,
     ...(orderPublicId && { metadata: `order ${orderPublicId}` }),
+    ...(customsDeclarationId && { customs_declaration: customsDeclarationId }),
   };
 }
 
@@ -161,10 +195,25 @@ export async function fetchLabelRates(
   parcel: ParcelInput,
   weightUnit: WeightUnit,
   orderPublicId?: string | null,
+  customs?: CustomsDeclaration,
 ): Promise<LabelResult<{ shipmentId: string; rates: LabelRate[] }>> {
+  let customsId: string | null = null;
+  if (customs && customs.items.length > 0) {
+    const declared = await shippo(token, '/customs/declarations/', {
+      method: 'POST',
+      body: buildShippoCustomsPayload(customs),
+    });
+    if (!declared.ok) return declared;
+    const id = (declared.value as { object_id?: string }).object_id;
+    if (!id) {
+      return { ok: false, error: 'Shippo did not return a customs declaration id.' };
+    }
+    customsId = id;
+  }
+
   const result = await shippo(token, '/shipments/', {
     method: 'POST',
-    body: buildShipmentPayload(from, to, parcel, weightUnit, orderPublicId),
+    body: buildShipmentPayload(from, to, parcel, weightUnit, orderPublicId, customsId),
   });
   if (!result.ok) return result;
   const shipment = result.value as ShippoShipment;
@@ -311,6 +360,7 @@ export function createShippoLabelProvider(token: string): LabelProvider {
         input.parcel,
         input.weightUnit,
         input.orderPublicId,
+        input.customs,
       ),
     getRates: (shipmentId) => getShipmentRates(token, shipmentId),
     purchase: (rate, orderPublicId) =>
