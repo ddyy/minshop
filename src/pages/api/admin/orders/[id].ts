@@ -8,15 +8,10 @@ import {
   type ShippingAddress,
   resolveInventoryException,
 } from '../../../../features/orders/db';
-import { getSecret } from '../../../../features/secrets/store';
 import { setSetting } from '../../../../features/settings/db';
 import {
-  carrierCodeFor,
-  fetchLabelRates,
-  findTransactionForRate,
-  getShipmentRates,
+  getLabelProvider,
   parseParcelForm,
-  purchaseLabel,
   type ShipFrom,
 } from '../../../../features/shipping/labels.ts';
 import {
@@ -317,39 +312,39 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
   };
 
   // ── Shipping labels ────────────────────────────────────────────────────────
-  // Buying moves money on the merchant's Shippo account, so every step runs
-  // through the shipping_labels state machine: one row per order, conditional
+  // Buying moves money on the merchant's label-provider account, so every step
+  // runs through the shipping_labels state machine: one row per order, conditional
   // claims, and an explicit human gate for ambiguous outcomes. The shipment id
   // is NEVER taken from the request — only from this order's own row.
 
   if (action === 'label_discard') {
     // Quotes and definitively-failed attempts only. A SUBMITTED purchase may
-    // still be completing at Shippo — only reconciliation can settle those.
+    // still be completing at the provider — only reconciliation can settle those.
     return (await discardLabelAttempt(env.DB, id))
       ? notice('Label attempt discarded. You can fetch rates again.')
-      : fail('There is no discardable label attempt — a submitted purchase must be reconciled with Shippo instead.');
+      : fail('There is no discardable label attempt — a submitted purchase must be reconciled with the label provider instead.');
   }
 
   if (action === 'label_force_discard') {
     // The risk-bearing override, chosen by a human who has read what it costs:
     // deleting a submitted attempt ends the single-shot guarantee for this
     // order — if the lost request completes after all, its label will exist
-    // only at Shippo. Reconciliation is always the safe path; this exists for
-    // attempts whose POST plausibly never left the building.
+    // only at the provider. Reconciliation is always the safe path; this exists
+    // for attempts whose POST plausibly never left the building.
     return (await forceDiscardLabelAttempt(env.DB, id))
       ? notice(
-          'Attempt force-discarded. If the original request did reach Shippo, its label will appear only in your Shippo dashboard.',
+          'Attempt force-discarded. If the original request did reach the label provider, its label will appear only in your provider dashboard.',
         )
       : fail('There is no submitted attempt to force-discard.');
   }
 
-  // Ask Shippo what actually happened to a submitted-but-unsettled attempt.
-  // This is the ONLY path that reopens (proven no purchase → 'failed') or
-  // durably records (found a SUCCESS transaction → same guarded completion as
-  // a live purchase) an ambiguous attempt.
+  // Ask the label provider what actually happened to a submitted-but-unsettled
+  // attempt. This is the ONLY path that reopens (proven no purchase → 'failed')
+  // or durably records (found a SUCCESS transaction → same guarded completion
+  // as a live purchase) an ambiguous attempt.
   if (action === 'label_reconcile') {
-    const token = await getSecret(env.DB, 'shippo_api_key');
-    if (!token) return fail('Add a Shippo API token in Settings first.');
+    const labels = await getLabelProvider(env.DB);
+    if (!labels) return fail('Configure a shipping-label provider in Settings first.');
     const record = await getLabelRecord(env.DB, id);
     const settleable =
       record &&
@@ -362,18 +357,17 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
 
     // Provider/service/amount come from the shipment's own rate list — the
     // transaction record does not carry them.
-    const rates = await getShipmentRates(token, record.shipment_id);
+    const rates = await labels.getRates(record.shipment_id);
     const rate = rates.ok ? rates.value.find((r) => r.rateId === record.rate_id) : null;
-    const outcome = await findTransactionForRate(
-      token,
+    const outcome = await labels.findTransactionForRate(
       record.rate_id!,
       rate?.provider ?? record.provider ?? 'Carrier',
     );
-    if (!outcome.ok) return fail(`Could not reconcile with Shippo: ${outcome.error}`);
+    if (!outcome.ok) return fail(`Could not reconcile with the label provider: ${outcome.error}`);
 
     if (outcome.value.state === 'pending') {
       return fail(
-        'Shippo has no settled answer yet — the purchase may still be processing or not yet visible. Try again shortly; nothing was changed.',
+        'The label provider has no settled answer yet — the purchase may still be processing or not yet visible. Try again shortly; nothing was changed.',
       );
     }
     if (outcome.value.state === 'refunded') {
@@ -387,11 +381,11 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
         amountCents: rate?.amountCents ?? record.amount_cents ?? 0,
         trackingNumber: refFound.trackingNumber,
         labelUrl: refFound.labelUrl,
-        carrierCode: carrierCodeFor(refFound.provider),
+        carrierCode: labels.carrierCodeFor(refFound.provider),
       });
       if (!audited) return fail('The attempt changed state while reconciling — reload and check again.');
       return notice(
-        `Shippo shows the label was purchased and then refunded (transaction ${refFound.transactionId}). Recorded — you can fetch rates again.`,
+        `The label provider shows the label was purchased and then refunded (transaction ${refFound.transactionId}). Recorded — you can fetch rates again.`,
       );
     }
     if (outcome.value.state === 'none') {
@@ -399,12 +393,12 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
         env.DB,
         id,
         record.claim_token!,
-        'Reconciled with Shippo: the attempt terminated in ERROR without purchasing.',
+        'Reconciled with the label provider: the attempt terminated in ERROR without purchasing.',
       );
       if (!failed) {
         return fail('The attempt changed state while reconciling — reload and check again.');
       }
-      return notice('Shippo explicitly reports the attempt failed without purchasing. You can fetch rates again.');
+      return notice('The label provider explicitly reports the attempt failed without purchasing. You can fetch rates again.');
     }
     const found = outcome.value.label;
     const recorded = await recordPurchased(env.DB, id, record.claim_token!, {
@@ -414,25 +408,25 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
       amountCents: rate?.amountCents ?? record.amount_cents ?? 0,
       trackingNumber: found.trackingNumber,
       labelUrl: found.labelUrl,
-      carrierCode: carrierCodeFor(found.provider),
+      carrierCode: labels.carrierCodeFor(found.provider),
     });
     if (!recorded.recorded) {
       return fail('The attempt changed state while reconciling — reload and check again.');
     }
     if (!recorded.orderFulfilled) {
       return notice(
-        `Label ${found.trackingNumber} recovered from Shippo and recorded — but the order refused fulfillment (refunded or already fulfilled). Reconcile the shipment by hand.`,
+        `Label ${found.trackingNumber} recovered and recorded — but the order refused fulfillment (refunded or already fulfilled). Reconcile the shipment by hand.`,
       );
     }
     await queueShippedDelivery(id);
     return notice(
-      `Label ${found.trackingNumber} recovered from Shippo, recorded, and the order fulfilled.`,
+      `Label ${found.trackingNumber} recovered, recorded, and the order fulfilled.`,
     );
   }
 
   if (action === 'label_rates' || action === 'buy_label') {
-    const token = await getSecret(env.DB, 'shippo_api_key');
-    if (!token) return fail('Add a Shippo API token in Settings first.');
+    const labels = await getLabelProvider(env.DB);
+    if (!labels) return fail('Configure a shipping-label provider in Settings first.');
     if (!existing.ship_address) return fail('This order has no shipping address.');
     let raw: ShippingAddress;
     try {
@@ -441,7 +435,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
       return fail('This order’s shipping address could not be read.');
     }
     // The snapshot's fields are nullable (provider shapes vary); a label needs
-    // the essentials, so refuse with the gap named rather than 500 at Shippo.
+    // the essentials, so refuse with the gap named rather than 500 at the provider.
     if (!raw.name || !raw.line1 || !raw.city || !raw.postal || !raw.country) {
       return fail(
         'This order’s shipping address is incomplete — a label needs name, street, city, postal code, and country.',
@@ -472,10 +466,10 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
       }
       // Domestic only, for now: an international label needs a customs
       // declaration (contents, values, phone numbers) this flow does not
-      // collect, so Shippo would refuse or the parcel would stall at export.
+      // collect, so the provider would refuse or the parcel would stall at export.
       if (from.country !== shipTo.country.toUpperCase()) {
         return fail(
-          `International labels aren’t supported yet (this order ships to ${shipTo.country.toUpperCase()}). Buy this label in your Shippo dashboard, then record the tracking number here.`,
+          `International labels aren’t supported yet (this order ships to ${shipTo.country.toUpperCase()}). Buy this label in your carrier dashboard, then record the tracking number here.`,
         );
       }
       const settings = await getStoreSettings(env.DB);
@@ -502,14 +496,13 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
         }),
       );
 
-      const rates = await fetchLabelRates(
-        token,
+      const rates = await labels.fetchRates({
         from,
-        shipTo,
-        parsed.parcel,
-        settings.weightUnit,
-        existing.public_id,
-      );
+        to: shipTo,
+        parcel: parsed.parcel,
+        weightUnit: settings.weightUnit,
+        orderPublicId: existing.public_id,
+      });
       if (!rates.ok) return fail(rates.error);
       // The quote binds to THIS order in D1. Refusal means a purchase is in
       // progress, done, or the order is no longer labelable (unpaid, fulfilled,
@@ -528,7 +521,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     if (!claim) {
       return fail('No open quote to purchase — fetch rates first (or a purchase is already under way).');
     }
-    const rates = await getShipmentRates(token, claim.shipmentId);
+    const rates = await labels.getRates(claim.shipmentId);
     if (!rates.ok) {
       await markLabelFailed(env.DB, id, claim.claimToken, rates.error);
       return fail(rates.error);
@@ -539,15 +532,14 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
       return fail('That rate is no longer offered. Fetch rates again.');
     }
 
-    const bought = await purchaseLabel(token, rate.rateId, rate.provider, existing.public_id);
+    const bought = await labels.purchase(rate, existing.public_id);
     if (!bought.ok) {
       if (bought.uncertain) {
         // The charge MAY have landed. Park it — never auto-retry a purchase —
-        // and point the merchant at the dashboard record (tagged with the
-        // order id via metadata) before they explicitly discard.
+        // and point the merchant at reconciliation before they explicitly discard.
         await markLabelUncertain(env.DB, id, claim.claimToken, bought.error);
         return fail(
-          `Shippo’s answer was lost mid-purchase (${bought.error}) — the label MAY have been bought. Use “Reconcile with Shippo” on this order to settle it either way.`,
+          `The label provider’s answer was lost mid-purchase (${bought.error}) — the label MAY have been bought. Use “Reconcile with provider” on this order to settle it either way.`,
         );
       }
       await markLabelFailed(env.DB, id, claim.claimToken, bought.error);
@@ -564,14 +556,14 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
       amountCents: rate.amountCents,
       trackingNumber: bought.value.trackingNumber,
       labelUrl: bought.value.labelUrl,
-      carrierCode: carrierCodeFor(bought.value.provider),
+      carrierCode: labels.carrierCodeFor(bought.value.provider),
     });
     if (!recorded.recorded) {
       // This attempt was superseded (its lease expired and it was discarded)
-      // while Shippo processed it — the label exists ONLY at Shippo. Nothing
-      // here was touched, by design; the charge still needs human eyes.
+      // while the provider processed it — the label exists ONLY at the provider.
+      // Nothing here was touched, by design; the charge still needs human eyes.
       return fail(
-        `A label (${bought.value.trackingNumber}) was purchased by an attempt that had already been discarded — it is not recorded here. Reconcile it in your Shippo dashboard (order ${existing.public_id}).`,
+        `A label (${bought.value.trackingNumber}) was purchased by an attempt that had already been discarded — it is not recorded here. Reconcile it in your label-provider dashboard (order ${existing.public_id}).`,
       );
     }
     if (!recorded.orderFulfilled) {
