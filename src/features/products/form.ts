@@ -1,5 +1,6 @@
 import type { ProductFields } from './db';
 import { toMinorUnits } from '../../money';
+import { normalizeHsCode, normalizeOriginCountry } from '../shipping/customs';
 import { toGrams, type WeightUnit } from '../shipping/weight';
 
 export interface ProductFormOptions {
@@ -61,8 +62,41 @@ export function parseProductForm(
     };
   }
 
+  const hsRaw = String(form.get('hs_code') ?? '').trim();
+  let hs_code: string | null = null;
+  if (hsRaw) {
+    hs_code = normalizeHsCode(hsRaw);
+    if (!hs_code) {
+      return { error: 'HS code must be at least 6 digits (punctuation is fine).' };
+    }
+  }
+
+  const originRaw = String(form.get('country_of_origin') ?? '').trim();
+  let country_of_origin: string | null = null;
+  if (originRaw) {
+    country_of_origin = normalizeOriginCountry(originRaw);
+    if (!country_of_origin) {
+      return { error: 'Country of origin must be a 2-letter code (e.g. GB, CN).' };
+    }
+  }
+
+  const customs_description =
+    String(form.get('customs_description') ?? '').trim().slice(0, 200) || null;
+
   return {
-    data: { name, description, price_cents, currency, stock, active, weight_grams, requires_shipping },
+    data: {
+      name,
+      description,
+      price_cents,
+      currency,
+      stock,
+      active,
+      weight_grams,
+      requires_shipping,
+      hs_code,
+      country_of_origin,
+      customs_description,
+    },
   };
 }
 

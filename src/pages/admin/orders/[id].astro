@@ -3,16 +3,21 @@ import { env } from 'cloudflare:workers';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { formatPrice, formatDate, getConfig } from '../../../config';
 import { getOrderByPublicId, listOrderItemsWithImages, listOrderInventoryExceptions } from '../../../features/orders/db';
+import { getProductsByIds } from '../../../features/products/db';
+import {
+  buildCustomsDeclaration,
+  needsCustomsDeclaration,
+  type CustomsProductFields,
+} from '../../../features/shipping/customs';
 import { orderReference } from '../../../features/orders/number';
 import { CARRIERS, carrierName, trackingUrl } from '../../../features/orders/tracking';
-import { getSecret } from '../../../features/secrets/store';
 import { getEmailProvider } from '../../../features/email';
 import { getStoreSettings } from '../../../features/settings/db';
 import { getSetting } from '../../../features/settings/db';
 import { formatWeightValue } from '../../../features/shipping/weight';
 import {
   distanceUnitFor,
-  getShipmentRates,
+  getLabelProvider,
   type LabelRate,
   type ShipFrom,
 } from '../../../features/shipping/labels.ts';
@@ -53,21 +58,21 @@ const inventoryExceptions = await listOrderInventoryExceptions(env.DB, order.id)
 const fulfilled = order.fulfillment_status === 'fulfilled';
 const weightUnit = Astro.locals.settings?.weightUnit ?? 'g';
 
-// ── Shipping label (Shippo) ──────────────────────────────────────────────────
-// Gated on the token (stores without Shippo see nothing) and on the order being
-// a paid, unfulfilled DELIVERY order — pickup orders have no parcel to send.
+// ── Shipping label (LabelProvider — Shippo today) ────────────────────────────
+// Gated on a configured provider (stores without one see nothing) and on the
+// order being a paid, unfulfilled DELIVERY order — pickup orders have no parcel.
 // All label state lives in this order's shipping_labels row; the page never
 // reads a shipment id from the URL, so another order's quote cannot be spliced
 // in. Rates render on a plain GET, so the flow needs no JS.
-const shippoToken = await getSecret(env.DB, 'shippo_api_key');
+const labelProvider = await getLabelProvider(env.DB);
 // canLabel gates QUOTING AND BUYING only. The label record itself is loaded
 // unconditionally: a purchased label whose order refused fulfillment (refund
 // mid-purchase, forced manual fulfil) is money already spent, and it must stay
-// visible on fulfilled/refunded orders — even if the Shippo token was removed.
+// visible on fulfilled/refunded orders — even if the provider token was removed.
 const labelRecord = await getLabelRecord(env.DB, order.id);
 const labelAttempts = await listLabelAttempts(env.DB, order.id);
 const canLabel =
-  !!shippoToken &&
+  !!labelProvider &&
   !!order.ship_address &&
   !fulfilled &&
   order.status === 'paid' &&
@@ -77,8 +82,8 @@ const canLabel =
   order.delivery_method === 'shipping';
 let labelRates: LabelRate[] = [];
 let labelRatesError: string | null = null;
-if (canLabel && labelRecord?.status === 'quoted' && shippoToken) {
-  const rates = await getShipmentRates(shippoToken, labelRecord.shipment_id);
+if (canLabel && labelRecord?.status === 'quoted' && labelProvider) {
+  const rates = await labelProvider.getRates(labelRecord.shipment_id);
   if (rates.ok) labelRates = rates.value;
   else labelRatesError = rates.error;
 }
@@ -97,6 +102,8 @@ const labelUncertain =
   (labelRecord?.status === 'purchasing' && isPurchaseStale(labelRecord));
 let shipFrom: Partial<ShipFrom> = {};
 let parcelDefault: Partial<{ length: number; width: number; height: number }> = {};
+let customsEori = '';
+let customsVat = '';
 if (canLabel) {
   try {
     shipFrom = JSON.parse((await getSetting(env.DB, 'ship_from')) ?? '{}');
@@ -104,6 +111,8 @@ if (canLabel) {
   try {
     parcelDefault = JSON.parse((await getSetting(env.DB, 'parcel_default')) ?? '{}');
   } catch {}
+  customsEori = (await getSetting(env.DB, 'customs_eori')) ?? '';
+  customsVat = (await getSetting(env.DB, 'customs_vat')) ?? '';
 }
 const dimUnit = distanceUnitFor(weightUnit);
 const parcelWeightValue =
@@ -137,11 +146,45 @@ const ship = order.ship_address
       country: string | null;
     })
   : null;
-// Domestic-only for now: international labels need a customs declaration this
-// flow doesn't collect. Warn on the page only when the saved origin makes the
-// mismatch knowable; the POST enforces it regardless.
 const labelInternational =
-  !!shipFrom.country && !!ship?.country && shipFrom.country.toUpperCase() !== ship.country.toUpperCase();
+  !!shipFrom.country && !!ship?.country && needsCustomsDeclaration(shipFrom.country, ship.country);
+
+let customsReady = true;
+let customsGaps: string[] = [];
+if (canLabel && labelInternational) {
+  const products = await getProductsByIds(
+    env.DB,
+    items.map((i) => i.product_id).filter((pid): pid is number => pid != null),
+    { activeOnly: false },
+  );
+  const productsById = new Map<number, CustomsProductFields>(
+    products.map((p) => [
+      p.id,
+      {
+        hs_code: p.hs_code,
+        country_of_origin: p.country_of_origin,
+        customs_description: p.customs_description,
+        weight_grams: p.weight_grams,
+        requires_shipping: p.requires_shipping,
+      },
+    ]),
+  );
+  const built = buildCustomsDeclaration({
+    lines: items.map((i) => ({
+      name: i.name,
+      price_cents: i.price_cents,
+      quantity: i.quantity,
+      product_id: i.product_id,
+    })),
+    productsById,
+    currency: order.currency,
+    parcelWeightGrams: order.shipping_weight_grams ?? 500,
+  });
+  if (!built.ok) {
+    customsReady = false;
+    customsGaps = built.missing;
+  }
+}
 // Whether fulfillment will actually email the customer — demo orders never do,
 // there may be no address on file, and email itself may be unconfigured (no
 // provider key). The UI must not promise a send that would be skipped.
@@ -284,12 +327,12 @@ const willEmailCustomer =
             {labelRecord.provider} {labelRecord.service}
             {labelRecord.amount_cents != null && <> · {formatPrice(labelRecord.amount_cents)}</>}
             {' '}· tracking <span class="tabular-nums">{labelRecord.tracking_number}</span>
-            {' '}· Shippo transaction <code class="text-xs">{labelRecord.transaction_id}</code>
+            {' '}· provider transaction <code class="text-xs">{labelRecord.transaction_id}</code>
           </p>
           <p class="mb-2">
             The order changed state (refunded or fulfilled another way) while this label was being
-            bought, so its tracking was not applied. The charge is real — void the label in Shippo
-            if it won’t be used.
+            bought, so its tracking was not applied. The charge is real — void the label with your
+            label provider if it won’t be used.
           </p>
           {labelRecord.label_url && (
             <a href={labelRecord.label_url} target="_blank" rel="noopener" class="font-medium underline">
@@ -305,20 +348,20 @@ const willEmailCustomer =
           <p>
             A label purchase for this order did not complete cleanly
             {labelRecord.error && <> ({labelRecord.error})</>} — it <strong>may</strong> have been
-            charged (Shippo order reference <code class="text-xs">{order.public_id}</code>).
+            charged (order reference <code class="text-xs">{order.public_id}</code>).
           </p>
           <form method="POST" action={`/api/admin/orders/${order.public_id}`}>
             <input type="hidden" name="_action" value="label_reconcile" />
             <button type="submit" class="rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover">
-              Reconcile with Shippo
+              Reconcile with label provider
             </button>
           </form>
           <details class="text-xs text-amber-900/80">
-            <summary class="cursor-pointer">The request never reached Shippo? (risk-bearing override)</summary>
+            <summary class="cursor-pointer">The request never reached the provider? (risk-bearing override)</summary>
             <p class="mt-2">
               Force-discarding abandons the single-purchase guarantee for this order: if the
-              lost request did reach Shippo and completes later, that label will exist only
-              in your Shippo dashboard and will not be recorded here. Reconcile first when
+              lost request did reach the provider and completes later, that label will exist only
+              in your provider dashboard and will not be recorded here. Reconcile first when
               in doubt.
             </p>
             <form method="POST" action={`/api/admin/orders/${order.public_id}`} class="mt-2">
@@ -379,21 +422,21 @@ const willEmailCustomer =
                   <p class="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900">
                     A label purchase for this order did not complete cleanly
                     {labelRecord?.error && <> ({labelRecord.error})</>} — it <strong>may</strong> have
-                    been charged. Reconciling asks Shippo directly: a found label is recorded here
-                    and the order fulfilled; a confirmed no-purchase reopens rate fetching.
+                    been charged. Reconciling asks the label provider directly: a found label is
+                    recorded here and the order fulfilled; a confirmed no-purchase reopens rate fetching.
                   </p>
                   <form method="POST" action={`/api/admin/orders/${order.public_id}`}>
                     <input type="hidden" name="_action" value="label_reconcile" />
                     <button type="submit" class="rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover">
-                      Reconcile with Shippo
+                      Reconcile with label provider
                     </button>
                   </form>
                   <details class="text-xs text-amber-900/80">
-                    <summary class="cursor-pointer">The request never reached Shippo? (risk-bearing override)</summary>
+                    <summary class="cursor-pointer">The request never reached the provider? (risk-bearing override)</summary>
                     <p class="mt-2">
                       Force-discarding abandons the single-purchase guarantee for this order: if the
-                      lost request did reach Shippo and completes later, that label will exist only
-                      in your Shippo dashboard and will not be recorded here. Reconcile first when
+                      lost request did reach the provider and completes later, that label will exist only
+                      in your provider dashboard and will not be recorded here. Reconcile first when
                       in doubt.
                     </p>
                     <form method="POST" action={`/api/admin/orders/${order.public_id}`} class="mt-2">
@@ -413,13 +456,23 @@ const willEmailCustomer =
                     </a>
                   )}
                 </p>
-              ) : labelInternational && labelRates.length === 0 ? (
-                <p class="text-gray-600">
-                  This order ships to {ship?.country} but your saved ship-from address is in{' '}
-                  {shipFrom.country} — international labels aren’t supported yet (they need a
-                  customs declaration). Buy the label in your Shippo dashboard, then record the
-                  tracking number below.
-                </p>
+              ) : labelInternational && !customsReady && labelRates.length === 0 ? (
+                <div class="space-y-2 text-gray-600">
+                  <p>
+                    This order ships to {ship?.country} from {shipFrom.country} — international
+                    labels need HS codes and country of origin on each product before rates can be
+                    fetched.
+                  </p>
+                  <ul class="list-disc space-y-1 pl-5 text-sm text-red-700">
+                    {customsGaps.map((g) => (
+                      <li>{g}</li>
+                    ))}
+                  </ul>
+                  <p class="text-xs text-gray-500">
+                    Edit the products, then return here. Or buy the label in your carrier dashboard
+                    and record tracking below.
+                  </p>
+                </div>
               ) : (
                 <Fragment>
               {labelRecord?.status === 'failed' && labelRecord.error && (
@@ -457,7 +510,7 @@ const willEmailCustomer =
                     </button>
                   </div>
                   <p class="text-xs text-gray-500">
-                    Buying charges your Shippo account, records the tracking number, and marks the
+                    Buying charges your label-provider account, records the tracking number, and marks the
                     order fulfilled.{' '}
                     {willEmailCustomer
                       ? 'The customer is emailed the tracking details.'
@@ -474,6 +527,14 @@ const willEmailCustomer =
                     <label class="block sm:col-span-3">
                       <span class="block text-xs uppercase tracking-widest text-gray-400">Ship from — name</span>
                       <input name="from_name" value={shipFrom.name ?? ''} required class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                    </label>
+                    <label class="block sm:col-span-2">
+                      <span class="block text-xs uppercase tracking-widest text-gray-400">Email</span>
+                      <input name="from_email" type="email" value={shipFrom.email ?? ''} class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                    </label>
+                    <label class="block">
+                      <span class="block text-xs uppercase tracking-widest text-gray-400">Phone</span>
+                      <input name="from_phone" type="tel" value={shipFrom.phone ?? ''} class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
                     </label>
                     <label class="block sm:col-span-3">
                       <span class="block text-xs uppercase tracking-widest text-gray-400">Street</span>
@@ -511,6 +572,18 @@ const willEmailCustomer =
                       <span class="block text-xs uppercase tracking-widest text-gray-400">Packed weight ({weightUnit})</span>
                       <input name="parcel_weight" value={parcelWeightValue} required inputmode="decimal" class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
                     </label>
+                    <label class="block sm:col-span-2">
+                      <span class="block text-xs uppercase tracking-widest text-gray-400">Exporter EORI (optional)</span>
+                      <input name="customs_eori" value={customsEori} class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                    </label>
+                    <label class="block">
+                      <span class="block text-xs uppercase tracking-widest text-gray-400">VAT number (optional)</span>
+                      <input name="customs_vat" value={customsVat} class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                    </label>
+                    <p class="sm:col-span-3 text-xs text-gray-500">
+                      For international labels, customs lines use each product’s HS code, origin,
+                      and description (set on the product edit page). EORI/VAT are remembered.
+                    </p>
                   </div>
                   <button
                     type="submit"
@@ -520,7 +593,8 @@ const willEmailCustomer =
                   </button>
                   <p class="text-xs text-gray-500">
                     Address and box size are remembered for the next label. Weight is prefilled
-                    from the order’s recorded shipment weight when there is one.
+                    from the order’s recorded shipment weight when there is one. Email and phone
+                    are required for Transglobal Express.
                   </p>
                 </form>
               )}

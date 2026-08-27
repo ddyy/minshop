@@ -93,6 +93,33 @@ describe('parseProductForm', () => {
     const digital = { name: 'X', price: '5', stock: '1', active: 'on' };
     expect('data' in parseProductForm(form(digital), { requireWeight: true })).toBe(true);
   });
+
+  it('parses HS code and origin', () => {
+    const r = parseProductForm(
+      form({
+        name: 'Tee',
+        price: '5',
+        stock: '1',
+        hs_code: '6109.10',
+        country_of_origin: 'gb',
+        customs_description: 'Cotton tee',
+      }),
+    );
+    expect(r).toMatchObject({
+      data: {
+        hs_code: '610910',
+        country_of_origin: 'GB',
+        customs_description: 'Cotton tee',
+      },
+    });
+  });
+
+  it('rejects a short HS code', () => {
+    expect(
+      'error' in
+        parseProductForm(form({ name: 'X', price: '5', stock: '1', hs_code: '123' })),
+    ).toBe(true);
+  });
 });
 
 describe('validateVariantWeights', () => {

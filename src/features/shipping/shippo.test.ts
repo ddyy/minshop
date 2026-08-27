@@ -1,13 +1,17 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   buildShipmentPayload,
-  findTransactionForRate,
+  buildShippoCustomsPayload,
+  findShippoTransactionForRate as findTransactionForRate,
   purchaseLabel,
+  createShippoLabelProvider,
+  parseRates,
+} from './shippo';
+import {
   carrierCodeFor,
   distanceUnitFor,
   parseDimension,
   parseParcelForm,
-  parseRates,
 } from './labels';
 
 const FROM = {
@@ -61,6 +65,50 @@ describe('buildShipmentPayload', () => {
   it('omits empty street2 rather than sending a blank', () => {
     const payload = buildShipmentPayload(FROM, TO, { length: 1, width: 1, height: 1, weightGrams: 1 }, 'g');
     expect('street2' in (payload.address_to as object)).toBe(false);
+  });
+  it('attaches a customs declaration id when provided', () => {
+    const payload = buildShipmentPayload(
+      FROM,
+      { ...TO, country: 'ca' },
+      { length: 1, width: 1, height: 1, weightGrams: 100 },
+      'g',
+      'ord_1',
+      'customs_abc',
+    );
+    expect(payload.customs_declaration).toBe('customs_abc');
+  });
+});
+
+describe('buildShippoCustomsPayload', () => {
+  it('maps shared customs lines onto Shippo items', () => {
+    const body = buildShippoCustomsPayload({
+      currency: 'GBP',
+      certifySigner: 'Ada',
+      eori: 'GB123',
+      items: [
+        {
+          description: 'Tee',
+          quantity: 2,
+          unitValueMajor: 12.5,
+          unitWeightGrams: 200,
+          hsCode: '610910',
+          originCountry: 'GB',
+        },
+      ],
+    });
+    expect(body).toMatchObject({
+      contents_type: 'MERCHANDISE',
+      certify_signer: 'Ada',
+      exporter_identification: { number: 'GB123', type: 'EORI' },
+    });
+    expect((body.items as unknown[])[0]).toMatchObject({
+      description: 'Tee',
+      quantity: 2,
+      net_weight: '400',
+      value_amount: '25',
+      hs_code: '610910',
+      origin_country: 'GB',
+    });
   });
 });
 
@@ -277,5 +325,18 @@ describe('findTransactionForRate', () => {
   it('accepts an expanded rate object as the exact match', async () => {
     respond({ results: [tx({ rate: { object_id: 'rate_1' } })] });
     expect(await find()).toMatchObject({ ok: true, value: { state: 'purchased' } });
+  });
+});
+
+describe('createShippoLabelProvider', () => {
+  it('exposes a LabelProvider that wraps the free functions', async () => {
+    const provider = createShippoLabelProvider('tok');
+    expect(provider.id).toBe('shippo');
+    expect(provider.carrierCodeFor('USPS')).toBe('usps');
+    globalThis.fetch = vi.fn(
+      async () => new Response(JSON.stringify({ rates: [] }), { status: 200 }),
+    ) as unknown as typeof fetch;
+    const rates = await provider.getRates('ship_1');
+    expect(rates.ok).toBe(false);
   });
 });
