@@ -1,4 +1,5 @@
 import type { D1Database } from '@cloudflare/workers-types';
+import { getConfig } from '../../config';
 import demoSql from '../../../seed-demo.sql?raw';
 
 /**
@@ -25,9 +26,15 @@ export async function catalogIsEmpty(db: D1Database): Promise<boolean> {
   return (row?.n ?? 0) === 0;
 }
 
-/** Load the demo catalog into D1. Idempotent (guarded inserts); runs in one batch. */
+/**
+ * Load the demo catalog into D1. Idempotent (guarded inserts); runs in one batch.
+ * Stamps the store-wide currency afterward — seed SQL omits currency and would
+ * otherwise inherit the schema default (`usd`).
+ */
 export async function seedDemoCatalog(db: D1Database): Promise<void> {
   const stmts = statements(demoSql);
   if (stmts.length === 0) return;
   await db.batch(stmts.map((s) => db.prepare(s)));
+  const currency = getConfig().currency.toLowerCase();
+  await db.prepare('UPDATE products SET currency = ?').bind(currency).run();
 }
