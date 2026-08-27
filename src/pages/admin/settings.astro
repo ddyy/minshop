@@ -297,6 +297,8 @@ if (Astro.request.method === 'POST') {
     }
   } else if (action === 'save_shippo') {
     await applySecrets(['shippo_api_key']);
+  } else if (action === 'save_click_drop') {
+    await applySecrets(['royal_mail_click_drop_api_key']);
   } else if (action === 'save_opennode') {
     await setSetting(env.DB, 'opennode_api_url', String(form.get('opennode_api_url') ?? '').trim() || null);
     await applySecrets(['opennode_api_key']);
@@ -796,6 +798,34 @@ const sections = [
       <form method="POST" class="mt-3 space-y-3">
         <input type="hidden" name="_action" value="save_shippo" />
         <SecretField name="shippo_api_key" label="API token" hint="shippo_live_… or shippo_test_…" storedInD1={inD1('shippo_api_key')} vault={vault} />
+        {vault && (
+          <button type="submit" class="mt-1 rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover">
+            Save
+          </button>
+        )}
+      </form>
+    </div>
+
+    <div class="mb-4 rounded-lg border border-gray-200 bg-white px-4 py-4">
+      <p class="font-medium">Royal Mail Click &amp; Drop</p>
+      <p class="mt-1 text-xs text-gray-500">
+        Push paid delivery orders into Click &amp; Drop so you can print labels in the Royal Mail
+        dashboard. Programmatic label PDFs require an OBA-linked account — without OBA, Admin
+        creates the C&amp;D order and links you there. After you print/despatch in C&amp;D, we
+        poll their API (cron ~every 5 minutes, or “Sync status” on the order) and mark the shop
+        order fulfilled with tracking when available. Custom API integrations have no outbound
+        webhook — only native channels like Shopify get push from Royal Mail. Create an
+        integration API key under Click &amp; Drop → Settings → Integrations.
+      </p>
+      <form method="POST" class="mt-3 space-y-3">
+        <input type="hidden" name="_action" value="save_click_drop" />
+        <SecretField
+          name="royal_mail_click_drop_api_key"
+          label="Integration API key"
+          hint="Bearer token from Click & Drop → Integrations"
+          storedInD1={inD1('royal_mail_click_drop_api_key')}
+          vault={vault}
+        />
         {vault && (
           <button type="submit" class="mt-1 rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover">
             Save

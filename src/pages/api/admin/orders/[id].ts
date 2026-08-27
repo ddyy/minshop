@@ -5,6 +5,8 @@ import {
   getOrderByPublicId,
   fulfillOrder,
   unfulfillOrder,
+  listOrderItems,
+  recordClickDropPush,
   type ShippingAddress,
   resolveInventoryException,
 } from '../../../../features/orders/db';
@@ -19,6 +21,11 @@ import {
   purchaseLabel,
   type ShipFrom,
 } from '../../../../features/shipping/labels.ts';
+import {
+  clickDropDashboardUrl,
+  pushOrderToClickDrop,
+} from '../../../../features/shipping/clickDrop.ts';
+import { syncOneClickDropOrder } from '../../../../features/shipping/clickDropSync.ts';
 import {
   claimPurchase,
   discardLabelAttempt,
@@ -315,6 +322,86 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     }
     return willEmail;
   };
+
+  // ── Royal Mail Click & Drop (push, not label purchase) ────────────────────
+  // Creates a C&D order so the merchant can print in the dashboard. Does not
+  // mark the minshop order fulfilled and does not buy a PDF (OBA-only API).
+  if (action === 'click_drop_push') {
+    const token = await getSecret(env.DB, 'royal_mail_click_drop_api_key');
+    if (!token) return fail('Add a Click & Drop API key in Settings first.');
+    if (existing.click_drop_order_id != null) {
+      return notice(
+        `Already pushed to Click & Drop (order ${existing.click_drop_order_id}). Open it from the fulfillment card.`,
+      );
+    }
+    if (existing.status !== 'paid' || existing.delivery_method === 'pickup') {
+      return fail('Only paid delivery orders can be pushed to Click & Drop.');
+    }
+    if (!existing.ship_address) return fail('This order has no shipping address.');
+    let shipTo: ShippingAddress;
+    try {
+      shipTo = JSON.parse(existing.ship_address) as ShippingAddress;
+    } catch {
+      return fail('This order’s shipping address could not be read.');
+    }
+    const items = await listOrderItems(env.DB, id);
+    const pushed = await pushOrderToClickDrop(token, {
+      order: existing,
+      shipTo,
+      items,
+    });
+    if (!pushed.ok) {
+      return fail(
+        pushed.uncertain
+          ? `${pushed.error} — check Click & Drop for a duplicate before retrying.`
+          : pushed.error,
+      );
+    }
+    const recorded = await recordClickDropPush(env.DB, id, pushed.value.orderIdentifier);
+    if (!recorded) {
+      const again = await getOrder(env.DB, id);
+      const oid = again?.click_drop_order_id ?? pushed.value.orderIdentifier;
+      return notice(
+        `Click & Drop order ${oid} — open ${clickDropDashboardUrl(oid)} to print the label.`,
+      );
+    }
+    return notice(
+      `Pushed to Click & Drop as order ${pushed.value.orderIdentifier}. Open the link on this order to print the label in Royal Mail’s dashboard.`,
+    );
+  }
+
+  if (action === 'click_drop_sync') {
+    const token = await getSecret(env.DB, 'royal_mail_click_drop_api_key');
+    if (!token) return fail('Add a Click & Drop API key in Settings first.');
+    const order = await getOrder(env.DB, id);
+    if (!order) return fail('Order not found.');
+    const outcome = await syncOneClickDropOrder(env.DB, token, order, {
+      origin: new URL(request.url).origin,
+    });
+    if (outcome.status === 'fulfilled') {
+      return notice(
+        outcome.trackingNumber
+          ? `Click & Drop shows this parcel as despatched. Tracking ${outcome.trackingNumber} recorded and the order fulfilled.`
+          : 'Click & Drop shows this parcel as printed/despatched. Order marked fulfilled (no tracking number on the C&D record yet).',
+      );
+    }
+    if (outcome.status === 'pending') {
+      return fail(
+        'Click & Drop has not printed or despatched this order yet — print the label there, then sync again (or wait for the automatic check).',
+      );
+    }
+    if (outcome.status === 'already_fulfilled') {
+      return notice('This order is already fulfilled.');
+    }
+    if (outcome.status === 'skipped') {
+      return fail(outcome.reason);
+    }
+    return fail(
+      outcome.uncertain
+        ? `${outcome.error} — try syncing again shortly.`
+        : outcome.error,
+    );
+  }
 
   // ── Shipping labels ────────────────────────────────────────────────────────
   // Buying moves money on the merchant's Shippo account, so every step runs
