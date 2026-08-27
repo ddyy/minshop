@@ -147,9 +147,11 @@ To swap/add a provider, write one adapter file + wire the factory:
 6. **Migrations are additive.** Numbered files in `migrations/`, `CREATE TABLE IF
    NOT EXISTS` / `ALTER TABLE ADD COLUMN`. Never edit an applied migration; never
    `DROP` destructively.
-7. **Money is integer minor units** (cents) end to end; format only at the edge
-   via `formatPrice()`. Use `toMajorUnits()` / `minorUnitsPerMajor()` for
-   currency math (handles JPY/BHD, not just 2-decimal).
+7. **Money is integer minor units** end to end (pence for GBP, cents for USD/EUR,
+   whole yen for JPY, …); format only at the edge via `formatPrice()`. Use
+   `toMajorUnits()` / `toMinorUnits()` / `minorUnitsPerMajor()` — never hardcode
+   `* 100` / `/ 100`. Prefer currency codes on form labels (`Price (GBP)`); use
+   `minorUnitName()` when prose must name the subunit.
 8. **Tests stay pure.** A `*.test.ts` must NOT import `cloudflare:workers` (vitest
    can't load it). Keep DB/env logic out of unit-tested modules — pass `db` and
    secrets as params (see `lightning/rate.ts`, `auth/session.ts`).

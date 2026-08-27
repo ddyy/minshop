@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { currencyDecimals, minorUnitsPerMajor, toMinorUnits, toMajorUnits } from './money';
+import {
+  currencyDecimals,
+  minorUnitName,
+  minorUnitsPerMajor,
+  toMinorUnits,
+  toMajorUnits,
+} from './money';
 
 describe('currency scaling', () => {
   it('knows decimal places per currency (ISO 4217)', () => {
@@ -23,8 +29,16 @@ describe('currency scaling', () => {
     expect(minorUnitsPerMajor('bhd')).toBe(1000);
   });
 
+  it('names the minor unit for admin copy', () => {
+    expect(minorUnitName('gbp')).toBe('pence');
+    expect(minorUnitName('USD')).toBe('cents');
+    expect(minorUnitName('jpy')).toBe('units');
+    expect(minorUnitName('bhd')).toBe('fils');
+  });
+
   it('converts major → minor scaled by currency', () => {
     expect(toMinorUnits(19.99, 'usd')).toBe(1999);
+    expect(toMinorUnits(19.99, 'gbp')).toBe(1999); // pence, same scale as USD
     expect(toMinorUnits(1000, 'jpy')).toBe(1000); // not 100000
     expect(toMinorUnits(2.5, 'bhd')).toBe(2500);
   });

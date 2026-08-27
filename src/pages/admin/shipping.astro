@@ -8,6 +8,7 @@ import { formatWeightValue, type WeightUnit } from '../../features/shipping/weig
 import { countryOptions } from '../../features/shipping/countries';
 import {
   SHIPPING_LIMITS,
+  SHIPPING_SCHEMA_VERSION,
   documentToForm,
   errorsFor,
   fingerprintRawConfig,
@@ -19,7 +20,7 @@ import {
   type ShippingFormModel,
   type ShippingValidationError,
 } from '../../features/shipping/settings';
-
+import { toMinorUnits } from '../../money';
 export const prerender = false;
 
 const settings = Astro.locals.settings;
@@ -193,14 +194,15 @@ if (Astro.request.method === 'POST') {
 
 function parseModelForPreview(m: ShippingFormModel): ShippingValidationError[] {
   return validateShippingDocument({
-    schema: 2,
+    schema: SHIPPING_SCHEMA_VERSION,
     revision: m.revision + 1,
     enabled: m.enabled,
     packageWeightGrams: 0,
     zones: m.zones.map((z) => ({
       name: z.name,
       countries: z.countries,
-      freeOverCents: z.freeOverValue === '' ? null : Math.round(Number(z.freeOverValue) * 100),
+      freeOverCents:
+        z.freeOverValue === '' ? null : toMinorUnits(Number(z.freeOverValue) || 0, currency),
       rates: z.rates.map((r) => ({
         label: r.label,
         pricing:
@@ -209,10 +211,13 @@ function parseModelForPreview(m: ShippingFormModel): ShippingValidationError[] {
                 type: 'weight' as const,
                 bands: r.bands.map((b) => ({
                   upToGrams: b.noMax ? null : Number(b.upToValue),
-                  amountCents: Math.round(Number(b.amountValue) * 100),
+                  amountCents: toMinorUnits(Number(b.amountValue) || 0, currency),
                 })),
               }
-            : { type: 'flat' as const, amountCents: Math.round(Number(r.amountValue) * 100) },
+            : {
+                type: r.mode === 'pickup' ? ('pickup' as const) : ('flat' as const),
+                amountCents: toMinorUnits(Number(r.amountValue) || 0, currency),
+              },
       })),
     })),
   });

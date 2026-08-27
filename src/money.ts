@@ -3,8 +3,8 @@
  * code (e.g. parseProductForm) without pulling in the Cloudflare runtime.
  *
  * Money is stored as integer MINOR units (what Stripe uses): cents for USD/EUR,
- * whole yen for JPY, thousandths for BHD. The scale per currency comes from Intl's
- * ISO 4217 data, so nothing here hardcodes 100.
+ * pence for GBP, whole yen for JPY, thousandths for BHD. The scale per currency
+ * comes from Intl's ISO 4217 data, so nothing here hardcodes 100.
  *
  * NOTE: correct for display + storage across normal currencies, but a few
  * Stripe-specific quirks aren't captured — HUF/TWD/UGX charge as zero-decimal at
@@ -25,6 +25,35 @@ export function currencyDecimals(currency: string): number {
 /** Minor units per major unit (100 USD, 1 JPY, 1000 BHD). */
 export function minorUnitsPerMajor(currency: string): number {
   return 10 ** currencyDecimals(currency);
+}
+
+/**
+ * English name for a currency's minor unit, for admin copy. Prefer showing major
+ * amounts with the currency code (`Price (GBP)`) when possible; use this when
+ * the prose must name the subunit (e.g. "stored as pence").
+ */
+export function minorUnitName(currency: string): string {
+  switch (currency.toUpperCase()) {
+    case 'GBP':
+      return 'pence';
+    case 'EUR':
+      return 'cents';
+    case 'USD':
+    case 'CAD':
+    case 'AUD':
+    case 'NZD':
+      return 'cents';
+    case 'JPY':
+    case 'KRW':
+    case 'VND':
+      return 'units';
+    case 'BHD':
+    case 'KWD':
+    case 'OMR':
+      return 'fils';
+    default:
+      return currencyDecimals(currency) === 0 ? 'units' : 'minor units';
+  }
 }
 
 /** Major-unit number → integer minor units (19.99 USD → 1999; 1000 JPY → 1000). */
