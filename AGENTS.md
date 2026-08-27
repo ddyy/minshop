@@ -118,6 +118,7 @@ To swap/add a provider, write one adapter file + wire the factory:
 | `PaymentProvider` | `payments/provider.ts` | `payments/index.ts` | stripe, opennode, lightning |
 | `LightningBackend` | `payments/lightning/backend.ts` | `payments/lightning/index.ts` | phoenixd, lnbits |
 | `ShippingCalculator` | `shipping/calculator.ts` | (config-rates) | carrier rates (future) |
+| *(Click & Drop push)* | `shipping/clickDrop.ts` | Admin order action | royal mail C&D create-order + dashboard link |
 | `StorageProvider` | `storage/provider.ts` | `storage/index.ts` | r2 |
 | `EmailProvider` | `email/provider.ts` | `email/index.ts` | resend, cloudflare |
 | `SearchProvider` | `search/provider.ts` | `search/index.ts` | fts, vector (Workers AI + Vectorize) |

@@ -16,6 +16,7 @@ import {
   type LabelRate,
   type ShipFrom,
 } from '../../../features/shipping/labels.ts';
+import { clickDropDashboardUrl } from '../../../features/shipping/clickDrop.ts';
 import {
   getLabelRecord,
   isPurchaseStale,
@@ -60,6 +61,15 @@ const weightUnit = Astro.locals.settings?.weightUnit ?? 'g';
 // reads a shipment id from the URL, so another order's quote cannot be spliced
 // in. Rates render on a plain GET, so the flow needs no JS.
 const shippoToken = await getSecret(env.DB, 'shippo_api_key');
+const clickDropConfigured = !!(await getSecret(env.DB, 'royal_mail_click_drop_api_key'));
+const clickDropUrl =
+  order.click_drop_order_id != null ? clickDropDashboardUrl(order.click_drop_order_id) : null;
+const canPushClickDrop =
+  clickDropConfigured &&
+  !clickDropUrl &&
+  !!order.ship_address &&
+  order.status === 'paid' &&
+  order.delivery_method === 'shipping';
 // canLabel gates QUOTING AND BUYING only. The label record itself is loaded
 // unconditionally: a purchased label whose order refused fulfillment (refund
 // mid-purchase, forced manual fulfil) is money already spent, and it must stay
@@ -276,6 +286,44 @@ const willEmailCustomer =
 
   <div class="mb-8 rounded-lg border border-line p-5">
     <h2 class="mb-3 text-xs uppercase tracking-widest text-gray-400">Fulfillment</h2>
+    {
+      (clickDropUrl || canPushClickDrop) && (
+        <div class="mb-4 rounded-md border border-line bg-white/60 p-4 text-sm">
+          <p class="mb-2 text-xs uppercase tracking-widest text-gray-400">Royal Mail Click &amp; Drop</p>
+          {
+            clickDropUrl ? (
+              <p>
+                Pushed as C&amp;D order{' '}
+                <span class="tabular-nums font-medium">{order.click_drop_order_id}</span>
+                {order.click_drop_pushed_at && (
+                  <span class="text-gray-400"> · {formatDate(order.click_drop_pushed_at, undefined, timeZone)}</span>
+                )}
+                . Print the postage label in Click &amp; Drop, then record tracking below if needed.
+                {' '}
+                <a href={clickDropUrl} target="_blank" rel="noopener" class="font-medium text-accent hover:underline">
+                  Open in Click &amp; Drop
+                </a>
+              </p>
+            ) : (
+              <form method="POST" action={`/api/admin/orders/${order.public_id}`} class="space-y-2">
+                <p class="text-gray-600">
+                  Create this shipment in Click &amp; Drop, then open it there to buy/print the label
+                  (programmatic PDFs need an OBA account).
+                </p>
+                <button
+                  type="submit"
+                  name="_action"
+                  value="click_drop_push"
+                  class="rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover"
+                >
+                  Push to Click &amp; Drop
+                </button>
+              </form>
+            )
+          }
+        </div>
+      )
+    }
     {
       labelUnreconciled && labelRecord && (
         <div class="mb-4 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">

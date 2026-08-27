@@ -42,6 +42,9 @@ export interface Order {
   fulfilled_at: string | null;
   /** Purchased label PDF (Shippo), or null for manual fulfillment. */
   label_url: string | null;
+  /** Royal Mail Click & Drop order id after Admin push, or null. */
+  click_drop_order_id: number | null;
+  click_drop_pushed_at: string | null;
   /** 'pickup' | 'shipping' | NULL (pre-0035 or no shipping). Unknown = shipping. */
   delivery_method: string | null;
   ship_address: string | null; // JSON snapshot (ShippingAddress) or null
@@ -377,6 +380,26 @@ export async function fulfillOrder(
 /** Attach a purchased label's document URL (fulfillOrder records the tracking). */
 export async function setOrderLabelUrl(db: D1Database, id: number, url: string): Promise<void> {
   await db.prepare('UPDATE orders SET label_url = ? WHERE id = ?').bind(url, id).run();
+}
+
+/**
+ * Record a Click & Drop push. Conditional so a concurrent double-submit cannot
+ * overwrite an existing C&D order id (idempotent from Admin's point of view).
+ */
+export async function recordClickDropPush(
+  db: D1Database,
+  id: number,
+  clickDropOrderId: number,
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE orders
+         SET click_drop_order_id = ?2, click_drop_pushed_at = datetime('now')
+       WHERE id = ?1 AND click_drop_order_id IS NULL`,
+    )
+    .bind(id, clickDropOrderId)
+    .run();
+  return (result.meta?.changes ?? 0) > 0;
 }
 
 export async function unfulfillOrder(db: D1Database, id: number): Promise<void> {
