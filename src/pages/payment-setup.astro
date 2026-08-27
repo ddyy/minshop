@@ -42,6 +42,15 @@ const GUIDES: Record<string, Guide> = {
       `Point its webhook at ${origin}/api/webhook/opennode, and set the default rail to OpenNode in Settings → Payments.`,
     ],
   },
+  sumup: {
+    title: 'Set up card payments (SumUp)',
+    intro: 'Accept cards via SumUp Hosted Checkout.',
+    steps: [
+      'Create a SumUp developer account and an API key at developer.sumup.com.',
+      'In Admin → Settings → Payments → Card (SumUp), paste your merchant code and API key.',
+      `Checkout notifications go to ${origin}/api/webhook/sumup automatically (each checkout sets return_url). Set the default rail to SumUp when you want it first.`,
+    ],
+  },
 };
 const guide = GUIDES[method] ?? null;
 ---

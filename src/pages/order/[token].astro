@@ -47,6 +47,7 @@ const PAYMENT_LABELS: Record<string, string> = {
   stripe: 'Card',
   lightning: 'Lightning',
   opennode: 'Bitcoin',
+  sumup: 'SumUp',
   demo: 'Demo (no charge)',
 };
 const paymentLabel = order?.payment_method ? PAYMENT_LABELS[order.payment_method] ?? null : null;

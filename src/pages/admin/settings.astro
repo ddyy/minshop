@@ -300,6 +300,13 @@ if (Astro.request.method === 'POST') {
   } else if (action === 'save_opennode') {
     await setSetting(env.DB, 'opennode_api_url', String(form.get('opennode_api_url') ?? '').trim() || null);
     await applySecrets(['opennode_api_key']);
+  } else if (action === 'save_sumup') {
+    await setSetting(
+      env.DB,
+      'sumup_merchant_code',
+      String(form.get('sumup_merchant_code') ?? '').trim() || null,
+    );
+    await applySecrets(['sumup_api_key']);
   }
   // Admin saves are deliberately coarse and infrequent. Purge both public
   // dependency roots after the write rather than risk a newly added setting
@@ -445,6 +452,7 @@ const paymentMethods: { m: PaymentMethod; label: string }[] = [
   { m: 'stripe', label: 'Card (Stripe)' },
   { m: 'lightning', label: 'Lightning' },
   { m: 'opennode', label: 'Bitcoin (OpenNode)' },
+  { m: 'sumup', label: 'Card (SumUp)' },
   { m: 'demo', label: 'Demo checkout' },
 ];
 const pmRows = paymentMethods.map((r) => {
@@ -460,6 +468,7 @@ const payments = {
   lnbitsUrl: settings.lnbitsUrl ?? '',
   phoenixdUrl: settings.phoenixdUrl ?? '',
   opennodeApiUrl: settings.opennodeApiUrl ?? '',
+  sumupMerchantCode: settings.sumupMerchantCode ?? '',
 };
 
 // Encrypted key vault (features/secrets). Keys are write-only — stored AES-GCM in
@@ -1082,6 +1091,35 @@ const sections = [
           <button type="submit" class="mt-1 rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover">
             Save
           </button>
+        </form>
+      </div>
+
+      {/* Card (SumUp) */}
+      <div class="rounded-lg border border-gray-200 bg-white p-4">
+        <div class="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <p class="font-medium">Card (SumUp)</p>
+            <p class={pmMap.sumup.installed ? 'text-xs text-gray-500' : 'text-xs text-amber-700'}>
+              {pmMap.sumup.installed ? 'Live' : 'Add merchant code + API key to go live'}
+            </p>
+          </div>
+          {pmMap.sumup.installed && <MethodToggle method="sumup" enabled={pmMap.sumup.enabled} label="Card (SumUp)" />}
+        </div>
+        <form method="POST" class="space-y-3 border-t border-gray-100 pt-3">
+          <input type="hidden" name="_action" value="save_sumup" />
+          <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-gray-400">
+            Merchant code
+            <input type="text" name="sumup_merchant_code" value={payments.sumupMerchantCode} placeholder="MCXXXXXX" autocomplete="off" class="w-64 max-w-full rounded-md border border-gray-300 px-3 py-2 text-sm normal-case tracking-normal text-gray-900 focus:border-brand focus:outline-none" />
+          </label>
+          <SecretField name="sumup_api_key" label="API key" hint="from developer.sumup.com → API Keys" storedInD1={inD1('sumup_api_key')} vault={vault} />
+          <p class="text-xs text-gray-500">
+            Point SumUp checkout notifications at <code class="text-[11px]">/api/webhook/sumup</code> via each checkout's <code class="text-[11px]">return_url</code> (set automatically). Refunds: use the SumUp dashboard for now.
+          </p>
+          {vault && (
+            <button type="submit" class="mt-1 rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover">
+              Save
+            </button>
+          )}
         </form>
       </div>
 

@@ -6,6 +6,7 @@ import { createStripeProvider } from './stripe';
 import { createLightningProvider } from './lightning-provider';
 import { getLightningBackend } from './lightning';
 import { createOpenNodeProvider } from './opennode';
+import { createSumUpProvider } from './sumup';
 import { createDemoProvider } from './demo';
 import { getSecret, vaultReady } from '../secrets/store';
 
@@ -13,20 +14,27 @@ export type { PaymentProvider } from './provider';
 export {
   STRIPE_CHECKOUT_TTL_SECONDS,
   OPENNODE_CHECKOUT_TTL_SECONDS,
+  SUMUP_CHECKOUT_TTL_SECONDS,
   RESERVATION_EXPIRY_GRACE_SECONDS,
 } from './provider';
 export { DEMO_CHECKOUT_TTL_SECONDS } from './demo';
 
 // 'demo' is a first-class method — a simulated checkout that's ALWAYS offered
 // (records a real, demo-tagged order). The real rails work only when configured.
-export type PaymentMethod = 'stripe' | 'lightning' | 'opennode' | 'demo';
-const ALL_METHODS: PaymentMethod[] = ['stripe', 'lightning', 'opennode'];
+export type PaymentMethod = 'stripe' | 'lightning' | 'opennode' | 'sumup' | 'demo';
+const ALL_METHODS: PaymentMethod[] = ['stripe', 'lightning', 'opennode', 'sumup'];
 // The buttons always presented at checkout. Each real rail works if configured,
 // else its button leads to setup instructions; demo always works.
 const OFFERED: PaymentMethod[] = ['stripe', 'lightning', 'demo'];
 
 export function isPaymentMethod(value: string): value is PaymentMethod {
-  return value === 'stripe' || value === 'lightning' || value === 'opennode' || value === 'demo';
+  return (
+    value === 'stripe' ||
+    value === 'lightning' ||
+    value === 'opennode' ||
+    value === 'sumup' ||
+    value === 'demo'
+  );
 }
 
 /**
@@ -47,6 +55,8 @@ export function isMethodAvailable(
       return has('stripe_secret_key') && has('stripe_webhook_secret');
     case 'opennode':
       return has('opennode_api_key');
+    case 'sumup':
+      return !!settings.sumupMerchantCode && has('sumup_api_key');
     case 'lightning':
       return settings.lightningBackend === 'lnbits'
         ? !!settings.lnbitsUrl && has('lnbits_api_key')
@@ -96,10 +106,10 @@ export function enabledMethods(
 
 /**
  * Methods the checkout UI shows as buttons — Card, Lightning, Demo (plus any
- * other configured rail, e.g. OpenNode), minus any the admin disabled. Unlike
- * enabledMethods, this keeps UNconfigured-but-not-disabled real rails so they can
- * render a "set this up" link. May be EMPTY when the admin disables everything —
- * the cart/product pages then hide checkout entirely.
+ * other configured rail, e.g. OpenNode / SumUp), minus any the admin disabled.
+ * Unlike enabledMethods, this keeps UNconfigured-but-not-disabled real rails so
+ * they can render a "set this up" link. May be EMPTY when the admin disables
+ * everything — the cart/product pages then hide checkout entirely.
  */
 export function offeredMethods(
   settings: StoreSettings,
@@ -131,6 +141,12 @@ export async function getPaymentProvider(method?: PaymentMethod): Promise<Paymen
       const key = await getSecret(env.DB, 'opennode_api_key');
       if (!key) throw new Error('OpenNode is not configured.');
       return createOpenNodeProvider(env.DB, key, settings.opennodeApiUrl ?? undefined);
+    }
+    case 'sumup': {
+      const apiKey = await getSecret(env.DB, 'sumup_api_key');
+      const merchantCode = settings.sumupMerchantCode;
+      if (!apiKey || !merchantCode) throw new Error('SumUp is not fully configured.');
+      return createSumUpProvider(env.DB, { apiKey, merchantCode });
     }
     case 'stripe':
     default: {
