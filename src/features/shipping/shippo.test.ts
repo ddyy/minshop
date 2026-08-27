@@ -1,13 +1,16 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   buildShipmentPayload,
-  findTransactionForRate,
+  findShippoTransactionForRate as findTransactionForRate,
   purchaseLabel,
+  createShippoLabelProvider,
+  parseRates,
+} from './shippo';
+import {
   carrierCodeFor,
   distanceUnitFor,
   parseDimension,
   parseParcelForm,
-  parseRates,
 } from './labels';
 
 const FROM = {
@@ -277,5 +280,18 @@ describe('findTransactionForRate', () => {
   it('accepts an expanded rate object as the exact match', async () => {
     respond({ results: [tx({ rate: { object_id: 'rate_1' } })] });
     expect(await find()).toMatchObject({ ok: true, value: { state: 'purchased' } });
+  });
+});
+
+describe('createShippoLabelProvider', () => {
+  it('exposes a LabelProvider that wraps the free functions', async () => {
+    const provider = createShippoLabelProvider('tok');
+    expect(provider.id).toBe('shippo');
+    expect(provider.carrierCodeFor('USPS')).toBe('usps');
+    globalThis.fetch = vi.fn(
+      async () => new Response(JSON.stringify({ rates: [] }), { status: 200 }),
+    ) as unknown as typeof fetch;
+    const rates = await provider.getRates('ship_1');
+    expect(rates.ok).toBe(false);
   });
 });

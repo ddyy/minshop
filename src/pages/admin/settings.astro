@@ -20,6 +20,7 @@ import {
 } from '../../features/payments';
 import {
   getStoreSettings,
+  getSetting,
   setSetting,
   setPaymentMethodDisabled,
   setFeatureEnabled,
@@ -297,6 +298,18 @@ if (Astro.request.method === 'POST') {
     }
   } else if (action === 'save_shippo') {
     await applySecrets(['shippo_api_key']);
+    const preferred = String(form.get('label_provider') ?? '').trim();
+    if (preferred === 'shippo' || preferred === 'tge' || preferred === '') {
+      await setSetting(env.DB, 'label_provider', preferred || null);
+    }
+  } else if (action === 'save_tge') {
+    await applySecrets(['tge_api_key', 'tge_api_password']);
+    const envChoice = String(form.get('tge_environment') ?? 'live').trim();
+    await setSetting(env.DB, 'tge_environment', envChoice === 'staging' ? 'staging' : null);
+    const preferred = String(form.get('label_provider') ?? '').trim();
+    if (preferred === 'shippo' || preferred === 'tge' || preferred === '') {
+      await setSetting(env.DB, 'label_provider', preferred || null);
+    }
   } else if (action === 'save_opennode') {
     await setSetting(env.DB, 'opennode_api_url', String(form.get('opennode_api_url') ?? '').trim() || null);
     await applySecrets(['opennode_api_key']);
@@ -467,6 +480,8 @@ const payments = {
 // dormant (the store runs demo-only).
 const vault = capabilities.vault;
 const inD1 = (name: string) => settings.configuredSecrets.includes(name);
+const labelProviderPref = await getSetting(env.DB, 'label_provider');
+const tgeEnvironment = await getSetting(env.DB, 'tge_environment');
 // Per-method toggle/installed state, keyed by method for the cards below.
 const pmMap = Object.fromEntries(pmRows.map((r) => [r.m, r])) as Record<
   string,
@@ -784,8 +799,7 @@ const sections = [
     </div>
 
     {/* Shipping labels are optional infrastructure like the payment rails: the
-        card is one token field, and nothing label-related renders anywhere else
-        until the token exists. */}
+        card is credentials + which LabelProvider to use when more than one is set. */}
     <div class="mb-4 rounded-lg border border-gray-200 bg-white px-4 py-4">
       <p class="font-medium">Shipping labels (Shippo)</p>
       <p class="mt-1 text-xs text-gray-500">
@@ -796,6 +810,49 @@ const sections = [
       <form method="POST" class="mt-3 space-y-3">
         <input type="hidden" name="_action" value="save_shippo" />
         <SecretField name="shippo_api_key" label="API token" hint="shippo_live_… or shippo_test_…" storedInD1={inD1('shippo_api_key')} vault={vault} />
+        <label class="block text-sm">
+          <span class="text-xs uppercase tracking-widest text-gray-400">Prefer this provider when both are set</span>
+          <select name="label_provider" class="mt-1 w-full rounded-md border border-gray-200 px-3 py-2">
+            <option value="" selected={labelProviderPref !== 'shippo' && labelProviderPref !== 'tge'}>Auto (only configured / Shippo first)</option>
+            <option value="shippo" selected={labelProviderPref === 'shippo'}>Shippo</option>
+            <option value="tge" selected={labelProviderPref === 'tge'}>Transglobal Express</option>
+          </select>
+        </label>
+        {vault && (
+          <button type="submit" class="mt-1 rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover">
+            Save
+          </button>
+        )}
+      </form>
+    </div>
+
+    <div class="mb-4 rounded-lg border border-gray-200 bg-white px-4 py-4">
+      <p class="font-medium">Shipping labels (Transglobal Express)</p>
+      <p class="mt-1 text-xs text-gray-500">
+        UK-focused label booking via the Transglobal API (GetQuote + BookShipment). Register a
+        <a href="https://www.transglobalexpress.co.uk/integration/transglobal-api/" class="underline" target="_blank" rel="noopener">staging account</a>
+        to develop; request live credentials from TGE support. Quotes settle in GBP. Ship-from
+        email and phone are required on the order label form. Domestic labels only for now.
+      </p>
+      <form method="POST" class="mt-3 space-y-3">
+        <input type="hidden" name="_action" value="save_tge" />
+        <SecretField name="tge_api_key" label="API key" hint="from your TGE API credentials" storedInD1={inD1('tge_api_key')} vault={vault} />
+        <SecretField name="tge_api_password" label="API password" hint="not your website login password" storedInD1={inD1('tge_api_password')} vault={vault} />
+        <label class="block text-sm">
+          <span class="text-xs uppercase tracking-widest text-gray-400">Environment</span>
+          <select name="tge_environment" class="mt-1 w-full rounded-md border border-gray-200 px-3 py-2">
+            <option value="live" selected={tgeEnvironment !== 'staging'}>Live</option>
+            <option value="staging" selected={tgeEnvironment === 'staging'}>Staging</option>
+          </select>
+        </label>
+        <label class="block text-sm">
+          <span class="text-xs uppercase tracking-widest text-gray-400">Prefer this provider when both are set</span>
+          <select name="label_provider" class="mt-1 w-full rounded-md border border-gray-200 px-3 py-2">
+            <option value="" selected={labelProviderPref !== 'shippo' && labelProviderPref !== 'tge'}>Auto (only configured / Shippo first)</option>
+            <option value="shippo" selected={labelProviderPref === 'shippo'}>Shippo</option>
+            <option value="tge" selected={labelProviderPref === 'tge'}>Transglobal Express</option>
+          </select>
+        </label>
         {vault && (
           <button type="submit" class="mt-1 rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover">
             Save
