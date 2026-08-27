@@ -8,6 +8,7 @@ import { formatWeightValue, type WeightUnit } from '../../features/shipping/weig
 import { countryOptions } from '../../features/shipping/countries';
 import {
   SHIPPING_LIMITS,
+  SHIPPING_SCHEMA_VERSION,
   documentToForm,
   errorsFor,
   fingerprintRawConfig,
@@ -19,7 +20,7 @@ import {
   type ShippingFormModel,
   type ShippingValidationError,
 } from '../../features/shipping/settings';
-
+import { toMinorUnits } from '../../money';
 export const prerender = false;
 
 const settings = Astro.locals.settings;
@@ -40,7 +41,15 @@ let conflict = false;
 let saved = Astro.url.searchParams.get('saved') === '1';
 
 function blankRate(token: string) {
-  return { token, label: '', mode: 'flat' as const, amountValue: '', bands: [] };
+  return {
+    token,
+    label: '',
+    mode: 'flat' as const,
+    amountValue: '',
+    ratePerKgValue: '',
+    maxValue: '',
+    bands: [],
+  };
 }
 function blankZone(token: string) {
   return {
@@ -193,27 +202,48 @@ if (Astro.request.method === 'POST') {
 
 function parseModelForPreview(m: ShippingFormModel): ShippingValidationError[] {
   return validateShippingDocument({
-    schema: 2,
+    schema: SHIPPING_SCHEMA_VERSION,
     revision: m.revision + 1,
     enabled: m.enabled,
     packageWeightGrams: 0,
     zones: m.zones.map((z) => ({
       name: z.name,
       countries: z.countries,
-      freeOverCents: z.freeOverValue === '' ? null : Math.round(Number(z.freeOverValue) * 100),
-      rates: z.rates.map((r) => ({
-        label: r.label,
-        pricing:
-          r.mode === 'weight'
-            ? {
-                type: 'weight' as const,
-                bands: r.bands.map((b) => ({
-                  upToGrams: b.noMax ? null : Number(b.upToValue),
-                  amountCents: Math.round(Number(b.amountValue) * 100),
-                })),
-              }
-            : { type: 'flat' as const, amountCents: Math.round(Number(r.amountValue) * 100) },
-      })),
+      freeOverCents:
+        z.freeOverValue === '' ? null : toMinorUnits(Number(z.freeOverValue) || 0, currency),
+      rates: z.rates.map((r) => {
+        if (r.mode === 'weight') {
+          return {
+            label: r.label,
+            pricing: {
+              type: 'weight' as const,
+              bands: r.bands.map((b) => ({
+                upToGrams: b.noMax ? null : Number(b.upToValue),
+                amountCents: toMinorUnits(Number(b.amountValue) || 0, currency),
+              })),
+            },
+          };
+        }
+        if (r.mode === 'per_weight') {
+          return {
+            label: r.label,
+            pricing: {
+              type: 'per_weight' as const,
+              baseCents: toMinorUnits(Number(r.amountValue) || 0, currency),
+              centsPerKg: toMinorUnits(Number(r.ratePerKgValue) || 0, currency),
+              maxCents:
+                r.maxValue === '' ? null : toMinorUnits(Number(r.maxValue) || 0, currency),
+            },
+          };
+        }
+        return {
+          label: r.label,
+          pricing: {
+            type: r.mode,
+            amountCents: toMinorUnits(Number(r.amountValue) || 0, currency),
+          },
+        };
+      }),
     })),
   });
 }
@@ -383,11 +413,12 @@ const label = (path: string) => `text-xs uppercase tracking-widest text-gray-500
                     class="mt-1 rounded border border-line px-2 py-1 text-sm"
                   >
                     <option value="flat" selected={rate.mode === 'flat'}>Flat price</option>
-                    <option value="weight" selected={rate.mode === 'weight'}>By order weight</option>
+                    <option value="weight" selected={rate.mode === 'weight'}>By order weight (bands)</option>
+                    <option value="per_weight" selected={rate.mode === 'per_weight'}>Per kilogram</option>
                     <option value="pickup" selected={rate.mode === 'pickup'}>Local pickup</option>
                   </select>
                 </label>
-                {rate.mode !== 'weight' && (
+                {(rate.mode === 'flat' || rate.mode === 'pickup') && (
                   <label class="block">
                     <span class={label('')}>{rate.mode === 'pickup' ? 'Fee (0 = free)' : 'Price'}</span>
                     <input
@@ -398,6 +429,40 @@ const label = (path: string) => `text-xs uppercase tracking-widest text-gray-500
                       class="mt-1 w-28 rounded border border-line px-2 py-1 text-sm"
                     />
                   </label>
+                )}
+                {rate.mode === 'per_weight' && (
+                  <>
+                    <label class="block">
+                      <span class={label('')}>Base fee</span>
+                      <input
+                        type="text"
+                        name={`zone[${zone.token}][rate][${rate.token}][amount]`}
+                        value={rate.amountValue}
+                        inputmode="decimal"
+                        class="mt-1 w-28 rounded border border-line px-2 py-1 text-sm"
+                      />
+                    </label>
+                    <label class="block">
+                      <span class={label('')}>Per kg</span>
+                      <input
+                        type="text"
+                        name={`zone[${zone.token}][rate][${rate.token}][rate_per_kg]`}
+                        value={rate.ratePerKgValue}
+                        inputmode="decimal"
+                        class="mt-1 w-28 rounded border border-line px-2 py-1 text-sm"
+                      />
+                    </label>
+                    <label class="block">
+                      <span class={label('')}>Max (optional)</span>
+                      <input
+                        type="text"
+                        name={`zone[${zone.token}][rate][${rate.token}][max]`}
+                        value={rate.maxValue}
+                        inputmode="decimal"
+                        class="mt-1 w-28 rounded border border-line px-2 py-1 text-sm"
+                      />
+                    </label>
+                  </>
                 )}
                 <button
                   name="_action"

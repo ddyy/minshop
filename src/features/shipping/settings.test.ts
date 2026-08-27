@@ -339,6 +339,62 @@ describe('validateShippingDocument', () => {
     });
     expect(messages(bad)).toContain('Enter a price.');
   });
+  it('accepts continuous per-kilogram pricing with an optional cap', () => {
+    const perKg = doc({
+      zones: [
+        {
+          ...doc().zones[0]!,
+          rates: [
+            {
+              label: 'Parcel',
+              pricing: {
+                type: 'per_weight',
+                baseCents: 200,
+                centsPerKg: 350,
+                maxCents: 2000,
+              },
+            },
+          ],
+        },
+      ],
+    });
+    expect(validateShippingDocument(perKg)).toEqual([]);
+    const uncapped = doc({
+      zones: [
+        {
+          ...doc().zones[0]!,
+          rates: [
+            {
+              label: 'Parcel',
+              pricing: { type: 'per_weight', baseCents: 0, centsPerKg: 100, maxCents: null },
+            },
+          ],
+        },
+      ],
+    });
+    expect(validateShippingDocument(uncapped)).toEqual([]);
+  });
+  it('rejects a per-kilogram rate with a bad ceiling', () => {
+    const bad = doc({
+      zones: [
+        {
+          ...doc().zones[0]!,
+          rates: [
+            {
+              label: 'Parcel',
+              pricing: {
+                type: 'per_weight',
+                baseCents: 0,
+                centsPerKg: 100,
+                maxCents: -1,
+              },
+            },
+          ],
+        },
+      ],
+    });
+    expect(messages(bad)).toContain('Enter a maximum price, or leave blank.');
+  });
   it('requires at least one band on a weight rate', () => {
     const empty = doc({
       zones: [
@@ -494,6 +550,28 @@ describe('parseShippingForm', () => {
     const { document, errors } = parseShippingForm(form, { currency: 'usd', unit: 'g' });
     expect(errors).toEqual([]);
     expect(document.zones[0]!.rates[0]!.pricing).toEqual({ type: 'pickup', amountCents: 0 });
+  });
+  it('parses continuous per-kilogram pricing from the editor', () => {
+    const form = new TestForm()
+      .set('enabled', '1')
+      .set('revision', '1')
+      .set('zone_order', 'z_a')
+      .set('zone[z_a][name]', 'UK')
+      .set('zone[z_a][countries][]', 'GB')
+      .set('zone[z_a][rate_order]', 'r_1')
+      .set('zone[z_a][rate][r_1][label]', 'Parcel')
+      .set('zone[z_a][rate][r_1][mode]', 'per_weight')
+      .set('zone[z_a][rate][r_1][amount]', '2.00')
+      .set('zone[z_a][rate][r_1][rate_per_kg]', '3.50')
+      .set('zone[z_a][rate][r_1][max]', '20');
+    const { document, errors } = parseShippingForm(form, { currency: 'gbp', unit: 'g' });
+    expect(errors).toEqual([]);
+    expect(document.zones[0]!.rates[0]!.pricing).toEqual({
+      type: 'per_weight',
+      baseCents: 200,
+      centsPerKg: 350,
+      maxCents: 2000,
+    });
   });
   it('scales amounts by the currency, not by a hardcoded 100', () => {
     const { document } = parseShippingForm(submitted(), { currency: 'jpy', unit: 'g' });

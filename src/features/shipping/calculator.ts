@@ -5,10 +5,10 @@
  * BEFORE a payment provider is chosen — so every rail charges the same number.
  *
  * Model: destination ZONES of rates. A zone matches by country (ISO alpha-2), with
- * '*' as a catch-all. A rate is priced either flat or by total shipment weight
- * (ordered brackets). Pure + dependency-free (no `cloudflare:workers`), so it's
- * unit-testable. Swap `createConfigRatesCalculator` for a carrier-rates adapter
- * (EasyPost/Shippo) later without touching callers.
+ * '*' as a catch-all. A rate is priced flat, by weight bands, continuously per
+ * kilogram, or as local pickup. Pure + dependency-free (no `cloudflare:workers`),
+ * so it's unit-testable. Swap `createConfigRatesCalculator` for a carrier-rates
+ * adapter (EasyPost/Shippo) later without touching callers.
  */
 
 /** The synthesized free-shipping option's label. Shared with Admin validation so a
@@ -46,6 +46,20 @@ export interface WeightRatePricing {
 }
 
 /**
+ * Continuous weight pricing: base fee + (shipment kg × rate). Shipment weight
+ * includes the package allowance. `maxCents` caps the result; omit/null for no
+ * cap. Unknown weight omits the service (same as banded weight).
+ */
+export interface PerWeightRatePricing {
+  type: 'per_weight';
+  baseCents: number;
+  /** Minor units charged per kilogram (1000 g) of shipment weight. */
+  centsPerKg: number;
+  /** Optional ceiling in minor units; null = uncapped. */
+  maxCents: number | null;
+}
+
+/**
  * Collected in person, so weight can never disqualify it and no carrier is
  * involved. Usually free; a flat fee covers stores that charge for packing.
  * The address step still runs — it selects the zone and gives the merchant a
@@ -56,7 +70,11 @@ export interface PickupRatePricing {
   amountCents: number;
 }
 
-export type RatePricing = FlatRatePricing | WeightRatePricing | PickupRatePricing;
+export type RatePricing =
+  | FlatRatePricing
+  | WeightRatePricing
+  | PerWeightRatePricing
+  | PickupRatePricing;
 
 export interface ShippingRate {
   label: string;
@@ -149,6 +167,23 @@ export function bandFor(shipmentWeightGrams: number, bands: WeightBand[]): Weigh
   return null;
 }
 
+/** Continuous per-kg price for a shipment weight (includes package allowance). */
+export function pricePerWeight(
+  shipmentWeightGrams: number,
+  pricing: PerWeightRatePricing,
+): number {
+  const raw =
+    pricing.baseCents + Math.round((shipmentWeightGrams * pricing.centsPerKg) / 1000);
+  const amount = Math.max(0, raw);
+  if (pricing.maxCents != null && amount > pricing.maxCents) return pricing.maxCents;
+  return amount;
+}
+
+/** True when a rate needs a known shipment weight to resolve. */
+export function rateRequiresWeight(pricing: RatePricing): boolean {
+  return pricing.type === 'weight' || pricing.type === 'per_weight';
+}
+
 /**
  * Price a destination. Callers must resolve `shippingRequired` and the effective
  * `enabled` flag BEFORE calling: an all-digital cart or a shipping-disabled store
@@ -184,6 +219,14 @@ export function quoteShipping(cfg: ShippingConfig, input: ShippingQuoteInput): S
     }
     if (shipmentWeightGrams == null) {
       omitted.push({ label: rate.label, reason: 'missing_weight' });
+      continue;
+    }
+    if (rate.pricing.type === 'per_weight') {
+      options.push({
+        label: rate.label,
+        amountCents: pricePerWeight(shipmentWeightGrams, rate.pricing),
+      });
+      deliveryResolved = true;
       continue;
     }
     const band = bandFor(shipmentWeightGrams, rate.pricing.bands);
@@ -241,7 +284,7 @@ export function zonesRequireWeight(cfg: ShippingConfig): boolean {
   if (!cfg.enabled) return false;
   return cfg.zones.some((zone) => {
     const rates = zone.rates.map(normalizeRate);
-    return rates.length > 0 && rates.every((rate) => rate.pricing.type === 'weight');
+    return rates.length > 0 && rates.every((rate) => rateRequiresWeight(rate.pricing));
   });
 }
 

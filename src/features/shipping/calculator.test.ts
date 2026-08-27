@@ -376,6 +376,111 @@ describe('band coverage (property)', () => {
   });
 });
 
+describe('continuous per-kilogram pricing', () => {
+  const perKgCfg: ShippingConfig = {
+    enabled: true,
+    packageWeightGrams: 100,
+    zones: [
+      {
+        countries: ['GB'],
+        rates: [
+          {
+            label: 'Parcel',
+            pricing: {
+              type: 'per_weight',
+              baseCents: 200,
+              centsPerKg: 350,
+              maxCents: null,
+            },
+          },
+        ],
+        freeOverCents: null,
+      },
+    ],
+  };
+
+  it('prices base + kg × rate, including packaging', () => {
+    // 900 g items + 100 g package = 1 kg → 200 + 350 = 550
+    const quote = quoteShipping(perKgCfg, {
+      subtotalCents: 1000,
+      country: 'GB',
+      itemWeightGrams: 900,
+    });
+    expect(quote.shipmentWeightGrams).toBe(1000);
+    expect(quote.options).toEqual([{ label: 'Parcel', amountCents: 550 }]);
+  });
+
+  it('rounds fractional kilograms from gram weights', () => {
+    // 500 g shipment → 0.5 kg × 350 = 175 → 200 + 175 = 375
+    const quote = quoteShipping(
+      { ...perKgCfg, packageWeightGrams: 0 },
+      { subtotalCents: 0, country: 'GB', itemWeightGrams: 500 },
+    );
+    expect(quote.options[0]!.amountCents).toBe(375);
+  });
+
+  it('caps at maxCents when set', () => {
+    const capped: ShippingConfig = {
+      ...perKgCfg,
+      packageWeightGrams: 0,
+      zones: [
+        {
+          ...perKgCfg.zones[0]!,
+          rates: [
+            {
+              label: 'Parcel',
+              pricing: {
+                type: 'per_weight',
+                baseCents: 200,
+                centsPerKg: 350,
+                maxCents: 400,
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const quote = quoteShipping(capped, {
+      subtotalCents: 0,
+      country: 'GB',
+      itemWeightGrams: 5000,
+    });
+    expect(quote.options).toEqual([{ label: 'Parcel', amountCents: 400 }]);
+  });
+
+  it('omits the service when weight is unknown', () => {
+    const quote = quoteShipping(perKgCfg, {
+      subtotalCents: 0,
+      country: 'GB',
+      itemWeightGrams: null,
+    });
+    expect(quote.options).toEqual([]);
+    expect(quote.omitted).toEqual([{ label: 'Parcel', reason: 'missing_weight' }]);
+  });
+
+  it('counts toward zonesRequireWeight like banded weight', () => {
+    expect(zonesRequireWeight(perKgCfg)).toBe(true);
+    expect(
+      zonesRequireWeight({
+        enabled: true,
+        zones: [
+          {
+            countries: ['GB'],
+            rates: [
+              { label: 'Flat', pricing: { type: 'flat', amountCents: 500 } },
+              {
+                label: 'Parcel',
+                pricing: { type: 'per_weight', baseCents: 0, centsPerKg: 100, maxCents: null },
+              },
+            ],
+            freeOverCents: null,
+          },
+        ],
+      }),
+    ).toBe(false);
+  });
+});
+
 describe('allowedCountries', () => {
   it('collects explicit codes and drops the catch-all', () => {
     expect(allowedCountries(cfg).sort()).toEqual(['CA', 'MX', 'US']);

@@ -199,7 +199,9 @@ To swap/add a provider, write one adapter file + wire the factory:
 - **A Lightning backend:** implement `LightningBackend` in
   `features/payments/lightning/<name>.ts`; add a case to `getLightningBackend()`.
 - **A shipping zone/rate:** edit `shipping.zones` in `config.ts` default (or
-  `store.config.ts`). Pure logic lives in `shipping/calculator.ts` — unit-test it.
+  `store.config.ts`), or configure in Admin → Shipping (flat, weight bands,
+  per-kilogram, or pickup). Pure logic lives in `shipping/calculator.ts` —
+  unit-test it.
 - **A migration:** `npx wrangler d1 migrations create minshop-db <name>` → edit →
   `npm run db:migrate` (local) → `npm run db:migrate:remote` (prod, before deploy).
 - **An admin page:** `src/pages/admin/<x>.astro` using `AdminLayout` (add a nav
