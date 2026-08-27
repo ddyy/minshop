@@ -39,11 +39,12 @@ const {
   weightRequired = false,
 } = Astro.props;
 const selected = new Set(selectedCategoryIds);
-// New products default to the store currency; edits keep their own.
-const defaultCurrency = product?.currency ?? getConfig().currency;
+// Currency is store-wide (build-time). Always label and submit the store code —
+// product.currency may still say `usd` from the schema default / demo seed.
+const defaultCurrency = getConfig().currency;
 const priceDecimals = currencyDecimals(defaultCurrency);
 const price = product
-  ? toMajorUnits(product.price_cents, product.currency).toFixed(currencyDecimals(product.currency))
+  ? toMajorUnits(product.price_cents, defaultCurrency).toFixed(priceDecimals)
   : '';
 // Input increment matches the currency's precision: 0.01 (USD), 1 (JPY), 0.001 (BHD).
 const priceStep = priceDecimals > 0 ? (10 ** -priceDecimals).toFixed(priceDecimals) : '1';
@@ -94,7 +95,7 @@ const inputClass =
 
   <div class="grid grid-cols-2 gap-4">
     <div>
-      <label class="block text-sm font-medium" for="price">Price (USD)</label>
+      <label class="block text-sm font-medium" for="price">Price ({defaultCurrency.toUpperCase()})</label>
       <input id="price" name="price" type="number" step={priceStep} min="0" required value={price} class={inputClass} />
     </div>
     <div>

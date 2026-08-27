@@ -53,8 +53,10 @@ const imageViews = images.map((image) => ({
 const imageById = new Map(imageViews.map((image) => [image.id, image]));
 const mainPhoto = product.image_key ? thumbnailSources(product.image_key).src : null;
 // Price inputs are major units; step to the currency's smallest unit (0.01 USD, 1 JPY).
-const priceStep = 1 / minorUnitsPerMajor(product.currency);
-const major = (cents: number) => toMajorUnits(cents, product.currency);
+// Currency is store-wide — don't trust a stale product.currency from the schema default.
+const storeCurrency = getConfig().currency;
+const priceStep = 1 / minorUnitsPerMajor(storeCurrency);
+const major = (cents: number) => toMajorUnits(cents, storeCurrency);
 const weightUnit = Astro.locals.settings?.weightUnit ?? 'g';
 const weightRequired = zonesRequireWeight(shippingFor(Astro.locals.settings).config);
 ---
@@ -361,7 +363,7 @@ const weightRequired = zonesRequireWeight(shippingFor(Astro.locals.settings).con
               />
             </label>
             <label class="flex flex-col gap-1 text-[10px] uppercase tracking-widest text-gray-400">
-              Price ({product.currency.toUpperCase()})
+              Price ({storeCurrency.toUpperCase()})
               <input
                 form="product-form"
                 type="number"
@@ -457,7 +459,7 @@ const weightRequired = zonesRequireWeight(shippingFor(Astro.locals.settings).con
               />
             </label>
             <label class="flex flex-col gap-1 text-[10px] uppercase tracking-widest text-gray-400">
-              Price delta ({product.currency.toUpperCase()})
+              Price delta ({storeCurrency.toUpperCase()})
               <input
                 form="product-form"
                 type="number"

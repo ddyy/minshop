@@ -1,5 +1,6 @@
 ---
 import { formatPrice, formatDate } from '../../config';
+import { currencyDecimals, toMajorUnits } from '../../money';
 import type { Order } from '../orders/db';
 import { listRefunds, reversedRefundIds, refundableCents } from './db';
 import { env } from 'cloudflare:workers';
@@ -15,6 +16,9 @@ const history = await listRefunds(env.DB, order.id);
 const reversed = reversedRefundIds(history);
 const remaining = refundableCents(order);
 const method = order.payment_method;
+const moneyDecimals = currencyDecimals(order.currency);
+const moneyStep = moneyDecimals === 0 ? '1' : `0.${'0'.repeat(moneyDecimals - 1)}1`;
+const majorAmount = (minor: number) => toMajorUnits(minor, order.currency).toFixed(moneyDecimals);
 
 // Which controls make sense depends on what the rail can actually do, not on
 // what minshop would like it to do. Only Stripe can be refunded through an API;
@@ -52,8 +56,6 @@ const KIND_LABEL: Record<string, string> = {
   demo: 'Demo adjustment',
   legacy: 'Recorded before refund history',
 };
-
-const dollars = (cents: number) => (cents / 100).toFixed(2);
 ---
 
 <section class="mb-8 rounded-lg border border-line">
@@ -230,10 +232,10 @@ const dollars = (cents: number) => (cents / 100).toFixed(2);
               <input
                 type="number"
                 name="amount"
-                step="0.01"
-                min="0.01"
-                max={dollars(remaining)}
-                value={dollars(remaining)}
+                step={moneyStep}
+                min={moneyStep}
+                max={majorAmount(remaining)}
+                value={majorAmount(remaining)}
                 required
                 aria-label="Refund amount"
                 class="w-28 rounded-md border border-line px-2 py-1.5 text-sm tabular-nums"
@@ -270,12 +272,12 @@ const dollars = (cents: number) => (cents / 100).toFixed(2);
               <input
                 type="number"
                 name="amount"
-                step="0.01"
+                step={moneyStep}
                 min="0"
-                max={dollars(order.amount_total_cents)}
+                max={majorAmount(order.amount_total_cents)}
                 required
                 aria-label="Total refunded at the provider"
-                placeholder={dollars(order.amount_total_cents)}
+                placeholder={majorAmount(order.amount_total_cents)}
                 class="w-28 rounded-md border border-line px-2 py-1.5 text-sm tabular-nums"
               />
               <input

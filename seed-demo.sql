@@ -1,6 +1,8 @@
 -- seed-demo.sql — 30 demo products across 6 categories (no images — they show the placeholder).
 -- Local dev demo data (separate from seed.sql). Re-runnable: every insert is
--- guarded so a second run is a no-op. Add product images later in Admin → Products.
+-- guarded so a second run is a no-op. Currency is stamped by seedDemoCatalog()
+-- (or a follow-up UPDATE) to the store-wide code — do not rely on the schema
+-- DEFAULT 'usd'. Add product images later in Admin → Products.
 --   wrangler d1 execute minshop-db --local --file=./seed-demo.sql
 
 -- ── Categories ───────────────────────────────────────────────────────────────

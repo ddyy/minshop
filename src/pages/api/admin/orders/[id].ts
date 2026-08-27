@@ -49,6 +49,7 @@ import { getStoreSettings } from '../../../../features/settings/db';
 import { shouldSendCustomerOrderEmail } from '../../../../features/email/orderPolicy';
 import { getPaymentProvider, type PaymentMethod } from '../../../../features/payments';
 import { formatPrice } from '../../../../config';
+import { toMinorUnits } from '../../../../money';
 import { parseOrderOrLegacyPublicId, parsePublicId } from '../../../../features/ids/publicId';
 
 export const prerender = false;
@@ -75,10 +76,10 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     redirect(`/admin/orders/${publicId}?error=${encodeURIComponent(msg)}`, 303);
   const notice = (msg: string) =>
     redirect(`/admin/orders/${publicId}?notice=${encodeURIComponent(msg)}`, 303);
-  const cents = () => {
+  const parseAmount = () => {
     const raw = String(form.get('amount') ?? '').trim();
-    // Merchants type dollars; everything downstream is cents.
-    const n = Math.round(Number(raw) * 100);
+    // Merchants type major units; everything downstream is integer minor units.
+    const n = toMinorUnits(Number(raw), existing.currency);
     return Number.isFinite(n) ? n : NaN;
   };
   const admin = String(form.get('_admin') ?? '') || null;
@@ -196,7 +197,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
   if (action === 'record_refund') {
     const order = await getOrder(env.DB, id);
     if (!order) return fail('Order not found.');
-    const amount = cents();
+    const amount = parseAmount();
     if (!Number.isFinite(amount) || amount <= 0) return fail('Enter a refund amount above zero.');
 
     const result = await recordExternalRefund(env.DB, {
@@ -235,7 +236,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
   if (action === 'sync_refund') {
     const order = await getOrder(env.DB, id);
     if (!order) return fail('Order not found.');
-    const amount = cents();
+    const amount = parseAmount();
     if (!Number.isFinite(amount) || amount < 0) return fail('Enter the total refunded so far.');
     if (amount > order.amount_total_cents) {
       return fail('That is more than the order total.');
