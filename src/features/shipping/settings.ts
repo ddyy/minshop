@@ -25,9 +25,10 @@ import { toMinorUnits } from '../../money.ts';
 export const SHIPPING_CONFIG_KEY = 'shipping_config';
 
 /** 1 = flat rates only. 2 adds pricing modes and the package-weight allowance.
- *  3 adds the pickup pricing mode. Bumped so a rollback fails CLOSED on a
- *  document it cannot fully understand instead of silently dropping rates. */
-export const SHIPPING_SCHEMA_VERSION = 3;
+ *  3 adds the pickup pricing mode. 4 adds continuous per-kilogram pricing.
+ *  Bumped so a rollback fails CLOSED on a document it cannot fully understand
+ *  instead of silently dropping rates. */
+export const SHIPPING_SCHEMA_VERSION = 4;
 
 export const SHIPPING_LIMITS = {
   zones: 20,
@@ -83,6 +84,8 @@ export interface ShippingValidationError {
     | 'countries'
     | 'label'
     | 'amount'
+    | 'rate'
+    | 'max'
     | 'freeOver'
     | 'bands'
     | 'upTo';
@@ -306,6 +309,31 @@ export function validateShippingDocument(doc: RuntimeShippingConfig): ShippingVa
         }
       } else if (pricing?.type === 'weight') {
         errors.push(...validateBands(pricing.bands, zoneIndex, rateIndex));
+      } else if (pricing?.type === 'per_weight') {
+        if (!isAmount(pricing.baseCents)) {
+          errors.push({
+            zoneIndex,
+            rateIndex,
+            field: 'amount',
+            message: 'Enter a base fee (0 is fine).',
+          });
+        }
+        if (!isAmount(pricing.centsPerKg)) {
+          errors.push({
+            zoneIndex,
+            rateIndex,
+            field: 'rate',
+            message: 'Enter a price per kilogram.',
+          });
+        }
+        if (pricing.maxCents != null && !isAmount(pricing.maxCents)) {
+          errors.push({
+            zoneIndex,
+            rateIndex,
+            field: 'max',
+            message: 'Enter a maximum price, or leave blank.',
+          });
+        }
       } else {
         errors.push({ zoneIndex, rateIndex, field: 'amount', message: 'Choose a pricing mode.' });
       }
@@ -655,8 +683,13 @@ export interface ShippingFormBand {
 export interface ShippingFormRate {
   token: string;
   label: string;
-  mode: 'flat' | 'weight' | 'pickup';
+  mode: 'flat' | 'weight' | 'pickup' | 'per_weight';
+  /** Flat / pickup fee, or per_weight base fee. */
   amountValue: string;
+  /** Per-kilogram rate in major units (per_weight only). */
+  ratePerKgValue: string;
+  /** Optional ceiling in major units (per_weight only). */
+  maxValue: string;
   bands: ShippingFormBand[];
 }
 
@@ -710,22 +743,35 @@ export function documentToForm(
       name: zone.name,
       countries: [...zone.countries],
       freeOverValue: zone.freeOverCents == null ? '' : amountToValue(zone.freeOverCents, currency),
-      rates: zone.rates.map((rate) => ({
-        token: nextToken('r'),
-        label: rate.label,
-        mode: rate.pricing.type,
-        amountValue:
-          rate.pricing.type !== 'weight' ? amountToValue(rate.pricing.amountCents, currency) : '',
-        bands:
-          rate.pricing.type === 'weight'
-            ? rate.pricing.bands.map((band) => ({
-                token: nextToken('b'),
-                upToValue: band.upToGrams == null ? '' : formatGrams(band.upToGrams, unit),
-                noMax: band.upToGrams == null,
-                amountValue: amountToValue(band.amountCents, currency),
-              }))
-            : [],
-      })),
+      rates: zone.rates.map((rate) => {
+        const pricing = rate.pricing;
+        return {
+          token: nextToken('r'),
+          label: rate.label,
+          mode: pricing.type,
+          amountValue:
+            pricing.type === 'flat' || pricing.type === 'pickup'
+              ? amountToValue(pricing.amountCents, currency)
+              : pricing.type === 'per_weight'
+                ? amountToValue(pricing.baseCents, currency)
+                : '',
+          ratePerKgValue:
+            pricing.type === 'per_weight' ? amountToValue(pricing.centsPerKg, currency) : '',
+          maxValue:
+            pricing.type === 'per_weight' && pricing.maxCents != null
+              ? amountToValue(pricing.maxCents, currency)
+              : '',
+          bands:
+            pricing.type === 'weight'
+              ? pricing.bands.map((band) => ({
+                  token: nextToken('b'),
+                  upToValue: band.upToGrams == null ? '' : formatGrams(band.upToGrams, unit),
+                  noMax: band.upToGrams == null,
+                  amountValue: amountToValue(band.amountCents, currency),
+                }))
+              : [],
+        };
+      }),
     })),
   };
 }
@@ -752,26 +798,46 @@ export function migrationCandidate(
       name: zone.name ?? legacyZoneName(zone.countries, index),
       countries: [...zone.countries],
       freeOverValue: zone.freeOverCents == null ? '' : amountToValue(zone.freeOverCents, currency),
-      rates: zone.rates.map((rate) => ({
-        token: nextToken('r'),
-        label: rate.label,
-        mode: 'pricing' in rate ? rate.pricing.type : ('flat' as const),
-        amountValue:
-          'pricing' in rate
-            ? rate.pricing.type !== 'weight'
-              ? amountToValue(rate.pricing.amountCents, currency)
-              : ''
-            : amountToValue(rate.amountCents, currency),
-        bands:
-          'pricing' in rate && rate.pricing.type === 'weight'
-            ? rate.pricing.bands.map((band) => ({
-                token: nextToken('b'),
-                upToValue: band.upToGrams == null ? '' : String(band.upToGrams),
-                noMax: band.upToGrams == null,
-                amountValue: amountToValue(band.amountCents, currency),
-              }))
-            : [],
-      })),
+      rates: zone.rates.map((rate) => {
+        if (!('pricing' in rate)) {
+          return {
+            token: nextToken('r'),
+            label: rate.label,
+            mode: 'flat' as const,
+            amountValue: amountToValue(rate.amountCents, currency),
+            ratePerKgValue: '',
+            maxValue: '',
+            bands: [],
+          };
+        }
+        const pricing = rate.pricing;
+        return {
+          token: nextToken('r'),
+          label: rate.label,
+          mode: pricing.type,
+          amountValue:
+            pricing.type === 'flat' || pricing.type === 'pickup'
+              ? amountToValue(pricing.amountCents, currency)
+              : pricing.type === 'per_weight'
+                ? amountToValue(pricing.baseCents, currency)
+                : '',
+          ratePerKgValue:
+            pricing.type === 'per_weight' ? amountToValue(pricing.centsPerKg, currency) : '',
+          maxValue:
+            pricing.type === 'per_weight' && pricing.maxCents != null
+              ? amountToValue(pricing.maxCents, currency)
+              : '',
+          bands:
+            pricing.type === 'weight'
+              ? pricing.bands.map((band) => ({
+                  token: nextToken('b'),
+                  upToValue: band.upToGrams == null ? '' : String(band.upToGrams),
+                  noMax: band.upToGrams == null,
+                  amountValue: amountToValue(band.amountCents, currency),
+                }))
+              : [],
+        };
+      }),
     })),
   };
 }
@@ -861,8 +927,17 @@ export function parseShippingForm(
       const ratePrefix = `${prefix}[rate][${rateToken}]`;
       const label = str(form, `${ratePrefix}[label]`);
       const rawMode = str(form, `${ratePrefix}[mode]`);
-      const mode = rawMode === 'weight' ? 'weight' : rawMode === 'pickup' ? 'pickup' : 'flat';
+      const mode =
+        rawMode === 'weight'
+          ? 'weight'
+          : rawMode === 'pickup'
+            ? 'pickup'
+            : rawMode === 'per_weight'
+              ? 'per_weight'
+              : 'flat';
       const amountValue = str(form, `${ratePrefix}[amount]`);
+      const ratePerKgValue = str(form, `${ratePrefix}[rate_per_kg]`);
+      const maxValue = str(form, `${ratePrefix}[max]`);
 
       const bandTokens =
         mode === 'weight'
@@ -910,14 +985,38 @@ export function parseShippingForm(
           ? toMinorUnits(major, currency)
           : Number.NaN;
 
-      rates.push({ token: rateToken, label, mode, amountValue, bands });
-      documentRates.push({
+      const rateMajor = Number(ratePerKgValue);
+      const centsPerKg =
+        ratePerKgValue !== '' && Number.isFinite(rateMajor) && rateMajor >= 0
+          ? toMinorUnits(rateMajor, currency)
+          : Number.NaN;
+
+      let maxCents: number | null = null;
+      if (maxValue !== '') {
+        const maxMajor = Number(maxValue);
+        maxCents =
+          Number.isFinite(maxMajor) && maxMajor >= 0 ? toMinorUnits(maxMajor, currency) : Number.NaN;
+      }
+
+      rates.push({
+        token: rateToken,
         label,
-        pricing:
-          mode === 'weight'
-            ? { type: 'weight', bands: documentBands }
-            : { type: mode, amountCents: flatCents },
+        mode,
+        amountValue,
+        ratePerKgValue,
+        maxValue,
+        bands,
       });
+
+      let pricing: RatePricing;
+      if (mode === 'weight') {
+        pricing = { type: 'weight', bands: documentBands };
+      } else if (mode === 'per_weight') {
+        pricing = { type: 'per_weight', baseCents: flatCents, centsPerKg, maxCents };
+      } else {
+        pricing = { type: mode, amountCents: flatCents };
+      }
+      documentRates.push({ label, pricing });
     });
 
     zones.push({ token: zoneToken, name, countries, rates, freeOverValue });
