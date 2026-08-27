@@ -2,7 +2,9 @@ import { handle } from '@astrojs/cloudflare/handler';
 import { env } from 'cloudflare:workers';
 import { sweepStaleNotifications } from './features/email/outbox';
 import { releaseExpiredReservations } from './features/orders/reservations';
+import { getSecret } from './features/secrets/store';
 import { getSetting } from './features/settings/db';
+import { syncPendingClickDropOrders } from './features/shipping/clickDropSync';
 
 /**
  * Worker entrypoint.
@@ -40,13 +42,25 @@ async function runScheduledSweeps(): Promise<void> {
   // traffic; until a first order has flowed there is nothing queued to retry
   // anyway, so skipping is correct rather than merely safe. Never guess here —
   // a wrong origin sends real customers dead links.
+  let origin: string | null = null;
   try {
-    const origin = await getSetting(db, 'store_url');
+    origin = await getSetting(db, 'store_url');
     if (origin) {
       await sweepStaleNotifications(db, origin);
     }
   } catch (err) {
     console.error('Scheduled notification sweep failed:', err);
+  }
+
+  // Click & Drop has no webhook for custom API keys — poll orders we pushed
+  // and fulfill when C&D shows printed/shipped/tracking.
+  try {
+    const token = await getSecret(db, 'royal_mail_click_drop_api_key');
+    if (token) {
+      await syncPendingClickDropOrders(db, token, { limit: 25, origin });
+    }
+  } catch (err) {
+    console.error('Scheduled Click & Drop sync failed:', err);
   }
 }
 

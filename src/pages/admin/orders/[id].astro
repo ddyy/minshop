@@ -292,18 +292,36 @@ const willEmailCustomer =
           <p class="mb-2 text-xs uppercase tracking-widest text-gray-400">Royal Mail Click &amp; Drop</p>
           {
             clickDropUrl ? (
-              <p>
-                Pushed as C&amp;D order{' '}
-                <span class="tabular-nums font-medium">{order.click_drop_order_id}</span>
-                {order.click_drop_pushed_at && (
-                  <span class="text-gray-400"> · {formatDate(order.click_drop_pushed_at, undefined, timeZone)}</span>
-                )}
-                . Print the postage label in Click &amp; Drop, then record tracking below if needed.
-                {' '}
-                <a href={clickDropUrl} target="_blank" rel="noopener" class="font-medium text-accent hover:underline">
-                  Open in Click &amp; Drop
-                </a>
-              </p>
+              <div class="space-y-2">
+                <p>
+                  Pushed as C&amp;D order{' '}
+                  <span class="tabular-nums font-medium">{order.click_drop_order_id}</span>
+                  {order.click_drop_pushed_at && (
+                    <span class="text-gray-400"> · {formatDate(order.click_drop_pushed_at, undefined, timeZone)}</span>
+                  )}
+                  . Print the postage label in Click &amp; Drop
+                  {!fulfilled && '; we sync printed/despatched status automatically (about every 5 minutes) or via the button below'}
+                  .
+                  {' '}
+                  <a href={clickDropUrl} target="_blank" rel="noopener" class="font-medium text-accent hover:underline">
+                    Open in Click &amp; Drop
+                  </a>
+                </p>
+                {
+                  !fulfilled && (
+                    <form method="POST" action={`/api/admin/orders/${order.public_id}`}>
+                      <button
+                        type="submit"
+                        name="_action"
+                        value="click_drop_sync"
+                        class="rounded-md border border-line px-3 py-1.5 text-xs font-medium uppercase tracking-wider hover:bg-paper"
+                      >
+                        Sync status from Click &amp; Drop
+                      </button>
+                    </form>
+                  )
+                }
+              </div>
             ) : (
               <form method="POST" action={`/api/admin/orders/${order.public_id}`} class="space-y-2">
                 <p class="text-gray-600">

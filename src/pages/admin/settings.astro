@@ -811,8 +811,11 @@ const sections = [
       <p class="mt-1 text-xs text-gray-500">
         Push paid delivery orders into Click &amp; Drop so you can print labels in the Royal Mail
         dashboard. Programmatic label PDFs require an OBA-linked account — without OBA, Admin
-        creates the C&amp;D order and links you there. Create an integration API key under
-        Click &amp; Drop → Settings → Integrations.
+        creates the C&amp;D order and links you there. After you print/despatch in C&amp;D, we
+        poll their API (cron ~every 5 minutes, or “Sync status” on the order) and mark the shop
+        order fulfilled with tracking when available. Custom API integrations have no outbound
+        webhook — only native channels like Shopify get push from Royal Mail. Create an
+        integration API key under Click &amp; Drop → Settings → Integrations.
       </p>
       <form method="POST" class="mt-3 space-y-3">
         <input type="hidden" name="_action" value="save_click_drop" />

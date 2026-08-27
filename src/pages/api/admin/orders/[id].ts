@@ -25,6 +25,7 @@ import {
   clickDropDashboardUrl,
   pushOrderToClickDrop,
 } from '../../../../features/shipping/clickDrop.ts';
+import { syncOneClickDropOrder } from '../../../../features/shipping/clickDropSync.ts';
 import {
   claimPurchase,
   discardLabelAttempt,
@@ -366,6 +367,39 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     }
     return notice(
       `Pushed to Click & Drop as order ${pushed.value.orderIdentifier}. Open the link on this order to print the label in Royal Mail’s dashboard.`,
+    );
+  }
+
+  if (action === 'click_drop_sync') {
+    const token = await getSecret(env.DB, 'royal_mail_click_drop_api_key');
+    if (!token) return fail('Add a Click & Drop API key in Settings first.');
+    const order = await getOrder(env.DB, id);
+    if (!order) return fail('Order not found.');
+    const outcome = await syncOneClickDropOrder(env.DB, token, order, {
+      origin: new URL(request.url).origin,
+    });
+    if (outcome.status === 'fulfilled') {
+      return notice(
+        outcome.trackingNumber
+          ? `Click & Drop shows this parcel as despatched. Tracking ${outcome.trackingNumber} recorded and the order fulfilled.`
+          : 'Click & Drop shows this parcel as printed/despatched. Order marked fulfilled (no tracking number on the C&D record yet).',
+      );
+    }
+    if (outcome.status === 'pending') {
+      return fail(
+        'Click & Drop has not printed or despatched this order yet — print the label there, then sync again (or wait for the automatic check).',
+      );
+    }
+    if (outcome.status === 'already_fulfilled') {
+      return notice('This order is already fulfilled.');
+    }
+    if (outcome.status === 'skipped') {
+      return fail(outcome.reason);
+    }
+    return fail(
+      outcome.uncertain
+        ? `${outcome.error} — try syncing again shortly.`
+        : outcome.error,
     );
   }
 

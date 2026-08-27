@@ -1,9 +1,13 @@
 /**
- * Royal Mail Click & Drop — push paid orders into C&D for dashboard labelling.
+ * Royal Mail Click & Drop — push paid orders into C&D for dashboard labelling,
+ * then poll for print/despatch so we can fulfill in minshop.
+ *
+ * There is **no webhook** for custom API integrations (Shopify/eBay native
+ * channels are updated by Royal Mail on their side). We poll
+ * `GET /orders/{orderIdentifier}` from Admin sync and the Worker cron.
  *
  * Non-OBA accounts cannot fetch postage-label PDFs via the API
- * (`GET /orders/{id}/label` is OBA-only). This adapter creates the C&D order
- * and returns a dashboard deep-link so the merchant can print there.
+ * (`GET /orders/{id}/label` is OBA-only). Tracking + fulfill is the sync path.
  *
  * API: https://api.parcel.royalmail.com/ (Bearer integration key)
  * Docs: https://api.parcel.royalmail.com/doc/v1/click-and-drop-api-v1.yaml
@@ -213,6 +217,92 @@ export async function pushOrderToClickDrop(
       orderReference: created.orderReference ?? null,
       dashboardUrl: clickDropDashboardUrl(created.orderIdentifier),
       trackingNumber: created.trackingNumber ?? null,
+    },
+  };
+}
+
+export interface ClickDropRemoteStatus {
+  orderIdentifier: number;
+  orderReference: string | null;
+  trackingNumber: string | null;
+  printedOn: string | null;
+  shippedOn: string | null;
+  manifestedOn: string | null;
+}
+
+/** True when C&D shows a label printed, shipped, manifested, or a tracking number. */
+export function clickDropLooksDespatched(status: ClickDropRemoteStatus): boolean {
+  return !!(
+    status.trackingNumber ||
+    status.printedOn ||
+    status.shippedOn ||
+    status.manifestedOn
+  );
+}
+
+interface GetOrderInfoResource {
+  orderIdentifier?: number;
+  orderReference?: string;
+  trackingNumber?: string;
+  printedOn?: string;
+  shippedOn?: string;
+  manifestedOn?: string;
+}
+
+/** Poll one C&D order by numeric identifier. */
+export async function fetchClickDropOrder(
+  apiKey: string,
+  orderIdentifier: number,
+): Promise<ClickDropResult<ClickDropRemoteStatus>> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/orders/${orderIdentifier}`, {
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        accept: 'application/json',
+      },
+    });
+  } catch {
+    return { ok: false, error: 'Click & Drop is unreachable right now.', uncertain: true };
+  }
+
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    return {
+      ok: false,
+      error: `Click & Drop answered ${res.status} with an unreadable body.`,
+      uncertain: res.ok || res.status >= 500,
+    };
+  }
+
+  if (res.status === 401) return { ok: false, error: 'Click & Drop rejected the API key.' };
+  if (res.status === 404) return { ok: false, error: 'That Click & Drop order was not found.' };
+  if (!res.ok) {
+    const msg = (json as { message?: string }).message;
+    return {
+      ok: false,
+      error: msg || `Click & Drop answered ${res.status}.`,
+      uncertain: res.status >= 500,
+    };
+  }
+
+  // Spec: array of GetOrderInfoResource for the path batch API.
+  const row = (Array.isArray(json) ? json[0] : json) as GetOrderInfoResource | undefined;
+  if (!row?.orderIdentifier) {
+    return { ok: false, error: 'Click & Drop returned an empty order payload.' };
+  }
+
+  return {
+    ok: true,
+    value: {
+      orderIdentifier: row.orderIdentifier,
+      orderReference: row.orderReference ?? null,
+      trackingNumber: row.trackingNumber?.trim() || null,
+      printedOn: row.printedOn ?? null,
+      shippedOn: row.shippedOn ?? null,
+      manifestedOn: row.manifestedOn ?? null,
     },
   };
 }

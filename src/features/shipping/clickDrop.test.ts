@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildClickDropCreatePayload,
   clickDropDashboardUrl,
+  clickDropLooksDespatched,
+  fetchClickDropOrder,
   isoOrderDate,
   packageFormatForWeightGrams,
   pushOrderToClickDrop,
@@ -75,6 +77,51 @@ describe('buildClickDropCreatePayload', () => {
     const pkg = (item.packages as Array<{ weightInGrams: number; packageFormatIdentifier: string }>)[0]!;
     expect(pkg.weightInGrams).toBe(750);
     expect(pkg.packageFormatIdentifier).toBe('smallParcel');
+  });
+});
+
+describe('clickDropLooksDespatched', () => {
+  const base = {
+    orderIdentifier: 1,
+    orderReference: null,
+    trackingNumber: null,
+    printedOn: null,
+    shippedOn: null,
+    manifestedOn: null,
+  };
+  it('is false until print/ship/manifest/tracking', () => {
+    expect(clickDropLooksDespatched(base)).toBe(false);
+  });
+  it('is true when tracking or printed', () => {
+    expect(clickDropLooksDespatched({ ...base, trackingNumber: 'AB1' })).toBe(true);
+    expect(clickDropLooksDespatched({ ...base, printedOn: '2026-01-01T00:00:00Z' })).toBe(true);
+  });
+});
+
+describe('fetchClickDropOrder', () => {
+  it('parses a list response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify([
+              {
+                orderIdentifier: 42,
+                trackingNumber: 'TT1',
+                printedOn: '2026-08-27T10:00:00Z',
+              },
+            ]),
+            { status: 200 },
+          ),
+      ),
+    );
+    const result = await fetchClickDropOrder('key', 42);
+    expect(result).toMatchObject({
+      ok: true,
+      value: { orderIdentifier: 42, trackingNumber: 'TT1' },
+    });
+    expect(result.ok && clickDropLooksDespatched(result.value)).toBe(true);
   });
 });
 
