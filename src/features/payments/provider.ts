@@ -3,6 +3,7 @@ import type { PaidOrderInput, ShippingAddress } from '../orders/db';
 /** Keep anonymous hosted inventory holds short and aligned with provider expiry. */
 export const STRIPE_CHECKOUT_TTL_SECONDS = 30 * 60;
 export const OPENNODE_CHECKOUT_TTL_SECONDS = 10 * 60;
+export const SUMUP_CHECKOUT_TTL_SECONDS = 30 * 60;
 export const RESERVATION_EXPIRY_GRACE_SECONDS = 5 * 60;
 
 /**

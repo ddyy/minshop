@@ -20,6 +20,8 @@ import { getLightningBackend } from '../features/payments/lightning';
 import { mintLightningOrder } from '../features/payments/lightning-provider';
 import {
   DEMO_CHECKOUT_TTL_SECONDS,
+  OPENNODE_CHECKOUT_TTL_SECONDS,
+  SUMUP_CHECKOUT_TTL_SECONDS,
   isMethodAvailable,
   getPaymentProvider,
 } from '../features/payments';
@@ -46,7 +48,7 @@ const fld = (name: string) => (form?.get(name) ?? '').toString().trim();
  * The rail arrives as a query param on the first hop and as a hidden field across
  * the address → shipping steps (the forms post to a bare /checkout).
  */
-const IN_APP_RAILS = ['lightning', 'opennode', 'demo'] as const;
+const IN_APP_RAILS = ['lightning', 'opennode', 'sumup', 'demo'] as const;
 type InAppRail = (typeof IN_APP_RAILS)[number];
 const requestedRail = (fld('method') || Astro.url.searchParams.get('method') || '').trim();
 const rail: InAppRail = (IN_APP_RAILS as readonly string[]).includes(requestedRail)
@@ -161,6 +163,7 @@ const editAddressHref = (() => {
 const RAIL_LABEL: Record<InAppRail, string> = {
   lightning: 'Pay with Lightning',
   opennode: 'Pay with Bitcoin',
+  sumup: 'Pay with SumUp',
   demo: 'Place demo order',
 };
 
@@ -259,6 +262,10 @@ if (submitted) {
           const reservationTtl =
             rail === 'demo'
               ? DEMO_CHECKOUT_TTL_SECONDS
+              : rail === 'opennode'
+                ? OPENNODE_CHECKOUT_TTL_SECONDS + 5 * 60
+              : rail === 'sumup'
+                ? SUMUP_CHECKOUT_TTL_SECONDS + 5 * 60
               : cfg.payments.lightning.invoiceExpiryMinutes * 60 + 5 * 60;
           const reserved = await reserveInventory(
             env.DB,

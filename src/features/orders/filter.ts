@@ -44,6 +44,7 @@ export const ORDER_METHOD_OPTIONS: { value: string; label: string }[] = [
   { value: 'stripe', label: 'Card (Stripe)' },
   { value: 'lightning', label: 'Lightning' },
   { value: 'opennode', label: 'Bitcoin (OpenNode)' },
+  { value: 'sumup', label: 'Card (SumUp)' },
   { value: 'demo', label: 'Demo' },
 ];
 

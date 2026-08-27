@@ -92,7 +92,7 @@ src/
   features/
     products/  db · form · image · ProductForm.astro · sort · search · stock · slug
     orders/    db · number · reservations (atomic checkout stock holds)
-    payments/  provider (port) · stripe · opennode · lightning-provider · index (factory)
+    payments/  provider (port) · stripe · sumup · opennode · lightning-provider · index (factory)
                lightning/  backend (port) · phoenixd · lnbits · index · rate · pending
     shipping/  calculator (zones + ShippingCalculator port)
     storage/   provider (port) · r2 · index (factory)
@@ -115,7 +115,7 @@ To swap/add a provider, write one adapter file + wire the factory:
 
 | Port | Where | Factory | Adapters |
 |---|---|---|---|
-| `PaymentProvider` | `payments/provider.ts` | `payments/index.ts` | stripe, opennode, lightning |
+| `PaymentProvider` | `payments/provider.ts` | `payments/index.ts` | stripe, sumup, opennode, lightning |
 | `LightningBackend` | `payments/lightning/backend.ts` | `payments/lightning/index.ts` | phoenixd, lnbits |
 | `ShippingCalculator` | `shipping/calculator.ts` | (config-rates) | carrier rates (future) |
 | `StorageProvider` | `storage/provider.ts` | `storage/index.ts` | r2 |

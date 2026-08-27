@@ -56,7 +56,7 @@ MCP dependencies. Use `--no-install` to only scaffold the files, or
 - **Search** — FTS5 full-text (bm25, prefix match, typo-correct), no JS — or optional **semantic search** via Workers AI + Vectorize (see [Search](#search))
 - **Categories** — nested (arbitrary-depth tree), many-to-many with products; storefront category pages with breadcrumbs + sub-category drill-down (recursive descendant queries)
 - **Admin** — products, categories, pages, media, orders, customers, fulfillment, CSV export, and runtime store settings
-- **Payments** — Stripe Checkout, self-hosted Bitcoin Lightning (phoenixd or LNbits), hosted OpenNode, or a built-in demo rail; configure enabled methods and the default in Admin (see [Payments](#payments))
+- **Payments** — Stripe Checkout, SumUp Hosted Checkout, self-hosted Bitcoin Lightning (phoenixd or LNbits), hosted OpenNode, or a built-in demo rail; configure enabled methods and the default in Admin (see [Payments](#payments))
 - **Shipping** — merchant-managed zones, flat **or weight-banded** rates, and free-over-threshold rules, edited in Admin with no redeploy; supported checkout flows capture the address, chosen service, and shipping cost on the order
 - **Discount codes** — promo-code field enabled from Admin; codes are created/managed in the Stripe Dashboard, and the applied discount is captured onto the order
 - **Tax** — sales tax / VAT via Stripe Tax (off by default — **activate Stripe Tax in the Dashboard first**); computed from the customer address and captured onto the order
@@ -70,7 +70,7 @@ MCP dependencies. Use `--no-install` to only scaffold the files, or
 
 A few decisions in here are worth reading even if you never deploy a store:
 
-- **Payments sit behind a port.** Checkout and webhook routes depend on a `PaymentProvider` interface rather than any one vendor. Stripe, Lightning (phoenixd or LNbits), OpenNode, and the demo rail are adapters, so adding a rail is one adapter plus its webhook route. Storage works the same way (`StorageProvider`, with R2 as the adapter).
+- **Payments sit behind a port.** Checkout and webhook routes depend on a `PaymentProvider` interface rather than any one vendor. Stripe, SumUp, Lightning (phoenixd or LNbits), OpenNode, and the demo rail are adapters, so adding a rail is one adapter plus its webhook route. Storage works the same way (`StorageProvider`, with R2 as the adapter).
 - **HTML first, JS as enhancement.** Pages render on the server and ship near-zero client JavaScript. Cart, search, and checkout all work with JS disabled; the cart drawer and live search are progressive enhancements layered on plain forms.
 - **Search without a search service.** Full-text search runs on SQLite FTS5 inside D1, with bm25 ranking, prefix matching, and typo correction. Semantic search (Workers AI + Vectorize) is an optional flag, not a dependency.
 - **Cache invalidation follows what shoppers can see.** Cached pages carry `shell`, `catalog`, and per-product tags. Admin writes purge only the affected tags, and stock changes purge a product only when it crosses In stock / Low stock / Sold out, not on every checkout reservation. The page shell stays shared even for cookied shoppers because the one personal detail, the cart count, loads from a small private fragment.
@@ -86,7 +86,7 @@ A few decisions in here are worth reading even if you never deploy a store:
 | Styling | Tailwind CSS v4 (`@tailwindcss/vite`) |
 | Data | Cloudflare D1 (SQLite) — products, orders |
 | Images | Cloudflare R2 — zero egress |
-| Payments | Stripe Checkout, Bitcoin Lightning (phoenixd / LNbits), OpenNode, or demo |
+| Payments | Stripe Checkout, SumUp Hosted Checkout, Bitcoin Lightning (phoenixd / LNbits), OpenNode, or demo |
 
 ## Quick start (local)
 
@@ -307,14 +307,15 @@ Checkout and the webhook depend on a `PaymentProvider` port (`src/features/payme
 | Rail | What it is | Setup (all in Settings → Payments) |
 |---|---|---|
 | `stripe` *(default)* | Hosted card checkout | paste the secret key + webhook signing secret |
+| `sumup` | Hosted card checkout (SumUp) — redirect + status webhook | paste the merchant code + API key |
 | `lightning` | Bitcoin Lightning via a **self-hosted** node — minshop mints a BOLT11 invoice and renders its own `/pay` page (QR + `lightning:` link), then confirms settlement | run **phoenixd** or **LNbits** (below); enter its URL + key |
 | `opennode` | **Hosted** Lightning checkout (custodial processor) — redirect + webhook, like Stripe | paste the OpenNode API key |
 
-Two ports, nested: the outer `PaymentProvider` (stripe / lightning / opennode) and an inner `LightningBackend` (phoenixd / lnbits) shared by the self-rendered flow. Adding another node is one adapter file.
+Two ports, nested: the outer `PaymentProvider` (stripe / sumup / lightning / opennode) and an inner `LightningBackend` (phoenixd / lnbits) shared by the self-rendered flow. Adding another node is one adapter file.
 
-**How settlement is trusted.** Lightning webhooks are treated as an untrusted *nudge* — on receipt minshop **re-polls the node** for the payment (the authority), so a forged webhook can't fake a sale. The `/pay` page also settles on load by polling, so it works even with no public webhook (e.g. local dev). Orders stay "paid-only": unpaid invoices live in a `pending_payments` table, never in `orders`.
+**How settlement is trusted.** Lightning webhooks are treated as an untrusted *nudge* — on receipt minshop **re-polls the node** for the payment (the authority), so a forged webhook can't fake a sale. The `/pay` page also settles on load by polling, so it works even with no public webhook (e.g. local dev). SumUp and OpenNode work the same way: the webhook/return URL is a nudge; settlement re-fetches the checkout from the provider API. Orders stay "paid-only": unpaid invoices live in a `pending_payments` table, never in `orders`.
 
-**Shipping (in-app rails).** When shipping is enabled, the Lightning, OpenNode, and Demo carts route through minshop's own `/checkout` page — a server-rendered address + shipping-option step priced from the Admin-managed zones (see [Shipping](#shipping-and-order-email)) — so the invoice total includes shipping and the address + email land on the order, same as Stripe. The Demo rail arrives with a sample address prefilled (it ships nowhere; the step exists to exercise the real rate configuration). Programmatic checkout accepts the same address as a `ship_to` object. (Stripe keeps its own hosted address/shipping collection, unchanged.)
+**Shipping (in-app rails).** When shipping is enabled, the Lightning, OpenNode, SumUp, and Demo carts route through minshop's own `/checkout` page — a server-rendered address + shipping-option step priced from the Admin-managed zones (see [Shipping](#shipping-and-order-email)) — so the invoice total includes shipping and the address + email land on the order, same as Stripe. The Demo rail arrives with a sample address prefilled (it ships nowhere; the step exists to exercise the real rate configuration). Programmatic checkout accepts the same address as a `ship_to` object. (Stripe keeps its own hosted address/shipping collection, unchanged.)
 
 **Limitations (Lightning).** **Tax** and promo codes are still Stripe-Checkout features and are skipped on the Lightning path — to charge tax on a non-Stripe rail you'd compute it yourself (e.g. Stripe's Tax *Calculation* API) and add it to the total. No automatic refunds (Lightning can't reverse in place). Invoices are priced in sats from a BTC spot rate fetched at checkout (`payments.lightning.rateUrl`, default Coinbase — no key).
 
@@ -327,7 +328,7 @@ Two ports, nested: the outer `PaymentProvider` (stripe / lightning / opennode) a
 3. In **Settings → Payments → Lightning**, pick the phoenixd node, enter its public URL, and paste the password — use the **`http-password-limited-access`** value (`~/.phoenix/phoenix.conf`): receive-only, can't spend.
 4. Point phoenixd's `webhook-url` at `https://<your-host>/api/webhook/lightning`.
 
-**LNbits** instead: pick LNbits in the same card and enter its URL + the wallet's *Invoice/read key*. **OpenNode**: paste the API key in its card and set the default rail to OpenNode.
+**LNbits** instead: pick LNbits in the same card and enter its URL + the wallet's *Invoice/read key*. **OpenNode**: paste the API key in its card and set the default rail to OpenNode. **SumUp**: paste the merchant code + API key in the SumUp card (Hosted Checkout; settlement re-fetches `GET /v0.1/checkouts/:id`).
 
 ## Architecture
 
@@ -344,7 +345,7 @@ src/
     pages/      Markdown pages: rendering, slugs, layout presets, save/media sync
     products/   catalog data, forms, inventory, image handling
     orders/     order data, reservations, tracking
-    payments/   provider port + Stripe, Lightning, OpenNode, demo adapters
+    payments/   provider port + Stripe, SumUp, Lightning, OpenNode, demo adapters
     settings/   runtime D1 settings
     storage/    provider port + R2 adapter
   pages/
@@ -387,7 +388,7 @@ Most settings are **runtime** — changed in **`/admin/settings`**, stored in a 
 - **General** — store name.
 - **Features** — cart/checkout, "Buy now", discounts, tax, customer accounts, shipping, and upload optimization.
 - **Images** — original delivery or responsive Cloudflare on-demand transformations.
-- **Payments** — one card per rail (Stripe / Lightning / OpenNode / Demo): its on/off toggle, config (node URLs, default rail), and keys.
+- **Payments** — one card per rail (Stripe / SumUp / Lightning / OpenNode / Demo): its on/off toggle, config (node URLs, default rail), and keys.
 - **Email** — on/off, provider (Resend / Cloudflare), from-address, key, send-test button.
 - **Bot protection** — Turnstile toggle + sitekey + secret.
 - **Search** — keyword (FTS5) vs semantic (Workers AI + Vectorize) + reindex.
@@ -652,7 +653,7 @@ Each product is self-describing — `id` is the prefixed public ID (`prod_…`; 
   "url": "https://…/products/merino-wool-beanie" }
 ```
 
-`POST /api/checkout` recalculates price and stock from D1. Item selectors are the catalog's public IDs: `product_id` (`prod_…`) is canonical, with `slug` accepted as a documented convenience; `variant_id` (`var_…`) and `extra_ids` (`["xtra_…"]`) come from the product detail route. **Numeric IDs are rejected with 400** (including the legacy numeric `extras` array). Set `method` to one of the values returned by `GET /api/checkout`; omitting it uses the default. Stripe and OpenNode return `flow: "redirect"` with a hosted `checkout_url`. Lightning returns `flow: "invoice"`, a browser/QR fallback in `checkout_url`, and a directly payable BOLT11 invoice:
+`POST /api/checkout` recalculates price and stock from D1. Item selectors are the catalog's public IDs: `product_id` (`prod_…`) is canonical, with `slug` accepted as a documented convenience; `variant_id` (`var_…`) and `extra_ids` (`["xtra_…"]`) come from the product detail route. **Numeric IDs are rejected with 400** (including the legacy numeric `extras` array). Set `method` to one of the values returned by `GET /api/checkout`; omitting it uses the default. Stripe, SumUp, and OpenNode return `flow: "redirect"` with a hosted `checkout_url`. Lightning returns `flow: "invoice"`, a browser/QR fallback in `checkout_url`, and a directly payable BOLT11 invoice:
 
 ```json
 {
@@ -675,7 +676,7 @@ Each product is self-describing — `id` is the prefixed public ID (`prod_…`; 
 }
 ```
 
-When shipping is enabled, `ship_to` is required for every rail that collects the address itself (Lightning, OpenNode, Demo); `shipping_label` is optional and defaults to the first rate for `ship_to.country`. For **Stripe**, pass an optional `ship_country` (ISO alpha-2) instead — the session is priced for that country and Stripe collects an address only there; without it the first Stripe-supported configured country is used. When shipping is off, omit these fields. A successful Lightning response includes:
+When shipping is enabled, `ship_to` is required for every rail that collects the address itself (Lightning, OpenNode, SumUp, Demo); `shipping_label` is optional and defaults to the first rate for `ship_to.country`. For **Stripe**, pass an optional `ship_country` (ISO alpha-2) instead — the session is priced for that country and Stripe collects an address only there; without it the first Stripe-supported configured country is used. When shipping is off, omit these fields. A successful Lightning response includes:
 
 ```json
 {

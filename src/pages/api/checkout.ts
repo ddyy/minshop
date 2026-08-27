@@ -23,6 +23,7 @@ import {
   type PaymentMethod,
   STRIPE_CHECKOUT_TTL_SECONDS,
   OPENNODE_CHECKOUT_TTL_SECONDS,
+  SUMUP_CHECKOUT_TTL_SECONDS,
   RESERVATION_EXPIRY_GRACE_SECONDS,
   DEMO_CHECKOUT_TTL_SECONDS,
 } from '../../features/payments';
@@ -84,7 +85,9 @@ function reservationTtlSeconds(method: PaymentMethod): number {
     );
   }
   const providerTtl =
-    method === 'opennode' ? OPENNODE_CHECKOUT_TTL_SECONDS : STRIPE_CHECKOUT_TTL_SECONDS;
+    method === 'opennode' ? OPENNODE_CHECKOUT_TTL_SECONDS
+    : method === 'sumup' ? SUMUP_CHECKOUT_TTL_SECONDS
+    : STRIPE_CHECKOUT_TTL_SECONDS;
   return providerTtl + RESERVATION_EXPIRY_GRACE_SECONDS;
 }
 
@@ -213,7 +216,7 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
   if (
     requestedRaw &&
     requestedRaw !== 'demo' &&
-    (['stripe', 'lightning', 'opennode'] as string[]).includes(requestedRaw) &&
+    (['stripe', 'lightning', 'opennode', 'sumup'] as string[]).includes(requestedRaw) &&
     !isMethodAvailable(requested, settings)
   ) {
     return redirect(`/payment-setup?method=${encodeURIComponent(requestedRaw)}`, 303);
@@ -243,7 +246,7 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
   // and Demo has none. Without this, OpenNode charged no shipping at all and Demo
   // billed whichever rate sorted first — both silently wrong once a merchant can
   // edit rates. Stripe collects the address itself and continues below.
-  const IN_APP_SHIPPING_RAILS = ['lightning', 'opennode', 'demo'];
+  const IN_APP_SHIPPING_RAILS = ['lightning', 'opennode', 'sumup', 'demo'];
   if (IN_APP_SHIPPING_RAILS.includes(selected) && shippingApplies) {
     const params = new URLSearchParams({ method: selected });
     if (productPublicId) {
@@ -730,7 +733,7 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
   // address, we price THAT country, and the chosen rate travels with the charge.
   // Without this, OpenNode and Demo reached their adapters with an unselected list
   // and charged nothing for shipping.
-  const IN_APP_JSON_RAILS = ['lightning', 'opennode', 'demo'];
+  const IN_APP_JSON_RAILS = ['lightning', 'opennode', 'sumup', 'demo'];
   const needsShipTo = shippingOn && IN_APP_JSON_RAILS.includes(method);
   let shipTo: ReturnType<typeof parseShipTo> = null;
   let chosen: { label: string; amountCents: number; pickup?: boolean } | undefined;
@@ -927,7 +930,7 @@ async function handleJsonCheckout(request: Request, url: URL): Promise<Response>
   // webhook → the order is recorded. Hosted providers expose checkout_url only.
   const ln = result.lightning;
   return cjson({
-    method, // the rail used: 'stripe' | 'lightning' | 'opennode'
+    method, // the rail used: 'stripe' | 'lightning' | 'opennode' | 'sumup'
     available_methods: available, // what else this store offers
     flow: ln ? 'invoice' : 'redirect',
     checkout_url: result.url, // human fallback (QR page for Lightning, hosted page otherwise)
