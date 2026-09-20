@@ -91,7 +91,7 @@ if (
 // abandoned tab can't poll forever and an expired demo can't settle.
 const lightningExpired = isLightning && payExpired;
 
-const { storeName } = getConfig();
+const storeName = Astro.locals.settings?.storeName ?? getConfig().storeName;
 const title = isDemo ? 'Demo checkout' : 'Pay with Lightning';
 const description = isDemo
   ? `Simulated checkout for ${storeName}.`

@@ -15,7 +15,7 @@ const OUTCOMES: Record<string, string> = {
   decline: 'Decline — card declined',
   insufficient: 'Decline — insufficient funds',
 };
-const { storeName } = getConfig();
+const storeName = Astro.locals.settings?.storeName ?? getConfig().storeName;
 const total = formatPrice(pending.amount_total_cents, pending.currency);
 const shipping = pending.shipping_cents
   ? formatPrice(pending.shipping_cents, pending.currency)
