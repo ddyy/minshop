@@ -4,7 +4,7 @@
 // value bound. The clause is shared by the list and the count query, so the
 // pager can't advertise pages the filter has already excluded.
 
-import { LOW_STOCK, type StockState } from './stock';
+import { AVAILABLE_STOCK_SQL, LOW_STOCK, type StockState } from './stock';
 
 export interface ProductFilters {
   status: 'active' | 'inactive' | null;
@@ -27,9 +27,9 @@ export const PRODUCT_STOCK_OPTIONS: { value: StockState; label: string }[] = [
 // The same boundaries stockState() uses for display, so a product badged "Low"
 // is exactly one the Low filter returns.
 const STOCK: Record<StockState, string> = {
-  out: 'p.stock <= 0',
-  low: `p.stock > 0 AND p.stock <= ${LOW_STOCK}`,
-  in: `p.stock > ${LOW_STOCK}`,
+  out: `${AVAILABLE_STOCK_SQL} <= 0`,
+  low: `${AVAILABLE_STOCK_SQL} > 0 AND ${AVAILABLE_STOCK_SQL} <= ${LOW_STOCK}`,
+  in: `${AVAILABLE_STOCK_SQL} > ${LOW_STOCK}`,
 };
 
 /** Escape LIKE wildcards so a name containing % or _ is searched literally. */

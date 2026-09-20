@@ -1,6 +1,7 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import type { Product } from './db';
 import { normalizeSearchQuery } from '../search/query';
+import { AVAILABLE_STOCK_SQL, withAvailableStock } from './stock';
 
 /**
  * Turn raw user input into a safe FTS5 MATCH query. FTS5 throws a syntax error
@@ -53,7 +54,7 @@ export async function searchProducts(
 
   const { results } = await db
     .prepare(
-      `SELECT p.*
+      `SELECT p.*, ${AVAILABLE_STOCK_SQL} AS available_stock
          FROM products_fts f
          JOIN products p ON p.id = f.rowid
         WHERE products_fts MATCH ? AND p.active = 1${exclusionSql(excludeIds)}
@@ -61,8 +62,8 @@ export async function searchProducts(
         LIMIT ? OFFSET ?`,
     )
     .bind(query, ...excludeIds, limit, offset)
-    .all<Product>();
-  return results ?? [];
+    .all<Product & { available_stock: number }>();
+  return withAvailableStock(results ?? []);
 }
 
 /** Levenshtein edit distance between two strings. */

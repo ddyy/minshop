@@ -14,7 +14,7 @@ describe('products orderByClause', () => {
 
   it('maps whitelisted params to fixed columns (+ id tiebreak in the same direction)', () => {
     expect(orderByClause('price', 'asc')).toBe('price_cents ASC, id ASC');
-    expect(orderByClause('stock', 'desc')).toBe('stock DESC, id DESC');
+    expect(orderByClause('stock', 'desc')).toBe('available_stock DESC, id DESC');
     expect(orderByClause('sold', 'desc')).toBe('sold DESC, id DESC');
     expect(orderByClause('newest', 'desc')).toBe('created_at DESC, id DESC');
   });
