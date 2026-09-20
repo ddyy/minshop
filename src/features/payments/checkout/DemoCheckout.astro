@@ -7,15 +7,15 @@ import type { PendingPayment } from '../lightning/pending';
 interface Props {
   pending: PendingPayment;
   declined?: string | null;
+  storeName?: string;
 }
-const { pending, declined = null } = Astro.props;
+const { pending, declined = null, storeName = getConfig().storeName } = Astro.props;
 
 const OUTCOMES: Record<string, string> = {
   approve: 'Approve payment',
   decline: 'Decline — card declined',
   insufficient: 'Decline — insufficient funds',
 };
-const storeName = Astro.locals.settings?.storeName ?? getConfig().storeName;
 const total = formatPrice(pending.amount_total_cents, pending.currency);
 const shipping = pending.shipping_cents
   ? formatPrice(pending.shipping_cents, pending.currency)

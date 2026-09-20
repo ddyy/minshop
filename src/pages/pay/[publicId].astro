@@ -105,6 +105,6 @@ const description = isDemo
       <p class="text-muted">This demo checkout has expired. Please start a new one.</p>
     </Fragment>
   )}
-  {isDemo && !payExpired && <DemoCheckout pending={pending} declined={declined} />}
+  {isDemo && !payExpired && <DemoCheckout pending={pending} declined={declined} storeName={storeName} />}
   {isLightning && <LightningPay pending={pending} expired={lightningExpired} />}
 </Layout>
