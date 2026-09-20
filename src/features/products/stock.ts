@@ -1,6 +1,17 @@
 /** Low-stock threshold for the customer-facing "Low stock" bucket. */
 export const LOW_STOCK = 5;
 
+// Listing queries alias products as p. With no active variants, checkout uses base stock.
+export const AVAILABLE_STOCK_SQL = `COALESCE((
+  SELECT SUM(v.stock) FROM product_variants v WHERE v.product_id = p.id AND v.active = 1
+), p.stock)`;
+
+export function withAvailableStock<T extends { stock: number }>(
+  rows: (T & { available_stock: number })[],
+): T[] {
+  return rows.map((row) => ({ ...row, stock: row.available_stock }));
+}
+
 export type StockState = 'out' | 'low' | 'in';
 export type StockTransitionPurger = (publicIds: string[]) => Promise<void>;
 

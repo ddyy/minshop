@@ -1,6 +1,7 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import type { Product } from '../products/db';
 import { withPublicId } from '../ids/publicId.ts';
+import { AVAILABLE_STOCK_SQL, withAvailableStock } from '../products/stock.ts';
 
 export interface Category {
   id: number;
@@ -192,7 +193,7 @@ export async function relatedProducts(
 ): Promise<Product[]> {
   const { results } = await db
     .prepare(
-      `SELECT DISTINCT p.* FROM products p
+      `SELECT DISTINCT p.*, ${AVAILABLE_STOCK_SQL} AS available_stock FROM products p
          JOIN product_categories pc ON pc.product_id = p.id
         WHERE pc.category_id IN (
                 SELECT category_id FROM product_categories WHERE product_id = ?1
@@ -202,8 +203,8 @@ export async function relatedProducts(
         LIMIT ?2`,
     )
     .bind(productId, limit)
-    .all<Product>();
-  return results ?? [];
+    .all<Product & { available_stock: number }>();
+  return withAvailableStock(results ?? []);
 }
 
 /**
@@ -220,7 +221,7 @@ export async function productsInSharedCategories(
   const ph = productIds.map(() => '?').join(',');
   const { results } = await db
     .prepare(
-      `SELECT DISTINCT p.* FROM products p
+      `SELECT DISTINCT p.*, ${AVAILABLE_STOCK_SQL} AS available_stock FROM products p
          JOIN product_categories pc ON pc.product_id = p.id
         WHERE pc.category_id IN (
                 SELECT category_id FROM product_categories WHERE product_id IN (${ph})
@@ -231,8 +232,8 @@ export async function productsInSharedCategories(
         LIMIT ?`,
     )
     .bind(...productIds, ...productIds, limit)
-    .all<Product>();
-  return results ?? [];
+    .all<Product & { available_stock: number }>();
+  return withAvailableStock(results ?? []);
 }
 
 /** Replace a product's category links with the given set. */
@@ -269,15 +270,15 @@ export async function productsInCategory(
          UNION ALL
          SELECT c.id FROM categories c JOIN sub ON c.parent_id = sub.id
        )
-       SELECT DISTINCT p.* FROM products p
+       SELECT DISTINCT p.*, ${AVAILABLE_STOCK_SQL} AS available_stock FROM products p
        JOIN product_categories pc ON pc.product_id = p.id
        WHERE pc.category_id IN (SELECT id FROM sub) AND p.active = 1
        ORDER BY ${orderBy}
        LIMIT ?2 OFFSET ?3`,
     )
     .bind(categoryId, limit, offset)
-    .all<Product>();
-  return results ?? [];
+    .all<Product & { available_stock: number }>();
+  return withAvailableStock(results ?? []);
 }
 
 /** Total active products in a category + its descendants (for pagination). */

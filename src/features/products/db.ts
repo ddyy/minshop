@@ -1,5 +1,6 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import { withPublicId } from '../ids/publicId.ts';
+import { AVAILABLE_STOCK_SQL, withAvailableStock } from './stock.ts';
 
 export interface Product {
   id: number;
@@ -55,11 +56,11 @@ export async function listProducts(
 ): Promise<Product[]> {
   const { results } = await db
     .prepare(
-      `SELECT * FROM products WHERE active = 1 ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
+      `SELECT p.*, ${AVAILABLE_STOCK_SQL} AS available_stock FROM products p WHERE active = 1 ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
     )
     .bind(limit, offset)
-    .all<Product>();
-  return results ?? [];
+    .all<Product & { available_stock: number }>();
+  return withAvailableStock(results ?? []);
 }
 
 /** Total active products (for pagination). */
@@ -99,7 +100,7 @@ export async function listAllProducts(
 ): Promise<AdminProduct[]> {
   const { results } = await db
     .prepare(
-      `SELECT p.*,
+      `SELECT p.*, ${AVAILABLE_STOCK_SQL} AS available_stock,
               COALESCE((
                 SELECT SUM(oi.quantity)
                   FROM order_items oi
@@ -111,8 +112,8 @@ export async function listAllProducts(
         ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
     )
     .bind(...filter.params, limit, offset)
-    .all<AdminProduct>();
-  return results ?? [];
+    .all<AdminProduct & { available_stock: number }>();
+  return withAvailableStock(results ?? []);
 }
 
 /** Total products including inactive (for admin pagination). */
@@ -183,10 +184,10 @@ export async function getProductsByIds(db: D1Database, ids: number[]): Promise<P
   if (ids.length === 0) return [];
   const placeholders = ids.map(() => '?').join(',');
   const { results } = await db
-    .prepare(`SELECT * FROM products WHERE id IN (${placeholders}) AND active = 1`)
+    .prepare(`SELECT p.*, ${AVAILABLE_STOCK_SQL} AS available_stock FROM products p WHERE id IN (${placeholders}) AND active = 1`)
     .bind(...ids)
-    .all<Product>();
-  const byId = new Map((results ?? []).map((p) => [p.id, p]));
+    .all<Product & { available_stock: number }>();
+  const byId = new Map(withAvailableStock(results ?? []).map((p) => [p.id, p]));
   return ids.map((id) => byId.get(id)).filter((p): p is Product => p !== undefined);
 }
 
@@ -216,11 +217,12 @@ export async function lowStockProducts(
 ): Promise<Product[]> {
   const { results } = await db
     .prepare(
-      'SELECT * FROM products WHERE active = 1 AND stock <= ? ORDER BY stock ASC, name LIMIT ?',
+      `SELECT p.*, ${AVAILABLE_STOCK_SQL} AS available_stock FROM products p
+       WHERE active = 1 AND ${AVAILABLE_STOCK_SQL} <= ? ORDER BY available_stock ASC, name LIMIT ?`,
     )
     .bind(threshold, limit)
-    .all<Product>();
-  return results ?? [];
+    .all<Product & { available_stock: number }>();
+  return withAvailableStock(results ?? []);
 }
 
 /** A row in the product image gallery. */

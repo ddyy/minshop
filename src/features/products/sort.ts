@@ -5,7 +5,7 @@ const COLUMNS: Record<string, string> = {
   created: 'created_at',
   name: 'name',
   price: 'price_cents',
-  stock: 'stock',
+  stock: 'available_stock',
   sold: 'sold', // aggregate alias from listAllProducts (units sold, paid orders)
   active: 'active',
   id: 'id',
