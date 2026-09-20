@@ -7,15 +7,16 @@ import type { PendingPayment } from '../lightning/pending';
 interface Props {
   pending: PendingPayment;
   declined?: string | null;
+  storeName?: string;
+  email?: string;
 }
-const { pending, declined = null } = Astro.props;
+const { pending, declined = null, storeName = getConfig().storeName, email = pending.email ?? '' } = Astro.props;
 
 const OUTCOMES: Record<string, string> = {
   approve: 'Approve payment',
   decline: 'Decline — card declined',
   insufficient: 'Decline — insufficient funds',
 };
-const { storeName } = getConfig();
 const total = formatPrice(pending.amount_total_cents, pending.currency);
 const shipping = pending.shipping_cents
   ? formatPrice(pending.shipping_cents, pending.currency)
@@ -87,7 +88,7 @@ try {
         id="email"
         name="email"
         type="email"
-        value={pending.email ?? ''}
+        value={email}
         autocomplete="email"
         required
         class="w-full rounded-md border border-line px-3 py-2 text-sm focus:border-brand focus:outline-none"

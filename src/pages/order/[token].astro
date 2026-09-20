@@ -61,7 +61,7 @@ const shopHref = catalogPath(Astro.locals.settings?.homePage);
         <h1 class="mb-2 font-serif text-3xl tracking-tight sm:text-4xl">Thank you! Your order is confirmed.</h1>
         <p class="mb-6 text-sm text-muted">
           Order #{orderRef}
-          {order.email && <Fragment> · a receipt is on its way to {order.email}</Fragment>}
+          {order.email && <Fragment> · Order email: {order.email}</Fragment>}
         </p>
 
         <div class="overflow-hidden rounded-lg border border-line bg-surface">
