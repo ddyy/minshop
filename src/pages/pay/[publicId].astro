@@ -63,12 +63,15 @@ const ctx = Astro.locals.cfContext;
 const waitUntil = ctx ? ctx.waitUntil.bind(ctx) : undefined;
 
 let declined: string | null = null;
+let email = pending.email ?? '';
 if (isDemo && Astro.request.method === 'POST' && !payExpired) {
+  const form = await Astro.request.formData();
+  email = String(form.get('email') ?? '');
   // Middleware already loaded the settings overlay for this document — hand it
   // down so settlement doesn't re-read it (and the three keys it derives).
   const result = await settleDemoCheckout(
     pending,
-    await Astro.request.formData(),
+    form,
     Astro.url.origin,
     Astro.locals.settings,
     waitUntil,
@@ -105,6 +108,6 @@ const description = isDemo
       <p class="text-muted">This demo checkout has expired. Please start a new one.</p>
     </Fragment>
   )}
-  {isDemo && !payExpired && <DemoCheckout pending={pending} declined={declined} storeName={storeName} />}
+  {isDemo && !payExpired && <DemoCheckout pending={pending} declined={declined} storeName={storeName} email={email} />}
   {isLightning && <LightningPay pending={pending} expired={lightningExpired} />}
 </Layout>

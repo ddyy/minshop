@@ -8,8 +8,9 @@ interface Props {
   pending: PendingPayment;
   declined?: string | null;
   storeName?: string;
+  email?: string;
 }
-const { pending, declined = null, storeName = getConfig().storeName } = Astro.props;
+const { pending, declined = null, storeName = getConfig().storeName, email = pending.email ?? '' } = Astro.props;
 
 const OUTCOMES: Record<string, string> = {
   approve: 'Approve payment',
@@ -87,7 +88,7 @@ try {
         id="email"
         name="email"
         type="email"
-        value={pending.email ?? ''}
+        value={email}
         autocomplete="email"
         required
         class="w-full rounded-md border border-line px-3 py-2 text-sm focus:border-brand focus:outline-none"
