@@ -47,6 +47,16 @@ describe('parseProductForm', () => {
     expect('error' in parseProductForm(form({ name: 'X', price: '-5', stock: '1' }))).toBe(true);
   });
 
+  it('requires a price while allowing an explicit zero', () => {
+    for (const price of [undefined, '', '   ']) {
+      const fields = form({ name: 'X', stock: '1' });
+      if (price !== undefined) fields.set('price', price);
+      expect(parseProductForm(fields)).toEqual({ error: 'Price is required.' });
+    }
+    const result = parseProductForm(form({ name: 'X', price: '0', stock: '1' }));
+    expect(result).toMatchObject({ data: { price_cents: 0 } });
+  });
+
   it('rejects non-integer stock', () => {
     expect('error' in parseProductForm(form({ name: 'X', price: '5', stock: '1.5' }))).toBe(true);
   });

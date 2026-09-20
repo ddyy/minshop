@@ -29,7 +29,9 @@ export function parseProductForm(
   const name = String(form.get('name') ?? '').trim();
   if (!name) return { error: 'Name is required.' };
 
-  const price = Number(String(form.get('price') ?? '').trim());
+  const priceInput = String(form.get('price') ?? '').trim();
+  if (!priceInput) return { error: 'Price is required.' };
+  const price = Number(priceInput);
   if (!Number.isFinite(price) || price < 0) {
     return { error: 'Price must be a non-negative number.' };
   }
